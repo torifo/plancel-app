@@ -7,7 +7,10 @@
     "check:no-date": "deno run --allow-read scripts/no_direct_date_check.ts src",
     "check": "deno check src && deno task check:no-date",
     "cron": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/cron/main.ts",
-    "cron:once": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/cron/vps_main.ts"
+    "cron:once": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/cron/vps_main.ts",
+    "seed": "deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv src/cli/seed.ts",
+    "scenario": "deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv src/cli/scenario.ts",
+    "replay": "deno run --allow-env --allow-read --unstable-temporal src/cli/replay.ts"
   },
   "compilerOptions": {
     "strict": true,

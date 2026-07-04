@@ -1,0 +1,146 @@
+{
+  "_comment": [
+    "Task 4.2 seed fixture (SDD §10.5): a typical Event/Plan/Reservation",
+    "scenario covering staged cancellation policies, an unknown-policy mix,",
+    "and a standalone already-confirmed reservation.",
+    "",
+    "`base` is this fixture's documented anchor instant. Every datetime below",
+    "is a literal ISO instant (JSON has no relative-time notion), chosen so",
+    "the scenario is *mathematically* interesting relative to `base`: exactly",
+    "3 days (P3D) after `base`, the 「山海の宿 花結び」/「湖畔の湯宿 蛍」",
+    "cancellation policy crosses its 24h/50% fee boundary (see design.md /",
+    "docs/SDD.md §10.1's 'advance 3 days' scenario). src/cli/seed_lib.ts",
+    "shifts every datetime here by (targetBase - base) so the same fixture",
+    "can be replayed anchored to any --base while preserving these relative",
+    "gaps. Titles use the illustrative Japanese labels called for by the",
+    "task brief (8/1・7/12); the underlying instants are engineered for",
+    "deterministic scenario timing rather than tied to a literal calendar",
+    "year, exactly as `base` itself is arbitrary and documented here.",
+    "",
+    "`key` fields are fixture-local identifiers only (not ULIDs) — seed_lib.ts",
+    "mints real ULIDs and resolves plan_key/event_key references to them."
+  ],
+  "base": "2026-07-10T00:00:00Z",
+
+  "events": [
+    {
+      "key": "ev_hokuriku",
+      "title": "夏の北陸旅行",
+      "date_range": { "start": "2026-08-01", "end": "2026-08-03" },
+      "notes": "金沢・加賀2泊3日。宿は候補2件、確定待ち。"
+    }
+  ],
+
+  "plans": [
+    {
+      "key": "pl_yado",
+      "event_key": "ev_hokuriku",
+      "title": "8/1の宿",
+      "date_range": null,
+      "confirm_quota": 1
+    },
+    {
+      "key": "pl_dinner",
+      "event_key": "ev_hokuriku",
+      "title": "7/12 ディナー候補",
+      "date_range": null,
+      "confirm_quota": 1
+    }
+  ],
+
+  "reservations": [
+    {
+      "key": "res_ryokan_a",
+      "plan_key": "pl_yado",
+      "event_key": "ev_hokuriku",
+      "service_name": "山海の宿 花結び",
+      "provider": "楽天トラベル",
+      "starts_at": "2026-07-15T00:00:00Z",
+      "ends_at": "2026-07-16T00:00:00Z",
+      "location": "石川県加賀市",
+      "amount_jpy": 14000,
+      "status": "candidate",
+      "cancellation_policy": {
+        "stages": [
+          { "until_offset_hours": 168, "fee_percent": 0, "fee_fixed_jpy": null },
+          { "until_offset_hours": 72, "fee_percent": 30, "fee_fixed_jpy": null },
+          { "until_offset_hours": 24, "fee_percent": 50, "fee_fixed_jpy": null },
+          { "until_offset_hours": 0, "fee_percent": 100, "fee_fixed_jpy": null }
+        ]
+      },
+      "source": "manual",
+      "notes": "本命。7日前無料→3日前30%→前日50%→当日100%。"
+    },
+    {
+      "key": "res_ryokan_b",
+      "plan_key": "pl_yado",
+      "event_key": "ev_hokuriku",
+      "service_name": "湖畔の湯宿 蛍",
+      "provider": "じゃらん",
+      "starts_at": "2026-07-15T00:00:00Z",
+      "ends_at": "2026-07-16T00:00:00Z",
+      "location": "石川県加賀市",
+      "amount_jpy": 18000,
+      "status": "candidate",
+      "cancellation_policy": {
+        "stages": [
+          { "until_offset_hours": 168, "fee_percent": 0, "fee_fixed_jpy": null },
+          { "until_offset_hours": 72, "fee_percent": 30, "fee_fixed_jpy": null },
+          { "until_offset_hours": 24, "fee_percent": 50, "fee_fixed_jpy": null },
+          { "until_offset_hours": 0, "fee_percent": 100, "fee_fixed_jpy": null }
+        ]
+      },
+      "source": "manual",
+      "notes": "対抗。花結びが確定すればこちらは自動でto_cancel。"
+    },
+    {
+      "key": "res_dinner_a",
+      "plan_key": "pl_dinner",
+      "event_key": "ev_hokuriku",
+      "service_name": "割烹 花あかり",
+      "provider": null,
+      "starts_at": "2026-07-12T19:00:00Z",
+      "ends_at": null,
+      "location": "石川県金沢市",
+      "amount_jpy": 8000,
+      "status": "candidate",
+      "cancellation_policy": {
+        "stages": [
+          { "until_offset_hours": 24, "fee_percent": 100, "fee_fixed_jpy": null }
+        ]
+      },
+      "source": "manual",
+      "notes": null
+    },
+    {
+      "key": "res_dinner_b",
+      "plan_key": "pl_dinner",
+      "event_key": "ev_hokuriku",
+      "service_name": "鉄板焼き 銀の匙",
+      "provider": null,
+      "starts_at": "2026-07-12T19:00:00Z",
+      "ends_at": null,
+      "location": "石川県金沢市",
+      "amount_jpy": 12000,
+      "status": "candidate",
+      "cancellation_policy": "unknown",
+      "source": "manual",
+      "notes": "キャンセルポリシー未確認。"
+    },
+    {
+      "key": "res_shinkansen",
+      "plan_key": null,
+      "event_key": null,
+      "service_name": "北陸新幹線 かがやき508号（金沢→東京）",
+      "provider": "JR東日本",
+      "starts_at": "2026-07-16T01:00:00Z",
+      "ends_at": null,
+      "location": null,
+      "amount_jpy": 14000,
+      "status": "confirmed",
+      "cancellation_policy": "unknown",
+      "source": "manual",
+      "notes": "単独の確定済み予約。プランに属さない。"
+    }
+  ]
+}
