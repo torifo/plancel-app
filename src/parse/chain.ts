@@ -51,6 +51,9 @@ function detectFieldConflicts(attempts: ParseAttempt[]): FieldConflict[] {
 
   const conflicts: FieldConflict[] = [];
   for (const [field, options] of byField) {
+    // TODO: Values are compared via JSON.stringify, so semantically-equal datetimes in
+    // different serializations (+09:00 vs Z) would over-trigger conflicts. Add field-type-aware
+    // normalization when real LLM parsers land (Task 6.1/L5).
     const distinctValues = new Set(options.map((o) => JSON.stringify(o.value)));
     if (distinctValues.size > 1) {
       conflicts.push({ field, options });
@@ -139,6 +142,9 @@ export async function runParseChain(
   return {
     id: ids.ulid(),
     input_type: input.type,
+    // raw_input intentionally stores the UNMASKED original per SDD §10.4 (replay corpus requires
+    // verbatim input). PII masking is guaranteed only on the parser egress path, not at rest —
+    // assumes local-only storage with trusted access (no external PII exposure from this field).
     raw_input: input.content,
     attempts,
     status,
