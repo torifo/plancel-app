@@ -14,6 +14,8 @@ import {
   isReservationCancelled,
   isReservationConfirmed,
   isReservationCreated,
+  isReservationDone,
+  isReservationSelfCancel,
   isReservationVoided,
 } from "./payloads.ts";
 
@@ -41,6 +43,8 @@ function reservationIdOf(event: DomainEvent): string | undefined {
   if (isReservationCreated(event)) return event.payload.reservation.id;
   if (isReservationConfirmed(event)) return event.payload.reservation_id;
   if (isReservationAutoToCancel(event)) return event.payload.reservation_id;
+  if (isReservationSelfCancel(event)) return event.payload.reservation_id;
+  if (isReservationDone(event)) return event.payload.reservation_id;
   if (isReservationCancelled(event)) return event.payload.reservation_id;
   if (isReservationVoided(event)) return event.payload.reservation_id;
   if (isPolicyProvided(event)) return event.payload.reservation_id;
@@ -78,6 +82,24 @@ export function applyReservationEvent(
       ...state,
       status: "to_cancel",
       plan_id: event.payload.plan_id,
+      updated_at: event.occurred_at,
+    };
+  }
+  if (isReservationSelfCancel(event)) {
+    if (state.id !== event.payload.reservation_id) return state;
+    return {
+      ...state,
+      status: "to_cancel",
+      plan_id: event.payload.plan_id ?? state.plan_id,
+      updated_at: event.occurred_at,
+    };
+  }
+  if (isReservationDone(event)) {
+    if (state.id !== event.payload.reservation_id) return state;
+    return {
+      ...state,
+      status: "done",
+      plan_id: event.payload.plan_id ?? state.plan_id,
       updated_at: event.occurred_at,
     };
   }

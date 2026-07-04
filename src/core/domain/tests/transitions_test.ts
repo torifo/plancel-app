@@ -159,6 +159,7 @@ Deno.test("createReservation: emits reservation.created, no state change", () =>
   assert(out.ok);
   assertEquals(out.events[0]!.type, "reservation.created");
   assertEquals(out.updated.reservations[0]!.status, "candidate");
+  assertEquals((out.events[0]!.payload as { reservation: typeof r }).reservation, r);
 });
 
 // --- representative illegal transitions (SDD §4 diagram) -------------------

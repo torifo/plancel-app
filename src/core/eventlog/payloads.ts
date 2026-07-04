@@ -27,13 +27,25 @@ export interface ReservationCreatedPayload {
 /** `reservation.confirmed` — plan_id present when confirmed as part of a Plan's quota. */
 export interface ReservationConfirmedPayload {
   reservation_id: string;
-  plan_id?: string;
+  plan_id?: string | null;
 }
 
 /** `reservation.auto_to_cancel` — a sibling reservation's confirm pushed this one to to_cancel. */
 export interface ReservationAutoToCancelPayload {
   reservation_id: string;
   plan_id: string;
+}
+
+/** `reservation.self_cancel` — voluntary confirmed → to_cancel (SDD §4 自発キャンセル). */
+export interface ReservationSelfCancelPayload {
+  reservation_id: string;
+  plan_id?: string | null;
+}
+
+/** `reservation.done` — confirmed reservation marked visited/completed. */
+export interface ReservationDonePayload {
+  reservation_id: string;
+  plan_id?: string | null;
 }
 
 /** `reservation.cancelled` — cancellation actually reported/executed. */
@@ -71,6 +83,8 @@ export interface DomainEventPayloadMap {
   "reservation.created": ReservationCreatedPayload;
   "reservation.confirmed": ReservationConfirmedPayload;
   "reservation.auto_to_cancel": ReservationAutoToCancelPayload;
+  "reservation.self_cancel": ReservationSelfCancelPayload;
+  "reservation.done": ReservationDonePayload;
   "reservation.cancelled": ReservationCancelledPayload;
   "reservation.voided": ReservationVoidedPayload;
   "policy.provided": PolicyProvidedPayload;
@@ -118,6 +132,21 @@ export function isReservationAutoToCancel(
   return event.type === "reservation.auto_to_cancel" &&
     hasStringField(event.payload, "reservation_id") &&
     hasStringField(event.payload, "plan_id");
+}
+
+/** Type guard for `reservation.self_cancel`. */
+export function isReservationSelfCancel(
+  event: DomainEvent,
+): event is TypedDomainEvent<"reservation.self_cancel"> {
+  return event.type === "reservation.self_cancel" &&
+    hasStringField(event.payload, "reservation_id");
+}
+
+/** Type guard for `reservation.done`. */
+export function isReservationDone(
+  event: DomainEvent,
+): event is TypedDomainEvent<"reservation.done"> {
+  return event.type === "reservation.done" && hasStringField(event.payload, "reservation_id");
 }
 
 /** Type guard for `reservation.cancelled`. */

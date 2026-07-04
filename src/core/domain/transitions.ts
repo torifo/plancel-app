@@ -439,12 +439,7 @@ export function createReservation(
         ids.newId(),
         "reservation.created",
         reservation.id,
-        {
-          reservation_id: reservation.id,
-          plan_id: reservation.plan_id,
-          event_id: reservation.event_id,
-          status: reservation.status,
-        },
+        { reservation },
         null,
         ids.correlationId,
         at,
