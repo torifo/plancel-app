@@ -105,4 +105,6 @@
   - Depends on: Task 4.1
 
 ## Progress
-- Total: 15 tasks | Completed: 0 | In Progress: 0
+- Total: 15 tasks | Completed: 13 (Wave 1–5 = L0–L4) | In Progress: 0
+- 残: Wave 6（Task 6.1 実LLM / 6.2 LINE Bot / 6.3 Email+docs）= 外部接続・デプロイ後フェーズ
+- Wave 1–5 の全タスクは各ウェーブ後の opus レビュー（承認 3回・差し戻し 1回→修正済み）とテスト検証を通過。最終状態: 266 tests green / scenario OK / replay 3/3 identical
