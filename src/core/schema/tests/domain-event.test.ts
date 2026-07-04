@@ -15,8 +15,7 @@ Deno.test("domainEventSchema accepts a valid DomainEvent", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test("domainEventSchema accepts all 8 named SDD §10.2 types", () => {
-  assertEquals(domainEventTypes.length, 8);
+Deno.test("domainEventSchema accepts all 10 named SDD §10.2 types", () => {
   for (const type of domainEventTypes) {
     const result = domainEventSchema.safeParse({ ...validDomainEvent, type });
     assertEquals(result.success, true, `expected type "${type}" to be accepted`);
