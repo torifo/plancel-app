@@ -3,9 +3,13 @@
  *
  * SDD §10.2 lists the type union with a trailing "| ...", signaling more
  * types will be added later (e.g. by Wave 2/3 tasks). Per Task 1.1 scope we
- * enumerate exactly the 8 named types from the SDD as a strict enum;
- * widening this list is a deliberate single-source-of-truth change made in
- * a later task, not an implicit "any string" escape hatch.
+ * enumerate the named types from the SDD as a strict enum; widening this
+ * list is a deliberate single-source-of-truth change made in a later task,
+ * not an implicit "any string" escape hatch.
+ *
+ * Task 2.1 (state transitions) added `reservation.self_cancel` (confirmed →
+ * to_cancel, SDD §4 自発キャンセル) and `reservation.done` (confirmed → done),
+ * which the SDD's trailing "| ..." anticipated.
  */
 import { z } from "zod";
 import { correlationIdSchema, isoDateTimeSchema, ulidSchema } from "./common.ts";
@@ -14,6 +18,8 @@ export const domainEventTypes = [
   "reservation.created",
   "reservation.confirmed",
   "reservation.auto_to_cancel",
+  "reservation.self_cancel",
+  "reservation.done",
   "reservation.cancelled",
   "reservation.voided",
   "policy.provided",
