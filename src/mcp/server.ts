@@ -1,6 +1,8 @@
 /**
- * MCP server wiring (Task 3.3, L2b). Registers the 7 registration/read tools
- * onto an `McpServer` instance. State-transition and debug tools are Task 3.4.
+ * MCP server wiring (Task 3.3 + 3.4, L2b). Registers the registration/read
+ * tools, the state-transition tools, and — only when the debug flag is on
+ * (env `PLANCEL_DEBUG=1`, or `options.debug` for tests) — the SDD §10.5
+ * debug tools onto an `McpServer` instance.
  *
  * Every tool routes through {@link invokeTool} so validation and error shaping
  * are uniform: a Zod failure becomes an MCP error result whose JSON content
@@ -20,6 +22,16 @@ import { addToPlanTool } from "./tools/add_to_plan.ts";
 import { getPlanTool } from "./tools/get_plan.ts";
 import { getEventTool } from "./tools/get_event.ts";
 import { listPendingCancellationsTool } from "./tools/list_pending_cancellations.ts";
+import { confirmReservationTool } from "./tools/confirm_reservation.ts";
+import { reportCancelledTool } from "./tools/report_cancelled.ts";
+import { voidReservationTool } from "./tools/void_reservation.ts";
+import { setPolicyTool } from "./tools/set_policy.ts";
+import {
+  debugAdvanceClockTool,
+  debugCausalChainTool,
+  debugDumpStateTool,
+  debugPreviewNotificationsTool,
+} from "./tools/debug.ts";
 
 // deno-lint-ignore no-explicit-any
 export const registrationTools: ToolDefinition<any>[] = [
@@ -31,6 +43,35 @@ export const registrationTools: ToolDefinition<any>[] = [
   getEventTool,
   listPendingCancellationsTool,
 ];
+
+/** State-transition tools (Task 3.4). Always registered. */
+// deno-lint-ignore no-explicit-any
+export const transitionTools: ToolDefinition<any>[] = [
+  confirmReservationTool,
+  reportCancelledTool,
+  voidReservationTool,
+  setPolicyTool,
+];
+
+/** Debug tools (SDD §10.5). Registered only behind the debug flag. */
+// deno-lint-ignore no-explicit-any
+export const debugTools: ToolDefinition<any>[] = [
+  debugDumpStateTool,
+  debugAdvanceClockTool,
+  debugPreviewNotificationsTool,
+  debugCausalChainTool,
+];
+
+/** Whether the `PLANCEL_DEBUG=1` env flag enables the debug tools. */
+export function debugFlagFromEnv(): boolean {
+  return Deno.env.get("PLANCEL_DEBUG") === "1";
+}
+
+/** The full tool set for a server: registration + transition (+ debug if on). */
+// deno-lint-ignore no-explicit-any
+export function serverTools(debug: boolean): ToolDefinition<any>[] {
+  return [...registrationTools, ...transitionTools, ...(debug ? debugTools : [])];
+}
 
 const passthroughSchema = z.object({}).passthrough();
 
@@ -67,11 +108,16 @@ export async function runToolForMcp(
   };
 }
 
-/** Builds an `McpServer` with all 7 registration/read tools wired to `ctx`. */
-export function buildServer(ctx: ToolContext): McpServer {
+/**
+ * Builds an `McpServer` with every registration/read + transition tool wired
+ * to `ctx`. Debug tools (SDD §10.5) are included only when `options.debug`
+ * is true — defaulting to the `PLANCEL_DEBUG=1` env flag.
+ */
+export function buildServer(ctx: ToolContext, options: { debug?: boolean } = {}): McpServer {
   const server = new McpServer({ name: "plancel", version: "0.1.0" });
+  const debug = options.debug ?? debugFlagFromEnv();
 
-  for (const def of registrationTools) {
+  for (const def of serverTools(debug)) {
     server.registerTool(
       def.name,
       { description: def.description, inputSchema: passthroughSchema },

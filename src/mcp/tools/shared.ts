@@ -15,9 +15,15 @@ import { z } from "zod";
 import type { ToolContext } from "../context.ts";
 import type { Reservation } from "../../core/schema/mod.ts";
 import { reservationSchema } from "../../core/schema/mod.ts";
-import type { TransitionIds } from "../../core/domain/mod.ts";
+import type {
+  TransitionContext,
+  TransitionError,
+  TransitionIds,
+  TransitionOutcome,
+} from "../../core/domain/mod.ts";
 import { createReservation } from "../../core/domain/mod.ts";
 import { append } from "../../core/eventlog/mod.ts";
+import { onEventsAppended } from "../../notify/mod.ts";
 import { newCorrelationId } from "../../lib/log.ts";
 
 /** A single Zod issue flattened to `{ path, message }` for the client. */
@@ -99,6 +105,65 @@ export function pastStartWarning(ctx: ToolContext, startsAt: string): string[] |
     return [`starts_at ${startsAt} is in the past`];
   }
   return undefined;
+}
+
+/** Builds a `not_found` error result pointing at the offending input field. */
+export function notFound(path: string, message: string): ToolRunResult {
+  return { ok: false, error: { code: "not_found", message, issues: [{ path, message }] } };
+}
+
+/** Maps a rejected domain transition to a tool error carrying its code. */
+export function transitionErrorResult(error: TransitionError): ToolRunResult {
+  return { ok: false, error: { code: error.code, message: error.message } };
+}
+
+/**
+ * Loads everything a domain transition needs for a reservation: the target
+ * reservation plus — when it belongs to a plan — the plan and every sibling
+ * reservation in that plan. Returns `null` when the reservation is missing.
+ */
+export async function loadTransitionContext(
+  ctx: ToolContext,
+  reservationId: string,
+): Promise<TransitionContext | null> {
+  const reservation = await ctx.store.getReservation(reservationId);
+  if (reservation === null) return null;
+  if (reservation.plan_id === null) {
+    return { plan: null, planReservations: [], reservation };
+  }
+  const plan = await ctx.store.getPlan(reservation.plan_id);
+  const planReservations = plan === null
+    ? []
+    : await ctx.store.listReservationsByPlan(reservation.plan_id);
+  return { plan, planReservations, reservation };
+}
+
+/**
+ * Persists a successful transition outcome: appends its events to the log,
+ * upserts every changed reservation (and the plan, if it changed), then calls
+ * the notify subscription glue with the post-transition reservation snapshot
+ * so event-driven notifications (e.g. plan_settled) land on the Outbox.
+ */
+export async function persistTransition(
+  ctx: ToolContext,
+  tctx: TransitionContext,
+  outcome: Extract<TransitionOutcome, { ok: true }>,
+): Promise<void> {
+  await append(ctx.store, outcome.events);
+  for (const r of outcome.updated.reservations) {
+    await ctx.store.putReservation(r);
+  }
+  if (outcome.updated.plan !== undefined) {
+    await ctx.store.putPlan(outcome.updated.plan);
+  }
+  // Post-transition snapshot: siblings with the updated versions substituted.
+  const updatedById = new Map(outcome.updated.reservations.map((r) => [r.id, r] as const));
+  const base = tctx.plan === null ? [tctx.reservation] : tctx.planReservations;
+  const snapshot = base.map((r) => updatedById.get(r.id) ?? r);
+  for (const r of outcome.updated.reservations) {
+    if (!snapshot.some((s) => s.id === r.id)) snapshot.push(r);
+  }
+  await onEventsAppended(ctx.store, outcome.events, { reservations: snapshot }, ctx.clock);
 }
 
 /** Attaches an optional warning array to a success result. */
