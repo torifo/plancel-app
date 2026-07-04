@@ -12,3 +12,12 @@ export { loadParserChainConfig, UnknownParserError, validateParserChainConfig } 
 export type { ParserChainConfig } from "./config.ts";
 export { MockParser } from "./mock-parser.ts";
 export type { MockFixture, MockFixtureMatcher, MockParserOptions } from "./mock-parser.ts";
+export { FixtureParser, recordFixture, replayAll, replayJob } from "./replay.ts";
+export type {
+  ReplayAllResult,
+  ReplayDiff,
+  ReplayDiffChange,
+  ReplayExpected,
+  ReplayFixture,
+  ReplayFixtureAttempt,
+} from "./replay.ts";

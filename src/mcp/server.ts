@@ -32,6 +32,7 @@ import {
   debugDumpStateTool,
   debugPreviewNotificationsTool,
 } from "./tools/debug.ts";
+import { debugReplayParseTool } from "./tools/debug_replay_parse.ts";
 
 // deno-lint-ignore no-explicit-any
 export const registrationTools: ToolDefinition<any>[] = [
@@ -60,6 +61,7 @@ export const debugTools: ToolDefinition<any>[] = [
   debugAdvanceClockTool,
   debugPreviewNotificationsTool,
   debugCausalChainTool,
+  debugReplayParseTool,
 ];
 
 /** Whether the `PLANCEL_DEBUG=1` env flag enables the debug tools. */

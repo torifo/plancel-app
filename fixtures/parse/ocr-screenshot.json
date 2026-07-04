@@ -1,0 +1,16 @@
+{
+  "name": "ocr-screenshot",
+  "raw_input": "yoyaku-app スクリーンショット OCR: 予約番号 A1B2C3 / 店名: カフェ・ド・ソラ / 8/20(木) 14:00〜 / 2席",
+  "input_type": "image",
+  "attempts": [
+    {
+      "parser": "mock-vision",
+      "raw_response": "{\"service_name\":\"カフェ・ド・ソラ\"}"
+    }
+  ],
+  "expected": {
+    "status": "needs_review",
+    "output": { "service_name": "カフェ・ド・ソラ" },
+    "conflicts": []
+  }
+}

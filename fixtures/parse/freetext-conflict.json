@@ -1,0 +1,28 @@
+{
+  "name": "freetext-conflict",
+  "raw_input": "土曜19時に◯◯を仮予約、前日まで無料",
+  "input_type": "text",
+  "attempts": [
+    {
+      "parser": "mock-primary",
+      "raw_response": "{\"service_name\":\"◯◯\",\"starts_at\":\"2026-07-11T19:00:00+09:00\",\"amount_jpy\":-100}"
+    },
+    {
+      "parser": "mock-secondary",
+      "raw_response": "{\"service_name\":\"◯◯\",\"starts_at\":\"2026-07-11T19:30:00+09:00\"}"
+    }
+  ],
+  "expected": {
+    "status": "needs_review",
+    "output": { "service_name": "◯◯", "starts_at": "2026-07-11T19:30:00+09:00" },
+    "conflicts": [
+      {
+        "field": "starts_at",
+        "options": [
+          { "parser": "mock-primary", "value": "2026-07-11T19:00:00+09:00" },
+          { "parser": "mock-secondary", "value": "2026-07-11T19:30:00+09:00" }
+        ]
+      }
+    ]
+  }
+}

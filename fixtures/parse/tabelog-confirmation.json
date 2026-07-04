@@ -1,0 +1,25 @@
+{
+  "name": "tabelog-confirmation",
+  "raw_input": "【食べログ】ご予約確定のお知らせ\n焼肉 三田家\nご来店日時: 2026年8月15日(土) 19:00\nご人数: 4名\nお店からのメッセージ: 前日18時までキャンセル無料、以降キャンセル料100%",
+  "input_type": "text",
+  "attempts": [
+    {
+      "parser": "mock-primary",
+      "raw_response": "{\"service_name\":\"焼肉 三田家\",\"starts_at\":\"2026-08-15T19:00:00+09:00\",\"cancellation_policy\":{\"stages\":[{\"until_offset_hours\":25,\"fee_percent\":0,\"fee_fixed_jpy\":null},{\"until_offset_hours\":0,\"fee_percent\":100,\"fee_fixed_jpy\":null}]}}"
+    }
+  ],
+  "expected": {
+    "status": "parsed",
+    "output": {
+      "service_name": "焼肉 三田家",
+      "starts_at": "2026-08-15T19:00:00+09:00",
+      "cancellation_policy": {
+        "stages": [
+          { "until_offset_hours": 25, "fee_percent": 0, "fee_fixed_jpy": null },
+          { "until_offset_hours": 0, "fee_percent": 100, "fee_fixed_jpy": null }
+        ]
+      }
+    },
+    "conflicts": []
+  }
+}
