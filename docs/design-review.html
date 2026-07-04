@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>plancel — 設計レビュー</title>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f6f5f1; --ink:#22304a; --ink-soft:#5a6activity478;
+  --ink-soft:#5f6b82; --line:#d8d5cc;
+  --free:#3e8e5a; --mid:#c99a2e; --high:#c0563b; --full:#a03028;
+  --card:#ffffff;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:"Zen Kaku Gothic New",sans-serif;line-height:1.85;font-size:15px}
+.wrap{max-width:860px;margin:0 auto;padding:0 20px 80px}
+header{padding:64px 0 40px;border-bottom:3px double var(--ink)}
+.eyebrow{font-size:12px;letter-spacing:.35em;color:var(--ink-soft);margin-bottom:14px}
+h1{font-family:"Shippori Mincho",serif;font-weight:800;font-size:clamp(30px,5.5vw,46px);line-height:1.3}
+h1 .accent{color:var(--high)}
+.lede{margin-top:16px;color:var(--ink-soft);max-width:38em}
+h2{font-family:"Shippori Mincho",serif;font-weight:700;font-size:22px;margin:56px 0 8px;display:flex;align-items:baseline;gap:12px}
+h2 .no{font-size:13px;color:var(--high);letter-spacing:.15em;font-family:"Zen Kaku Gothic New",sans-serif}
+h3{font-size:15px;font-weight:700;margin:24px 0 6px}
+p{margin:10px 0;max-width:44em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 22px;margin:18px 0}
+.pill{display:inline-block;font-size:12px;padding:2px 10px;border-radius:99px;border:1px solid var(--line);color:var(--ink-soft);margin-right:6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:640px){.grid2{grid-template-columns:1fr}}
+code{background:#edece6;padding:1px 6px;border-radius:4px;font-size:13px}
+/* fee timeline (signature) */
+.tl{margin:22px 0 6px}
+.tl-bar{position:relative;height:46px;border-radius:8px;overflow:hidden;display:flex;border:1px solid var(--line)}
+.tl-seg{display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;transition:filter .2s}
+.tl-marker{position:absolute;top:-8px;bottom:-8px;width:2px;background:var(--ink);transition:left .15s}
+.tl-marker::after{content:"今日";position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:700;background:var(--ink);color:#fff;padding:1px 7px;border-radius:4px;white-space:nowrap}
+.tl-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-soft);margin-top:6px}
+input[type=range]{width:100%;margin-top:26px;accent-color:var(--ink)}
+.readout{font-family:"Shippori Mincho",serif;font-size:20px;font-weight:700;margin-top:10px}
+.readout .yen{color:var(--high)}
+/* state machine */
+.sm{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;margin:14px 0}
+.st{padding:6px 14px;border-radius:8px;border:1.5px solid var(--ink);font-weight:700;cursor:pointer;background:var(--card);transition:all .15s}
+.st.active{background:var(--ink);color:#fff}
+.st.warn{border-color:var(--high);color:var(--high)}
+.st.warn.active{background:var(--high);color:#fff}
+.arrow{color:var(--ink-soft)}
+.sm-note{font-size:13px;color:var(--ink-soft);min-height:2.5em}
+/* fold */
+details{border:1px solid var(--line);border-radius:8px;background:var(--card);margin:10px 0}
+summary{cursor:pointer;padding:12px 16px;font-weight:700;font-size:14px;list-style:none}
+summary::before{content:"▸ ";color:var(--high)}
+details[open] summary::before{content:"▾ "}
+details .inner{padding:0 16px 14px}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--ink-soft);font-weight:500;font-size:12px}
+.flow{font-size:13px;background:#22304a;color:#e8ecf4;border-radius:10px;padding:18px 20px;overflow-x:auto;white-space:pre;line-height:1.7;font-family:ui-monospace,monospace}
+.q{border-left:3px solid var(--high);padding:4px 0 4px 16px;margin:14px 0}
+.q b{color:var(--high)}
+footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">DESIGN REVIEW v3 ・ 2026-07-04 ・ 名称確定 / デバッグ第一級要件 / CODE 未着手</div>
+  <h1>plancel<br>仮押さえ予約とキャンセル期限の管理台帳</h1>
+  <p class="lede">複数候補を仮押さえ → 1つ確定 → 残りを期限内にキャンセル。この運用を支える身内専用ツールの設計を、対話レビュー用にまとめたもの。予算 0 円・Deno Deploy または自前 VPS。</p>
+  <div style="margin-top:14px">
+    <span class="pill">core / adapter / MCP 三層</span>
+    <span class="pill">MCP は MVP スコープ</span>
+    <span class="pill">無料枠のみ</span>
+  </div>
+</header>
+
+<h2><span class="no">01</span>コア動作 — 確定すると残りが「要キャンセル」になる</h2>
+<p>このプロダクトの存在意義はこの1つの自動遷移。下の状態をタップして確認できます。</p>
+<div class="card">
+  <div class="sm" id="sm">
+    <span class="st" data-s="candidate">候補</span><span class="arrow">→</span>
+    <span class="st" data-s="confirmed">確定</span><span class="arrow">→</span>
+    <span class="st" data-s="done">完了</span>
+    <span style="width:100%"></span>
+    <span class="st warn" data-s="to_cancel">要キャンセル</span><span class="arrow">→</span>
+    <span class="st warn" data-s="cancelled">キャンセル済</span>
+  </div>
+  <div class="sm-note" id="smNote">状態をタップすると説明が出ます。誤登録の修正は全状態から遷移可能な <code>voided</code>(物理削除なし・イベント追記)→ 再作成で行う。</div>
+</div>
+
+<h2><span class="no">02</span>署名機能 — 段階的キャンセル料タイムライン</h2>
+<p>キャンセル期限は単一日時ではなく<b>料率スケジュールの配列</b>で持つ。通知は「料率が上がる境界の24時間前」に発火し、金額があれば損失額を具体で出す。スライダーで「今日」を動かしてみてください(予約額 ¥8,000・7日前まで無料の例)。</p>
+<div class="card">
+  <div class="tl">
+    <div class="tl-bar" id="tlBar">
+      <div class="tl-seg" style="flex:4;background:var(--free)">無料</div>
+      <div class="tl-seg" style="flex:2;background:var(--mid)">30%</div>
+      <div class="tl-seg" style="flex:1;background:var(--high)">50%</div>
+      <div class="tl-seg" style="flex:1;background:var(--full)">100%</div>
+      <div class="tl-marker" id="marker" style="left:10%"></div>
+    </div>
+    <div class="tl-labels"><span>10日前</span><span>7日前</span><span>3日前</span><span>前日</span><span>当日</span></div>
+    <input type="range" id="slider" min="0" max="100" value="10" aria-label="今日の位置">
+    <div class="readout" id="readout"></div>
+  </div>
+  <p style="font-size:13px;color:var(--ink-soft)">UI 上は普段「無料キャンセル: ◯/◯まで」の1行に要約し、全段階は折りたたみ表示。ポリシー不明(<code>unknown</code>)は登録を拒否せず、後追い入力を促す別種の通知を出す。</p>
+</div>
+
+<h2><span class="no">03</span>インサート層 — 最難関の設計</h2>
+<p>全入口を「テキスト or 画像 → 正規化 → 共通スキーマ」の1本に集約。パースの精度担保は<b>バリデーション駆動フォールバック</b>で行い、LLM の自己申告 confidence は使わない。</p>
+<div class="flow">入力 ─ 経路判定
+  画像     → Gemini Flash（vision 必須のため固定）
+  テキスト → 一次: 軽量無料枠(Groq等) → 二次: Gemini Flash
+        ↓
+  機械的バリデーション（Zod・ルールベース）
+    ├ 必須充足＆ルール通過 ──────────→ 登録
+    ├ 欠損 / 違反 ──→ 次段パーサーで再試行
+    └ 全段失敗 ──→ 欠損フィールドだけ人間にワンタップ質問
+                    （食い違いは「A と B どっち?」形式）</div>
+<div class="grid2" style="margin-top:14px">
+  <div class="card"><h3>入口A: 本人</h3><p style="font-size:13px">Claude 会話 + MCP。パース知能は Claude 本体が担い、MCP はスキーマ化された書き込み口に徹する。<b>LLM API コストが構造的に発生しない</b>のが予算0との噛み合わせ。</p></div>
+  <div class="card"><h3>入口B: 身内</h3><p style="font-size:13px">LINE Bot が唯一の入口。転送文・スクショ・フリーテキストを受け、バックエンドで Gemini 無料枠を呼ぶ。差し戻しは Quick Reply のワンタップ。送信前に電話番号等をマスクする前処理を必須化。</p></div>
+</div>
+<details>
+  <summary>将来の入口拡充(フェーズ1後半〜2)</summary>
+  <div class="inner">
+    <table>
+      <tr><th>入口</th><th>時期</th><th>メモ</th></tr>
+      <tr><td>メール転送 + パース</td><td>v1.x</td><td>カバー率最大。専用アドレスに転送するだけ</td></tr>
+      <tr><td>ics カレンダー連携</td><td>v1.x</td><td>フォーマット安定でパース精度最良</td></tr>
+      <tr><td>ブックマークレット</td><td>v1.x</td><td>拡張機能の軽量版。モバイル Safari 可</td></tr>
+      <tr><td>Web 拡張 / Gmail 直読</td><td>フェーズ2</td><td>予算・プライバシー整備後</td></tr>
+    </table>
+  </div>
+</details>
+
+<h2><span class="no">04</span>データモデル(6エンティティ)</h2>
+<div class="card" style="background:#fbfaf6">
+  <h3>Event と Plan の関係(排他性の分離)</h3>
+  <div class="flow" style="background:transparent;color:var(--ink);padding:8px 0">Event「夏の北陸旅行」   ← 排他性なしの束ね（旅行・出張・遠征・冠婚葬祭…）
+ ├ Plan「8/1の宿」        ← 排他: 宿A / 宿B → 1つ確定で他は要キャンセル
+ ├ Plan「レンタカー」      ← 排他: 店X / 店Y
+ └ Reservation「新幹線」   ← 候補なしの直付けも可</div>
+  <p style="font-size:13px;color:var(--ink-soft)">Plan は <code>confirm_quota</code>(既定1)を持ち、「4候補から2つ確定」等に一般化。confirmed が quota に達した瞬間、残り候補が to_cancel 化する。</p>
+</div>
+<details open>
+  <summary>Event / Plan / Reservation / CancellationPolicy / PolicyTemplate / ParseJob</summary>
+  <div class="inner">
+    <table>
+      <tr><th>エンティティ</th><th>役割</th><th>設計上の要点</th></tr>
+      <tr><td><b>Event</b></td><td>非排他の束ね</td><td>状態を持たず構成要素の集計ビュー。所属は任意</td></tr>
+      <tr><td><b>Plan</b></td><td>排他候補グループ</td><td>confirm_quota 到達で残りを自動 to_cancel 化。date_range 対応</td></tr>
+      <tr><td><b>Reservation</b></td><td>予約本体</td><td>policy は必ず値をコピー保持。unknown 許容</td></tr>
+      <tr><td><b>CancellationPolicy</b></td><td>段階料率</td><td>offset 降順・料率単調非減少を機械検証</td></tr>
+      <tr><td><b>PolicyTemplate</b></td><td>サービス別キャッシュ</td><td>デフォルト提案のみ。適用時に人間承認1回。使うほど賢くなる → フェーズ2で集合知資産に</td></tr>
+      <tr><td><b>ParseJob</b></td><td>差し戻し管理</td><td>パーサー間の食い違いを FieldConflict として保持</td></tr>
+    </table>
+  </div>
+</details>
+
+<h2><span class="no">05</span>通知</h2>
+<div class="card">
+  <table>
+    <tr><th>#</th><th>トリガー</th><th>内容</th></tr>
+    <tr><td>1</td><td>料率境界の24h前</td><td><b>最重要。</b>「今なら無料 / 明日から ¥2,400 の損」</td></tr>
+    <tr><td>2</td><td>プラン内で1件確定</td><td>即時「残り N 件が要キャンセル」</td></tr>
+    <tr><td>3</td><td>policy: unknown 残存</td><td>日次ダイジェストで後追い入力を促す</td></tr>
+    <tr><td>4</td><td>予約当日朝</td><td>confirmed のみリマインド</td></tr>
+  </table>
+  <p style="font-size:13px;color:var(--ink-soft)">発火判定と送信は <b>Outbox パターン</b>で2段分離。冪等キーは Outbox 側で一元管理し、Notifier 実装順は ① Console(標準出力)→ ② LINE(月200通無料)→ ③ Email(Resend)。発火は状態遷移コードから直接呼ばず<b>ドメインイベント購読</b>で行う。スケジューラは Deno.cron / systemd timer。</p>
+</div>
+
+<h2><span class="no">06</span>デバッグ容易性 — 第一級要件</h2>
+<p>非決定性の源は<b>時刻・外部送信・LLM</b> の3つ。全てを注入可能な抽象の背後に隔離し、コアロジックはローカルで決定的に再現できることを実装コストより優先する。</p>
+<div class="grid2">
+  <div class="card"><h3>Clock 抽象</h3><p style="font-size:13px"><code>Date.now()</code> 直呼びを全レイヤーで禁止(lint 化)。VirtualClock で「3日進める」をワンコマンド実行。境界判定・期限跨ぎのテストを決定的に。</p></div>
+  <div class="card"><h3>ドメインイベントログ</h3><p style="font-size:13px">全状態遷移を追記型ログに記録。<code>caused_by</code> チェーンで「なぜ to_cancel になったか」を常に説明可能。現在状態はイベント畳み込みの導出キャッシュ。通知はこのログの購読で発火。</p></div>
+  <div class="card"><h3>Outbox + 通知プレビュー</h3><p style="font-size:13px">発火判定は純粋関数。<code>previewNotifications(asOf)</code> で送信せずに「今後7日間の通知シミュレーション」を実行可能。</p></div>
+  <div class="card"><h3>パーサーリプレイ</h3><p style="font-size:13px">LLM 生応答を全保存し、記録済み入力をフィクスチャとして再実行。プロンプト変更のたびに実データ回帰テスト。開発中は MockParser で LLM 接続なし。</p></div>
+</div>
+<div class="card" style="margin-top:14px">
+  <h3>デバッグ用 MCP ツール(本番はフラグで無効化)</h3>
+  <p style="font-size:13px"><code>debug_dump_state</code> / <code>debug_advance_clock</code> / <code>debug_preview_notifications</code> / <code>debug_replay_parse</code>。構造化ログ(JSON Lines)+ correlation_id で全イベント・ParseAttempt と突合可能。</p>
+</div>
+
+<h2><span class="no">07</span>実装順序 — 依存レイヤーグラフ</h2>
+<p>機能単位でなく依存レイヤー単位で進める。<b>MVP-1(L0〜L3)は外部サービス接続ゼロ</b>で完全ローカル検証できる。</p>
+<div class="flow">L0  schema(Zod単一ソース) + Clock + Store iface + EventLog
+L1  ドメインロジック（状態遷移・quota・policy）── 純粋関数群
+L2a 発火判定 + Outbox + ConsoleNotifier   ┐
+L2b MCP server（+ debugツール）           ├ 相互独立・並行可
+L4  パーサー + リプレイ基盤（MockLLM）     ┘
+L3  cron スケジューラ（← L2a）
+L5  LINE Bot + LINENotifier + 実LLM接続（← L2a, L4）
+────────────────────────────────
+MVP-1 = L0〜L3　／　MVP-2 = L4〜L5</div>
+
+<h2><span class="no">08</span>決定記録(2026-07-04)</h2>
+<div class="card">
+  <table>
+    <tr><th>#</th><th>決定</th><th>備考</th></tr>
+    <tr><td>1</td><td>名称 <b>plancel</b> 確定</td><td>—</td></tr>
+    <tr><td>2</td><td>デプロイ先は未定継続</td><td>ストア抽象化で後決め(Deno Deploy / VPS)</td></tr>
+    <tr><td>3</td><td><b>Event</b> 導入 + confirm_quota 採用</td><td>「Trip」は旅行限定のため不採用。quota 既定1</td></tr>
+    <tr><td>4</td><td>MCP は追加・取得 + report_cancelled + <b>void_reservation</b> + <b>set_policy</b></td><td>汎用 update / 物理 delete のみ v1.x 先送り</td></tr>
+    <tr><td>5</td><td>一次パーサー <b>Groq</b> / 二次 Gemini Flash</td><td>二次を画像経路と共通化。無料枠条件は着手時に再確認</td></tr>
+    <tr><td>6</td><td><b>デバッグ容易性を第一級要件に格上げ</b></td><td>Clock・イベントログ・Outbox・リプレイ・プレビューを MVP-1 に含める。MVP-1 は外部接続ゼロ</td></tr>
+    <tr><td>7</td><td>旧残課題2件を MVP に取り込み解消</td><td>修正 = void(voided イベント追記)→ 再作成。unknown 解消 = set_policy(policy.provided イベント)。どちらも追記系操作としてイベントログと整合</td></tr>
+  </table>
+</div>
+<div class="q"><b>残課題:</b> なし(2026-07-04 時点)。以後の課題は ADR に追記。</div>
+
+<footer>plancel design review v3 — SDD.md(コーディングエージェント向け)と対。判断は ADR として SDD §12 に反映済み。</footer>
+</div>
+
+<script>
+// fee timeline
+const stages=[[0,50,0],[50,75,30],[75,87.5,50],[87.5,100,100]]; // [from%,to%,fee%]
+const amount=8000;
+const slider=document.getElementById('slider'),marker=document.getElementById('marker'),readout=document.getElementById('readout');
+function upd(){
+  const v=+slider.value; marker.style.left=v+'%';
+  const st=stages.find(s=>v>=s[0]&&v<s[1])||stages[3];
+  const fee=st[2], yen=Math.round(amount*fee/100);
+  const next=stages[stages.indexOf(st)+1];
+  readout.innerHTML= fee===0
+    ? `いまキャンセル: <span style="color:var(--free)">無料</span>` + (next?` ／ 境界を越えると <span class="yen">¥${Math.round(amount*next[2]/100).toLocaleString()}</span> の損`:``)
+    : `いまキャンセル: <span class="yen">¥${yen.toLocaleString()}（${fee}%）</span>の損`;
+}
+slider.addEventListener('input',upd); upd();
+// state machine notes
+const notes={
+  candidate:"仮押さえ状態。同じ Plan に複数ぶら下がる。",
+  confirmed:"確定。この瞬間、同 Plan の他候補が全て「要キャンセル」へ自動遷移し即時通知が飛ぶ ── コア動作。",
+  done:"来店・宿泊完了。",
+  to_cancel:"キャンセル待ちタスク。料率境界の24h前に通知対象。期限を過ぎても消さず要注意リストに残す。",
+  cancelled:"キャンセル実施を報告済み。"
+};
+document.querySelectorAll('.st').forEach(el=>el.addEventListener('click',()=>{
+  document.querySelectorAll('.st').forEach(e=>e.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('smNote').textContent=notes[el.dataset.s];
+}));
+</script>
+</body>
+</html>
