@@ -301,6 +301,35 @@ export function runStoreContractTests(name: string, factory: () => Promise<Store
       assertEquals(pending[0]?.starts_at, "2026-09-01T00:00:00.000Z");
     }));
 
+  Deno.test(`${name}: pending-cancel index normalizes non-UTC starts_at for chronological ordering`, () =>
+    withStore(async (store) => {
+      // r1's raw "+09:00" string is chronologically *before* r2's raw "Z"
+      // string (14:00Z vs 20:00Z) but would sort *after* it lexicographically
+      // as raw text ("23:00:00+09:00" > "20:00:00.000Z" byte-for-byte). Only
+      // UTC normalization before indexing yields the correct chronological
+      // order.
+      const r1 = makeReservation({
+        id: ULID_A,
+        status: "to_cancel",
+        starts_at: "2026-08-01T23:00:00+09:00", // == 2026-08-01T14:00:00Z
+      });
+      const r2 = makeReservation({
+        id: ULID_B,
+        status: "to_cancel",
+        starts_at: "2026-08-01T20:00:00.000Z",
+      });
+      await store.putReservation(r1);
+      await store.putReservation(r2);
+
+      const pending = await store.listPendingCancellations();
+      assertEquals(pending.map((r) => r.starts_at), [
+        "2026-08-01T14:00:00.000Z",
+        "2026-08-01T20:00:00.000Z",
+      ]);
+      // Ordered by true chronological (UTC-normalized) time: r1 before r2.
+      assertEquals(pending.map((r) => r.id), [ULID_A, ULID_B]);
+    }));
+
   Deno.test(`${name}: Reservation put overwrite semantics preserve other entities`, () =>
     withStore(async (store) => {
       const r = makeReservation({ status: "candidate" });

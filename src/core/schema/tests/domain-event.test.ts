@@ -1,6 +1,14 @@
 import { assertEquals } from "jsr:@std/assert@1";
+import type { DomainEvent } from "../domain-event.ts";
 import { domainEventSchema, domainEventTypes } from "../domain-event.ts";
 import { validDomainEvent } from "./fixtures.ts";
+
+Deno.test("DomainEvent.payload is a required property (type-level)", () => {
+  const { payload: _payload, ...withoutPayload } = validDomainEvent;
+  // @ts-expect-error payload is required; omitting it must be a type error.
+  const missingPayload: DomainEvent = { ...withoutPayload };
+  void missingPayload;
+});
 
 Deno.test("domainEventSchema accepts a valid DomainEvent", () => {
   const result = domainEventSchema.safeParse(validDomainEvent);

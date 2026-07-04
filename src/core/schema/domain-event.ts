@@ -25,7 +25,7 @@ export const domainEventTypeSchema = z.enum(domainEventTypes);
 
 export type DomainEventType = z.infer<typeof domainEventTypeSchema>;
 
-export const domainEventSchema = z.object({
+const domainEventShape = z.object({
   id: ulidSchema,
   type: domainEventTypeSchema,
   entity_id: ulidSchema,
@@ -35,4 +35,18 @@ export const domainEventSchema = z.object({
   occurred_at: isoDateTimeSchema,
 });
 
-export type DomainEvent = z.infer<typeof domainEventSchema>;
+// zod's `z.unknown()` structurally satisfies `undefined extends unknown`, so
+// zod always infers unknown-typed object fields as optional (`payload?:
+// unknown`) regardless of `.optional()` — a known zod v3 limitation. Payload
+// is always present on a persisted DomainEvent (SDD §10.2), so we override
+// the inferred type to make it a required property, then re-type the schema
+// itself (`z.ZodType<DomainEvent>`) so `.parse()`/`.safeParse()` return the
+// corrected, required-payload type everywhere the schema is used. This does
+// not change runtime validation — only the static TS type.
+export type DomainEvent =
+  & Omit<z.infer<typeof domainEventShape>, "payload">
+  & { payload: unknown };
+
+export const domainEventSchema: z.ZodType<DomainEvent> = domainEventShape as unknown as z.ZodType<
+  DomainEvent
+>;
