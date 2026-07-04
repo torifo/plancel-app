@@ -31,6 +31,9 @@ async function kvStoreFactory(): Promise<Store> {
     listParseJobs: kv.listParseJobs.bind(kv),
     appendEvent: kv.appendEvent.bind(kv),
     listEvents: kv.listEvents.bind(kv),
+    getOutboxEntry: kv.getOutboxEntry.bind(kv),
+    putOutboxEntry: kv.putOutboxEntry.bind(kv),
+    listOutboxEntries: kv.listOutboxEntries.bind(kv),
     close: async () => {
       await kv.close();
       try {

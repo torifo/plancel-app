@@ -20,17 +20,19 @@
  */
 import { domainEventSchema } from "../schema/domain-event.ts";
 import { eventSchema } from "../schema/event.ts";
+import { outboxEntrySchema } from "../schema/outbox-entry.ts";
 import { parseJobSchema } from "../schema/parse-job.ts";
 import { planSchema } from "../schema/plan.ts";
 import { policyTemplateSchema } from "../schema/policy-template.ts";
 import { reservationSchema } from "../schema/reservation.ts";
 import type { DomainEvent } from "../schema/domain-event.ts";
 import type { Event } from "../schema/event.ts";
+import type { OutboxEntry } from "../schema/outbox-entry.ts";
 import type { ParseJob } from "../schema/parse-job.ts";
 import type { Plan } from "../schema/plan.ts";
 import type { PolicyTemplate } from "../schema/policy-template.ts";
 import type { Reservation } from "../schema/reservation.ts";
-import type { ListEventsFilter, Store } from "./store.ts";
+import type { ListEventsFilter, ListOutboxFilter, Store } from "./store.ts";
 
 function parseOrThrow<T>(schema: { parse: (v: unknown) => T }, value: unknown, what: string): T {
   try {
@@ -48,6 +50,7 @@ const PARSE_JOB = "parse_job";
 const DOMAIN_EVENT = "domain_event";
 const IDX_PLAN_RESERVATIONS = "idx/plan_reservations";
 const IDX_PENDING_CANCEL = "idx/pending_cancel";
+const OUTBOX = "outbox";
 
 export class KvStore implements Store {
   #kv: Deno.Kv;
@@ -243,6 +246,27 @@ export class KvStore implements Store {
       const value = parseOrThrow(domainEventSchema, entry.value, "DomainEvent");
       if (filter?.entity_id !== undefined && value.entity_id !== filter.entity_id) continue;
       if (filter?.after_id !== undefined && !(value.id > filter.after_id)) continue;
+      out.push(value);
+    }
+    return out;
+  }
+
+  async getOutboxEntry(idempotency_key: string): Promise<OutboxEntry | null> {
+    const entry = await this.#kv.get<OutboxEntry>([OUTBOX, idempotency_key]);
+    if (entry.value === null) return null;
+    return parseOrThrow(outboxEntrySchema, entry.value, "OutboxEntry");
+  }
+
+  async putOutboxEntry(entry: OutboxEntry): Promise<void> {
+    const validated = parseOrThrow(outboxEntrySchema, entry, "OutboxEntry");
+    await this.#kv.set([OUTBOX, validated.idempotency_key], validated);
+  }
+
+  async listOutboxEntries(filter?: ListOutboxFilter): Promise<OutboxEntry[]> {
+    const out: OutboxEntry[] = [];
+    for await (const entry of this.#kv.list<OutboxEntry>({ prefix: [OUTBOX] })) {
+      const value = parseOrThrow(outboxEntrySchema, entry.value, "OutboxEntry");
+      if (filter?.status !== undefined && value.status !== filter.status) continue;
       out.push(value);
     }
     return out;

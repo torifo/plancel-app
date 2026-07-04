@@ -7,17 +7,19 @@
  */
 import { domainEventSchema } from "../schema/domain-event.ts";
 import { eventSchema } from "../schema/event.ts";
+import { outboxEntrySchema } from "../schema/outbox-entry.ts";
 import { parseJobSchema } from "../schema/parse-job.ts";
 import { planSchema } from "../schema/plan.ts";
 import { policyTemplateSchema } from "../schema/policy-template.ts";
 import { reservationSchema } from "../schema/reservation.ts";
 import type { DomainEvent } from "../schema/domain-event.ts";
 import type { Event } from "../schema/event.ts";
+import type { OutboxEntry } from "../schema/outbox-entry.ts";
 import type { ParseJob } from "../schema/parse-job.ts";
 import type { Plan } from "../schema/plan.ts";
 import type { PolicyTemplate } from "../schema/policy-template.ts";
 import type { Reservation } from "../schema/reservation.ts";
-import type { ListEventsFilter, Store } from "./store.ts";
+import type { ListEventsFilter, ListOutboxFilter, Store } from "./store.ts";
 
 function parseOrThrow<T>(schema: { parse: (v: unknown) => T }, value: unknown, what: string): T {
   try {
@@ -48,6 +50,7 @@ export class InMemoryStore implements Store {
   #policyTemplates = new Map<string, PolicyTemplate>();
   #parseJobs = new Map<string, ParseJob>();
   #domainEvents = new Map<string, DomainEvent>();
+  #outbox = new Map<string, OutboxEntry>();
 
   // idx/plan_reservations/<plan_id>/<res_id>
   #planReservationIdx = new Map<string, Set<string>>();
@@ -189,6 +192,25 @@ export class InMemoryStore implements Store {
       out = out.filter((e) => e.id > filter.after_id!);
     }
     out.sort((a, b) => a.id.localeCompare(b.id));
+    return Promise.resolve(out);
+  }
+
+  getOutboxEntry(idempotency_key: string): Promise<OutboxEntry | null> {
+    return Promise.resolve(this.#outbox.get(idempotency_key) ?? null);
+  }
+
+  putOutboxEntry(entry: OutboxEntry): Promise<void> {
+    return asAsync(() => {
+      const validated = parseOrThrow(outboxEntrySchema, entry, "OutboxEntry");
+      this.#outbox.set(validated.idempotency_key, validated);
+    });
+  }
+
+  listOutboxEntries(filter?: ListOutboxFilter): Promise<OutboxEntry[]> {
+    let out = [...this.#outbox.values()];
+    if (filter?.status !== undefined) {
+      out = out.filter((e) => e.status === filter.status);
+    }
     return Promise.resolve(out);
   }
 

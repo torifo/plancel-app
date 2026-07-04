@@ -9,3 +9,4 @@ export * from "./policy-template.ts";
 export * from "./reservation.ts";
 export * from "./parse-job.ts";
 export * from "./domain-event.ts";
+export * from "./outbox-entry.ts";

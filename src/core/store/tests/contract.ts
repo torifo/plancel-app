@@ -12,6 +12,7 @@ import { assertEquals, assertRejects } from "jsr:@std/assert@^1.0.19";
 import type { CancellationPolicy } from "../../schema/cancellation-policy.ts";
 import type { DomainEvent } from "../../schema/domain-event.ts";
 import type { Event } from "../../schema/event.ts";
+import type { OutboxEntry } from "../../schema/outbox-entry.ts";
 import type { ParseJob } from "../../schema/parse-job.ts";
 import type { Plan } from "../../schema/plan.ts";
 import type { PolicyTemplate } from "../../schema/policy-template.ts";
@@ -114,6 +115,20 @@ function makeDomainEvent(overrides: Partial<DomainEvent> = {}): DomainEvent {
     caused_by: null,
     correlation_id: "corr-1",
     occurred_at: "2026-07-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function makeOutboxEntry(overrides: Partial<OutboxEntry> = {}): OutboxEntry {
+  return {
+    idempotency_key: `${ULID_A}:day_of_reminder:2026-07-05`,
+    trigger: "day_of_reminder",
+    reservation_id: ULID_A,
+    fire_at: "2026-07-05T08:00:00.000Z",
+    message: "本日ご予約があります。",
+    status: "pending",
+    attempts: 0,
+    delivered_at: null,
     ...overrides,
   };
 }
@@ -338,5 +353,66 @@ export function runStoreContractTests(name: string, factory: () => Promise<Store
       const got = await store.getReservation(r.id);
       assertEquals(got?.status, "confirmed");
       assertEquals(await store.listReservations().then((l) => l.length), 1);
+    }));
+
+  Deno.test(`${name}: OutboxEntry get/put round-trips and is keyed by idempotency_key`, () =>
+    withStore(async (store) => {
+      assertEquals(await store.getOutboxEntry("no-such-key"), null);
+      const entry = makeOutboxEntry();
+      await store.putOutboxEntry(entry);
+      const got = await store.getOutboxEntry(entry.idempotency_key);
+      assertEquals(got, entry);
+    }));
+
+  Deno.test(`${name}: OutboxEntry put overwrites by idempotency_key (upsert)`, () =>
+    withStore(async (store) => {
+      const entry = makeOutboxEntry();
+      await store.putOutboxEntry(entry);
+      await store.putOutboxEntry({ ...entry, status: "delivered", delivered_at: entry.fire_at });
+      const got = await store.getOutboxEntry(entry.idempotency_key);
+      assertEquals(got?.status, "delivered");
+      assertEquals(await store.listOutboxEntries().then((l) => l.length), 1);
+    }));
+
+  Deno.test(`${name}: listOutboxEntries filters by status`, () =>
+    withStore(async (store) => {
+      const pending = makeOutboxEntry({ idempotency_key: "k1" });
+      const delivered = makeOutboxEntry({
+        idempotency_key: "k2",
+        status: "delivered",
+        delivered_at: "2026-07-05T08:00:00.000Z",
+      });
+      const failed = makeOutboxEntry({ idempotency_key: "k3", status: "failed", attempts: 5 });
+      await store.putOutboxEntry(pending);
+      await store.putOutboxEntry(delivered);
+      await store.putOutboxEntry(failed);
+
+      assertEquals(await store.listOutboxEntries().then((l) => l.length), 3);
+      assertEquals(
+        await store.listOutboxEntries({ status: "pending" }).then((l) =>
+          l.map((e) => e.idempotency_key)
+        ),
+        ["k1"],
+      );
+      assertEquals(
+        await store.listOutboxEntries({ status: "delivered" }).then((l) =>
+          l.map((e) => e.idempotency_key)
+        ),
+        ["k2"],
+      );
+      assertEquals(
+        await store.listOutboxEntries({ status: "failed" }).then((l) =>
+          l.map((e) => e.idempotency_key)
+        ),
+        ["k3"],
+      );
+    }));
+
+  Deno.test(`${name}: OutboxEntry rejects invalid records at the write boundary`, () =>
+    withStore(async (store) => {
+      await assertRejects(() =>
+        // deno-lint-ignore no-explicit-any
+        store.putOutboxEntry({ ...makeOutboxEntry(), attempts: -1 } as any)
+      );
     }));
 }

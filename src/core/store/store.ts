@@ -9,18 +9,30 @@
  * validate against the Zod schemas at both the read and write boundary (so a
  * corrupted/foreign-written record is caught on read, not just on write).
  *
- * No domain logic (state transitions) and no Outbox live here — those are
- * later tasks (2.x / 3.2). This layer is pure storage + the two secondary
- * indexes called out in design.md:
+ * No domain logic (state transitions) lives here. This layer is pure
+ * storage + the two secondary indexes called out in design.md:
  *   - plan -> reservations (`idx/plan_reservations/<plan_id>/<res_id>`)
  *   - pending-cancel by starts_at (`idx/pending_cancel/<starts_at>/<res_id>`)
+ *
+ * The Outbox (Task 3.2) is also stored here, keyed by idempotency_key
+ * (`outbox/<idempotency_key>`, design.md KV key design) — `notify/outbox.ts`
+ * owns the enqueue/deliver/retry *logic*, but the entry itself is just
+ * another Store-persisted, Zod-validated record like every other entity.
  */
 import type { DomainEvent } from "../schema/domain-event.ts";
 import type { Event } from "../schema/event.ts";
+import type { OutboxEntry, OutboxStatus } from "../schema/outbox-entry.ts";
 import type { ParseJob } from "../schema/parse-job.ts";
 import type { Plan } from "../schema/plan.ts";
 import type { PolicyTemplate } from "../schema/policy-template.ts";
 import type { Reservation } from "../schema/reservation.ts";
+
+export type { OutboxEntry, OutboxStatus } from "../schema/outbox-entry.ts";
+
+/** Filter for `listOutboxEntries()`. */
+export interface ListOutboxFilter {
+  status?: OutboxStatus;
+}
 
 /** Filter for `listEvents()`. Both fields are optional and combine with AND. */
 export interface ListEventsFilter {
@@ -77,6 +89,13 @@ export interface Store {
   appendEvent(event: DomainEvent): Promise<void>;
   /** Lists DomainEvents in ULID (chronological) order, optionally filtered. */
   listEvents(filter?: ListEventsFilter): Promise<DomainEvent[]>;
+
+  /** Fetches a single OutboxEntry by its idempotency_key, or null if absent. */
+  getOutboxEntry(idempotency_key: string): Promise<OutboxEntry | null>;
+  /** Upserts an OutboxEntry, keyed by `idempotency_key`. */
+  putOutboxEntry(entry: OutboxEntry): Promise<void>;
+  /** Lists OutboxEntries, optionally filtered by status. */
+  listOutboxEntries(filter?: ListOutboxFilter): Promise<OutboxEntry[]>;
 
   /** Releases any underlying resources (e.g. closes the KV connection). */
   close(): Promise<void>;
