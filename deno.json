@@ -1,10 +1,11 @@
 {
   "unstable": ["temporal", "kv"],
   "tasks": {
-    "test": "deno test --allow-env --unstable-temporal --unstable-kv",
+    "test": "deno test --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv",
     "lint": "deno lint",
     "fmt": "deno fmt",
-    "check": "deno check src"
+    "check:no-date": "deno run --allow-read scripts/no_direct_date_check.ts src",
+    "check": "deno check src && deno task check:no-date"
   },
   "compilerOptions": {
     "strict": true,
@@ -18,16 +19,20 @@
     "indentWidth": 2,
     "semiColons": true,
     "singleQuote": false,
-    "include": ["src/", "ROADMAP.md"]
+    "include": ["src/", "scripts/", "ROADMAP.md"]
   },
   "lint": {
-    "include": ["src/"],
+    "include": ["src/", "scripts/"],
     "rules": {
       "tags": ["recommended"]
-      // NOTE: A custom rule forbidding direct Date.now()/new Date() calls in
-      // domain code (in favor of the Clock abstraction) is added in Task 1.2.
-      // This placeholder documents the intent; no custom rule is wired up yet.
+      // NOTE: Deno's custom lint plugin API cannot express the "no direct
+      // Date.now()/new Date()/Temporal.Now outside the Clock abstraction"
+      // rule (FR-008), so it is enforced instead by
+      // scripts/no_direct_date_check.ts, wired into `deno task check` as
+      // `check:no-date` (see Task 1.2).
     }
   },
-  "imports": {}
+  "imports": {
+    "zod": "npm:zod@3.25.76"
+  }
 }
