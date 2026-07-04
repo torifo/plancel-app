@@ -33,6 +33,8 @@
     }
   },
   "imports": {
-    "zod": "npm:zod@3.25.76"
+    "zod": "npm:zod@3.25.76",
+    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.29.0",
+    "@modelcontextprotocol/sdk/": "npm:/@modelcontextprotocol/sdk@^1.29.0/"
   }
 }
