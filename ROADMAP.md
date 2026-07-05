@@ -28,6 +28,15 @@ apply here).
 Email-forward parsing, `.ics` calendar integration, bookmarklet entry point, generic `update`,
 physical `delete`.
 
+Weather integration (ADR-8): JMA public JSON (key-free, effectively rate-limit-free) behind a
+`WeatherProvider` interface (+ Mock/replay, same discipline as Parser/Notifier). Weather enriches
+notification messages and adds a `weather_alert` trigger (typhoon approach × unsettled candidates ×
+before free-cancellation deadline). Core fire-decision stays weather-free and pure. New design
+point: forecast-revision re-notification needs a forecast-generation component in the idempotency
+key. Key insight: the value is highest when the free-cancel deadline falls outside the reliable
+forecast window (~5-7 days) — the UI/notification should present the loss curve as an insurance
+decision, not a weather report.
+
 ## Phase 2
 
 Browser extension, direct Gmail reading, paid LLM tiers, public release.
