@@ -315,7 +315,7 @@ interface DomainEvent {
 | # | 決定 | 備考 |
 |---|---|---|
 | 1 | 名称 **plancel** で確定 | リポジトリは `plancel-core/mcp/line` 分割 or monorepo を実装開始時に確認 |
-| 2 | デプロイ先は未定継続 | ストア interface 抽象化により後決め。Deno Deploy / VPS 両対応で書く |
+| 2 | デプロイ先は **Deno Deploy(新プラットフォーム/console.deno.com)で確定**(2026-07-06 改訂) | 無料枠が厳しくなったら VPS + SQLite に退避(Store 抽象で退避経路は確保済み)。注意: ①無料枠は organization 合算(月100万req/帯域100GB/KV 1GiB)で、超過時は全アプリ一時停止 — 他サービスと同居させる場合は公開系と分離を検討 ②デプロイ最初のタスクは「ローカル MCP から新 Deploy の KV へリモート接続(旧 KV Connect 相当)できるかの実測スパイク」。不可なら書き込み用の薄い HTTP 層を追加するか VPS へ |
 | 3 | **Event** エンティティを導入 | 排他なしの束ね。「Trip」は旅行に限定されるため不採用。confirm_quota も採用(既定1) |
 | 4 | MCP は追加・取得 + `report_cancelled` + `void_reservation` + `set_policy` | 汎用 update / 物理 delete のみ v1.x 先送り(#7 で改訂) |
 | 5 | テキスト一次パーサーは **Groq(Llama 3.3 70B)**、二次 Gemini Flash | 二次を画像経路と同一プロバイダに揃え実装共通化。**無料枠条件は流動的なため実装着手時に現行クォータを再確認すること** |
