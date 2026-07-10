@@ -1,0 +1,6 @@
+# local working area — reports, scratch, generated PDFs. Never committed.
+local/
+
+# secrets (GROQ_API_KEY / GEMINI_API_KEY etc. live in the environment or here)
+.env
+.env.*
