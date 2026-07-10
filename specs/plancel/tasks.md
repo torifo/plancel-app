@@ -105,6 +105,7 @@
   - Depends on: Task 4.1
 
 ## Progress
-- Total: 15 tasks | Completed: 13 (Wave 1–5 = L0–L4) | In Progress: 0
+- Total: 15 tasks | Completed: 13 (Wave 1–5 = L0–L4) | In Progress: 1 (Task 6.1)
 - 残: Wave 6（Task 6.1 実LLM / 6.2 LINE Bot / 6.3 Email+docs）= 外部接続・デプロイ後フェーズ
 - Wave 1–5 の全タスクは各ウェーブ後の opus レビュー（承認 3回・差し戻し 1回→修正済み）とテスト検証を通過。最終状態: 266 tests green / scenario OK / replay 3/3 identical
+- Task 6.1 実装済み（2026-07-10）: `src/parse/{llm,groq,gemini,real}.ts` + `src/cli/parse_live.ts`（`deno task parse:live`）。stub fetch テスト18件込みで 284 tests green / replay 3/3 identical。ADR-5 クォータ再確認済み（Groq llama-3.3-70b: 30 RPM・1K req/日・100K tok/日 / Gemini 2.5 Flash: 10 RPM・250 req/日 — 2025-12 に無料枠縮小、デプロイ前に再々確認）。**残（キー必要）**: GROQ_API_KEY / GEMINI_API_KEY を設定し `parse:live --record` で実データ数件をフィクスチャ化 → `parsers.config.json` を real.ts の REAL_CHAIN_CONFIG に切替 → `deno task replay` 通過で Done。プロンプト文面（llm.ts RESERVATION_PARSE_PROMPT）はオーナー最終決定事項（SDD §11）で現状は提案版

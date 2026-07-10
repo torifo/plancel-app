@@ -10,7 +10,8 @@
     "cron:once": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/cron/vps_main.ts",
     "seed": "deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv src/cli/seed.ts",
     "scenario": "deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv src/cli/scenario.ts",
-    "replay": "deno run --allow-env --allow-read --unstable-temporal src/cli/replay.ts"
+    "replay": "deno run --allow-env --allow-read --unstable-temporal src/cli/replay.ts",
+    "parse:live": "deno run --allow-env --allow-read --allow-write --allow-net=api.groq.com,generativelanguage.googleapis.com --unstable-temporal src/cli/parse_live.ts"
   },
   "compilerOptions": {
     "strict": true,
