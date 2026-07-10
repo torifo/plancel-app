@@ -14,7 +14,7 @@ For the common pattern of **holding multiple candidate bookings → confirming o
 ```sh
 deno task seed        # load demo data
 deno task scenario    # one-command E2E: confirm → advance 3 days → list notifications
-deno task test        # 267 tests — completes with zero external connections
+deno task test        # 299 tests — completes with zero external connections
 ```
 
 ## Why plancel (vs. calendars / booking apps)
@@ -33,9 +33,10 @@ Three layers (core / adapter / MCP). All sources of nondeterminism (**clock, out
 | Directory | Role |
 |---|---|
 | `src/core/` | Zod schemas (single source), Clock abstraction, Store abstraction (Deno KV / InMemory), pure-function state transitions, event-log folding |
-| `src/notify/` | Pure fire-decision + idempotent Outbox + Notifier (Console → LINE → Email planned) |
+| `src/notify/` | Pure fire-decision + idempotent Outbox + Notifier (Console / LINE / Email=Resend) |
 | `src/mcp/` | Entry point for Claude (stdio, 11 tools + flag-gated debug tools). No parsing intelligence |
-| `src/parse/` | Validation-driven fallback parser chain, PII masking, replay regression harness |
+| `src/parse/` | Validation-driven fallback parser chain (Groq / Gemini + Mock), PII masking, replay regression harness |
+| `src/line/` | LINE Bot webhook (signature check, userId allowlist, one-tap Quick Reply review) + LINE notifier |
 | `src/cron/` | Thin 15-minute boundary check (Deno Deploy `Deno.cron` / VPS systemd timer) |
 
 Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/SDD.md) ・ Roadmap: [`ROADMAP.md`](./ROADMAP.md)
@@ -45,8 +46,8 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
 - **Runtime**: Deno 2.9 (TypeScript, `unstable-temporal` / `unstable-kv`)
 - **Validation**: Zod — one schema source validates MCP inputs, parser outputs, and Store boundaries
 - **Store**: Deno KV (append-only event log + derived cache; swappable to SQLite via the Store interface)
-- **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`); LINE Bot planned
-- **Tests**: 267 via `deno test`, shared contract suite across both Store implementations, one-command E2E, parse replay regression
+- **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (device verification after deploy)
+- **Tests**: 299 via `deno test`, shared contract suite across both Store implementations, one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)
 
@@ -58,6 +59,8 @@ Then just talk: "hold a table at ◯◯ for 7pm Sat, free cancellation until the
 
 ## Status
 
-**MVP-1 (L0–L3) + parser foundation (L4) implemented**, verifiable with zero external connections. Deploy target: Deno Deploy (VPS fallback). Next: real LLM parsers (Groq / Gemini free tier) → LINE Bot entry → Email notifications → weather (typhoon) integration.
+**MVP-1 (L0–L3) + parser foundation (L4) + L5 code (real LLM / LINE / Email) implemented**, verifiable with zero external connections. Deploy target: Deno Deploy (VPS fallback). Remaining: real-data replay regression once API keys are set (`deno task parse:live --record` → flip `parsers.config.json` → `deno task replay`), deploy + LINE device verification, weather (typhoon) integration.
+
+External-connection env vars: `GROQ_API_KEY` / `GEMINI_API_KEY` (parsers), `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS` (`deno task line`), `RESEND_API_KEY` (EmailNotifier; from/to are constructor-injected).
 
 Phase 1 is personal + family use on a **¥0 budget** (free tiers only). Public release is Phase 2.

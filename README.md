@@ -16,7 +16,7 @@
 ```sh
 deno task seed        # デモデータ投入
 deno task scenario    # E2E: 確定 → 3日進める → 通知列挙 を1コマンドで体験
-deno task test        # 267 tests — 外部サービス接続ゼロで完結
+deno task test        # 299 tests — 外部サービス接続ゼロで完結
 ```
 
 ## なぜ plancel（カレンダー / 予約アプリと何が違う）
@@ -35,9 +35,10 @@ deno task test        # 267 tests — 外部サービス接続ゼロで完結
 | ディレクトリ | 役割 |
 |---|---|
 | `src/core/` | Zod スキーマ（単一ソース）・Clock 抽象・Store 抽象（Deno KV / InMemory）・純粋関数の状態遷移・イベントログ畳み込み |
-| `src/notify/` | 発火判定（純粋関数）＋ Outbox（冪等配送）＋ Notifier（Console → LINE → Email 予定） |
+| `src/notify/` | 発火判定（純粋関数）＋ Outbox（冪等配送）＋ Notifier（Console / LINE / Email=Resend） |
 | `src/mcp/` | Claude 向け入口（stdio・11ツール＋フラグ付き debug ツール）。パース知能は持たない |
-| `src/parse/` | バリデーション駆動フォールバックのパーサーチェーン・PII マスク・リプレイ回帰基盤 |
+| `src/parse/` | バリデーション駆動フォールバックのパーサーチェーン（Groq / Gemini + Mock）・PII マスク・リプレイ回帰基盤 |
+| `src/line/` | LINE Bot webhook（署名検証・userId 許可リスト・Quick Reply ワンタップ差し戻し）＋ LINENotifier |
 | `src/cron/` | 15分毎の境界チェック（Deno Deploy `Deno.cron` / VPS systemd timer 両対応の薄い層) |
 
 仕様: [`specs/`](./specs/) ・ 設計判断（ADR）: [`docs/SDD.md`](./docs/SDD.md) ・ ロードマップ: [`ROADMAP.md`](./ROADMAP.md)
@@ -47,8 +48,8 @@ deno task test        # 267 tests — 外部サービス接続ゼロで完結
 - **ランタイム**: Deno 2.9（TypeScript・`unstable-temporal` / `unstable-kv`）
 - **検証**: Zod（全エンティティ単一ソース、MCP 入力・パーサー出力・Store 境界を同一スキーマで検証）
 - **ストア**: Deno KV（追記型イベントログ + 導出キャッシュ。Store 抽象で SQLite に差し替え可）
-- **入口**: Claude MCP（`@modelcontextprotocol/sdk`）。LINE Bot は今後
-- **テスト**: `deno test` 267件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
+- **入口**: Claude MCP（`@modelcontextprotocol/sdk`）＋ LINE Bot webhook（実機確認はデプロイ後）
+- **テスト**: `deno test` 299件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
 
 ## 使い方（Claude MCP）
 
@@ -60,7 +61,9 @@ claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unst
 
 ## ステータス
 
-**MVP-1（L0〜L3）＋パーサー基盤（L4）実装済み**・外部接続ゼロで動作検証可能。デプロイ先は Deno Deploy（VPS 退避可）。
-今後: 実 LLM パーサー（Groq / Gemini 無料枠）→ LINE Bot 入口 → Email 通知 → 天気（台風）連携。
+**MVP-1（L0〜L3）＋パーサー基盤（L4）＋ L5 コード（実 LLM / LINE / Email）実装済み**・外部接続ゼロで動作検証可能。デプロイ先は Deno Deploy（VPS 退避可）。
+残り: API キー投入後の実データ回帰（`deno task parse:live --record` → `parsers.config.json` 切替 → `deno task replay`）、デプロイ + LINE 実機確認、天気（台風）連携。
+
+外部接続の環境変数: `GROQ_API_KEY` / `GEMINI_API_KEY`（パーサー）、`LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS`（`deno task line`）、`RESEND_API_KEY`（EmailNotifier、送信元/宛先はコンストラクタ注入）。
 
 フェーズ1は本人＋身内数名・**予算0円**（無料枠のみ）。公開・マネタイズはフェーズ2以降。

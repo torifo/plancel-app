@@ -10,6 +10,7 @@ export {
   previewNotifications,
 } from "./trigger.ts";
 export { ConsoleNotifier, type ConsoleNotifierOptions } from "./console-notifier.ts";
+export { EmailNotifier, type EmailNotifierOptions } from "./email-notifier.ts";
 export type { Notifier } from "./notifier.ts";
 export {
   type DeliverPendingOptions,
