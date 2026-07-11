@@ -107,6 +107,7 @@
 ## Progress
 - Total: 15 tasks | Completed: 14 (Wave 1–5 + Task 6.1) | 残: 6.2/6.3 の実機・実送信確認のみ（コードは実装済み）
 - **Task 6.1 完了（2026-07-11）**: API キー投入 → `parse:live --record` で実データ 3 件（レストラン確認メール / 宿の段階ポリシー / 口語 unknown、全件 groq-llama 一発通過）→ 既存 mock フィクスチャ 3 件はパーサー名を実名に移行して温存 → `parsers.config.json` を実チェーン（groq→gemini / image=gemini）へ切替 → **replay 6/6 identical**。299 tests green
+- **検証の力点修正（2026-07-11 オーナーFB）**: plancel は家計簿ではなく予定台帳 — 一級の検証対象は**日時と場所**（金額・ポリシーは二次）。対応: ①プロンプトに Clock 経由で「今日の日付（JST）」を注入し年無し日付の将来解釈ルールを追加（`reservationPromptForClock`、Clock なしなら規則自体を省く）＋ location 抽出を最優先と明示 ②validate に「2年以上先= 年の読み違い疑い」警告 ③日付・場所特化の実データ 3 件を追加記録（年推論 1/15→2027 ✓ / 住所抽出 ✓ / チェックイン15:00・アウト10:00 ✓、いずれも値を目視検証済み）→ **replay 9/9 identical / 303 tests green**
 - 残: Wave 6（Task 6.1 実LLM / 6.2 LINE Bot / 6.3 Email+docs）= 外部接続・デプロイ後フェーズ
 - Wave 1–5 の全タスクは各ウェーブ後の opus レビュー（承認 3回・差し戻し 1回→修正済み）とテスト検証を通過。最終状態: 266 tests green / scenario OK / replay 3/3 identical
 - Task 6.2 コード実装済み（2026-07-10）: `src/line/{signature,types,client,webhook,notifier,main}.ts` + テスト13件（`deno task line` で起動）。署名検証（HMAC-SHA256・定数時間比較）/ userId 許可リスト / text・画像→共通パイプライン / FieldConflict の Quick Reply ワンタップ解決（解決状態は conflicts の絞り込みで永続化、attempts は不変）/ 欠損は質問を返して再送依頼 / LINENotifier（Outbox 契約: 失敗 reject でリトライ）。**残: デプロイ後の実機確認（done-when）**。LINE_CHANNEL_SECRET / LINE_CHANNEL_ACCESS_TOKEN / LINE_ALLOWED_USER_IDS が必要

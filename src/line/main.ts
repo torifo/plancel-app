@@ -33,7 +33,7 @@ export async function buildDeps(): Promise<LineWebhookDeps> {
       requiredEnv("LINE_ALLOWED_USER_IDS").split(",").map((s) => s.trim()).filter(Boolean),
     ),
     ctx,
-    parsers: realParsers(),
+    parsers: realParsers({ clock: ctx.clock }),
     chainConfig: await loadParserChainConfig(),
     client: createLineClient({ channelAccessToken: requiredEnv("LINE_CHANNEL_ACCESS_TOKEN") }),
   };

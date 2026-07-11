@@ -84,3 +84,23 @@ Deno.test("validateParsedOutput: non-monotonic cancellation stages fail (reuses 
   const result = validateParsedOutput(output, NOW);
   assertEquals(result.ok, false);
 });
+
+Deno.test("validateParsedOutput: starts_at more than 2 years ahead warns (year likely misread)", () => {
+  const clock = new VirtualClock("2026-07-11T00:00:00Z");
+  const result = validateParsedOutput(
+    { service_name: "宿", starts_at: "2029-01-15T15:00:00+09:00" },
+    clock,
+  );
+  assertEquals(result.ok, true);
+  assertEquals(result.warnings, ["starts_at is more than 2 years ahead; year may be misread"]);
+});
+
+Deno.test("validateParsedOutput: a normal future starts_at produces no year warning", () => {
+  const clock = new VirtualClock("2026-07-11T00:00:00Z");
+  const result = validateParsedOutput(
+    { service_name: "宿", starts_at: "2027-01-15T15:00:00+09:00" },
+    clock,
+  );
+  assertEquals(result.ok, true);
+  assertEquals(result.warnings, []);
+});

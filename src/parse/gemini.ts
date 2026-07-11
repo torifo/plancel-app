@@ -14,10 +14,11 @@
  * Never throws — failures become `output: null` (see llm.ts parserError).
  */
 import type { ParseInput, Parser, ParseResult } from "./types.ts";
+import type { Clock } from "../core/clock/mod.ts";
 import {
   extractReservationJson,
   parserError,
-  RESERVATION_PARSE_PROMPT,
+  reservationPromptForClock,
   resolveApiKey,
 } from "./llm.ts";
 
@@ -29,6 +30,8 @@ const GEMINI_API_KEY_ENV = "GEMINI_API_KEY";
 export interface GeminiParserOptions {
   /** Defaults to the GEMINI_API_KEY environment variable, read at parse time. */
   apiKey?: string;
+  /** Anchors the prompt's year-inference rule to today's JST date. */
+  clock?: Clock;
   model?: string;
   /** API base URL (up to /v1beta), mainly for tests. */
   endpoint?: string;
@@ -80,7 +83,7 @@ export function GeminiParser(options: GeminiParserOptions = {}): Parser {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: RESERVATION_PARSE_PROMPT }] },
+            systemInstruction: { parts: [{ text: reservationPromptForClock(options.clock) }] },
             contents: [{ role: "user", parts: toParts(input) }],
             generationConfig: { temperature: 0, responseMimeType: "application/json" },
           }),

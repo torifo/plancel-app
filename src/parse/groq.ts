@@ -12,10 +12,11 @@
  * through to the next parser.
  */
 import type { ParseInput, Parser, ParseResult } from "./types.ts";
+import type { Clock } from "../core/clock/mod.ts";
 import {
   extractReservationJson,
   parserError,
-  RESERVATION_PARSE_PROMPT,
+  reservationPromptForClock,
   resolveApiKey,
 } from "./llm.ts";
 
@@ -27,6 +28,8 @@ const GROQ_API_KEY_ENV = "GROQ_API_KEY";
 export interface GroqParserOptions {
   /** Defaults to the GROQ_API_KEY environment variable, read at parse time. */
   apiKey?: string;
+  /** Anchors the prompt's year-inference rule to today's JST date. */
+  clock?: Clock;
   model?: string;
   endpoint?: string;
   /** Injectable for tests; defaults to the global fetch. */
@@ -60,7 +63,7 @@ export function GroqParser(options: GroqParserOptions = {}): Parser {
             temperature: 0,
             response_format: { type: "json_object" },
             messages: [
-              { role: "system", content: RESERVATION_PARSE_PROMPT },
+              { role: "system", content: reservationPromptForClock(options.clock) },
               { role: "user", content: input.content },
             ],
           }),

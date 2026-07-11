@@ -73,7 +73,7 @@ if (import.meta.main) {
   const clock = new SystemClock();
   const ids = { ulid, nowIso: () => clock.now().toString({ smallestUnit: "millisecond" }) };
 
-  const job = await runParseChain(input, REAL_CHAIN_CONFIG, realParsers(), clock, ids);
+  const job = await runParseChain(input, REAL_CHAIN_CONFIG, realParsers({ clock }), clock, ids);
 
   console.log(`status: ${job.status}`);
   for (const attempt of job.attempts) {

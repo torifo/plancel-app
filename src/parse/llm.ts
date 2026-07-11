@@ -11,6 +11,7 @@
  * 「プロンプト文面は人間側オーナーが最終決定する」) — the text below is a
  * working proposal, safe to edit; the replay corpus is the regression gate.
  */
+import type { Clock } from "../core/clock/mod.ts";
 import type { Reservation } from "../core/schema/mod.ts";
 import type { ParseResult } from "./types.ts";
 
@@ -18,16 +19,28 @@ import type { ParseResult } from "./types.ts";
  * Extraction prompt shared by all real LLM parsers. Instructs strict
  * JSON-only output matching the Reservation subset that
  * `extractReservationJson` whitelists.
+ *
+ * plancel is a SCHEDULE ledger, not an expense tracker (owner feedback,
+ * 2026-07-11): the fields that must be read correctly above all else are
+ * the DATE/TIME and the PLACE. Amounts/policies matter but are secondary.
+ * Pass `todayIso` (a JST calendar date like "2026-07-11") so the model can
+ * resolve year-less dates like "8/1" — without it the year-inference rule
+ * is omitted entirely rather than letting the model guess.
  */
-export const RESERVATION_PARSE_PROMPT =
-  `あなたは予約情報の抽出器です。入力（予約確認メール・予約サイトの文面・スクリーンショットなど）から予約情報を抽出し、次のキーだけを持つ JSON オブジェクトを1つだけ出力してください。説明文・前置き・コードフェンスは一切出力しないこと。
+export function reservationParsePrompt(todayIso?: string): string {
+  const dateRules = todayIso === undefined ? "" : `
+- 今日の日付は ${todayIso}（日本時間）。年が書かれていない日付（例「8/1」「1/15」）は、今日以降で最も近い将来のその日付として解釈する（過去にしない）。`;
+
+  return `あなたは予約情報の抽出器です。入力（予約確認メール・予約サイトの文面・スクリーンショットなど）から予約情報を抽出し、次のキーだけを持つ JSON オブジェクトを1つだけ出力してください。説明文・前置き・コードフェンスは一切出力しないこと。
+
+最重要フィールドは starts_at（日時）と location（場所）と service_name（どこの予約か）。これは予定管理台帳であり、日時・場所の誤読は金額の誤読より深刻。
 
 {
   "service_name": string,            // 店名・施設名・サービス名（必須。見つからなければ null）
   "provider": string | null,         // 予約経路（例: "食べログ", "Booking.com"。不明なら null）
-  "starts_at": string | null,        // 開始日時。タイムゾーンオフセット付き ISO 8601（例 "2026-08-01T19:00:00+09:00"）。日本の予約でオフセット不明なら +09:00 とする。不明なら null
-  "ends_at": string | null,          // 終了日時。同形式。不明なら null
-  "location": string | null,         // 場所・住所。不明なら null
+  "starts_at": string | null,        // 開始日時（宿はチェックイン日時）。タイムゾーンオフセット付き ISO 8601（例 "2026-08-01T19:00:00+09:00"）。日本の予約でオフセット不明なら +09:00 とする。不明なら null
+  "ends_at": string | null,          // 終了日時（宿はチェックアウト）。同形式。不明なら null
+  "location": string | null,         // 場所。住所・都道府県・市区・駅名・施設内の場所など、書かれていれば必ず抽出する。店名の繰り返しは不可。不明なら null
   "amount_jpy": number | null,       // 合計金額（円・数値）。不明なら null
   "cancellation_policy": {           // キャンセル規定。記載がなければ "unknown"
     "stages": [
@@ -42,10 +55,24 @@ export const RESERVATION_PARSE_PROMPT =
 }
 
 規則:
-- 推測で値を作らない。入力に書かれていない項目は null（cancellation_policy は "unknown"）。
+- 推測で値を作らない。入力に書かれていない項目は null（cancellation_policy は "unknown"）。${dateRules}
+- 日付は書かれているものを正確に写す。曜日と日付が矛盾する場合は日付を優先する。
+- 時刻が書かれていない場合、starts_at は日付のみを 00:00 として表現し、notes に「時刻不明」と書く（チェックイン時刻が明記されていればそれを使う）。
 - cancellation_policy.stages は until_offset_hours の降順（遠い順）で並べる。
 - 金額はカンマや通貨記号を除いた数値にする。
 - 出力は JSON オブジェクトそのもの1つのみ。`;
+}
+
+/** Static prompt without the today-date rule (prefer passing a date via
+ * `reservationParsePrompt(todayIso)` — kept for callers with no Clock). */
+export const RESERVATION_PARSE_PROMPT = reservationParsePrompt();
+
+/** Prompt with the year-inference rule anchored to the clock's JST date. */
+export function reservationPromptForClock(clock?: Clock): string {
+  if (clock === undefined) return RESERVATION_PARSE_PROMPT;
+  const today = clock.now().toZonedDateTimeISO("Asia/Tokyo").toPlainDate().toString();
+  return reservationParsePrompt(today);
+}
 
 /** Field whitelist — the only keys carried from LLM output into ParseResult. */
 const ALLOWED_FIELDS = [

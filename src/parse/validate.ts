@@ -57,6 +57,13 @@ export function validateParsedOutput(
       if (Temporal.Instant.compare(startsAt, clock.now()) < 0) {
         warnings.push("starts_at is in the past; requires confirmation");
       }
+      // Dates/places are the first-class extraction targets (owner feedback
+      // 2026-07-11): a booking more than 2 years out is almost certainly a
+      // misread year — surface it for confirmation, don't block the chain.
+      const twoYearsAhead = clock.now().add({ hours: 2 * 365 * 24 });
+      if (Temporal.Instant.compare(startsAt, twoYearsAhead) > 0) {
+        warnings.push("starts_at is more than 2 years ahead; year may be misread");
+      }
     }
   }
 

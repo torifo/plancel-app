@@ -1,0 +1,25 @@
+{
+  "name": "real-year-inference",
+  "raw_input": "1/15 19時 きんくら 新年会で仮押さえ 6名",
+  "input_type": "text",
+  "attempts": [
+    {
+      "parser": "groq-llama",
+      "raw_response": "{\n  \"service_name\": \"きんくら\",\n   \"provider\": null,\n   \"starts_at\": \"2027-01-15T19:00:00+09:00\",\n   \"ends_at\": null,\n   \"location\": null,\n   \"amount_jpy\": null,\n   \"cancellation_policy\": \"unknown\",\n   \"notes\": \"新年会、6名、時刻は19時のみ確定\"\n}"
+    }
+  ],
+  "expected": {
+    "status": "parsed",
+    "output": {
+      "service_name": "きんくら",
+      "provider": null,
+      "starts_at": "2027-01-15T19:00:00+09:00",
+      "ends_at": null,
+      "location": null,
+      "amount_jpy": null,
+      "cancellation_policy": "unknown",
+      "notes": "新年会、6名、時刻は19時のみ確定"
+    },
+    "conflicts": []
+  }
+}

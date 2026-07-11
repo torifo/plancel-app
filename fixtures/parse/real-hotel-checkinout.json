@@ -1,0 +1,43 @@
+{
+  "name": "real-hotel-checkinout",
+  "raw_input": "【楽天トラベル】予約内容 / 城崎温泉 ゆらり庵（兵庫県豊岡市城崎町湯島456）チェックイン 2026年11月3日 15:00 / チェックアウト 11月4日 10:00 / 大人2名 28,600円 / キャンセル: 3日前から20%、前日50%、当日80%、不泊100%",
+  "input_type": "text",
+  "attempts": [
+    {
+      "parser": "groq-llama",
+      "raw_response": "{\n  \"service_name\": \"城崎温泉 ゆらり庵\",\n   \"provider\": \"楽天トラベル\",\n   \"starts_at\": \"2026-11-03T15:00:00+09:00\",\n   \"ends_at\": \"2026-11-04T10:00:00+09:00\",\n   \"location\": \"兵庫県豊岡市城崎町湯島456\",\n   \"amount_jpy\": 28600,\n   \"cancellation_policy\": {\n      \"stages\": [\n         {\n            \"until_offset_hours\": 72,\n            \"fee_percent\": 20,\n            \"fee_fixed_jpy\": null\n         },\n         {\n            \"until_offset_hours\": 24,\n            \"fee_percent\": 50,\n            \"fee_fixed_jpy\": null\n         },\n         {\n            \"until_offset_hours\": 0,\n            \"fee_percent\": 80,\n            \"fee_fixed_jpy\": null\n         }\n      ]\n   },\n   \"notes\": null\n}"
+    }
+  ],
+  "expected": {
+    "status": "parsed",
+    "output": {
+      "service_name": "城崎温泉 ゆらり庵",
+      "provider": "楽天トラベル",
+      "starts_at": "2026-11-03T15:00:00+09:00",
+      "ends_at": "2026-11-04T10:00:00+09:00",
+      "location": "兵庫県豊岡市城崎町湯島456",
+      "amount_jpy": 28600,
+      "cancellation_policy": {
+        "stages": [
+          {
+            "until_offset_hours": 72,
+            "fee_percent": 20,
+            "fee_fixed_jpy": null
+          },
+          {
+            "until_offset_hours": 24,
+            "fee_percent": 50,
+            "fee_fixed_jpy": null
+          },
+          {
+            "until_offset_hours": 0,
+            "fee_percent": 80,
+            "fee_fixed_jpy": null
+          }
+        ]
+      },
+      "notes": null
+    },
+    "conflicts": []
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "real-location-address",
+  "raw_input": "予約確認: 炭火焼鳥 とり多津 浅草店（東京都台東区雷門2-3-4 雷門ビル2F）8/20(木) 18:30〜 4名様",
+  "input_type": "text",
+  "attempts": [
+    {
+      "parser": "groq-llama",
+      "raw_response": "{\n  \"service_name\": \"炭火焼鳥 とり多津 浅草店\",\n   \"provider\": null,\n   \"starts_at\": \"2026-08-20T18:30:00+09:00\",\n   \"ends_at\": null,\n   \"location\": \"東京都台東区雷門2-3-4 雷門ビル2F\",\n   \"amount_jpy\": null,\n   \"cancellation_policy\": \"unknown\",\n   \"notes\": \"4名様\"\n}"
+    }
+  ],
+  "expected": {
+    "status": "parsed",
+    "output": {
+      "service_name": "炭火焼鳥 とり多津 浅草店",
+      "provider": null,
+      "starts_at": "2026-08-20T18:30:00+09:00",
+      "ends_at": null,
+      "location": "東京都台東区雷門2-3-4 雷門ビル2F",
+      "amount_jpy": null,
+      "cancellation_policy": "unknown",
+      "notes": "4名様"
+    },
+    "conflicts": []
+  }
+}

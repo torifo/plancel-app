@@ -44,3 +44,18 @@ Deno.test("extractReservationJson: no JSON object / invalid JSON / non-object ->
   assertEquals(extractReservationJson('{"service_name": broken'), null);
   assertEquals(extractReservationJson("[1,2,3]"), null);
 });
+
+Deno.test("reservationPromptForClock: injects today's JST date for year inference", async () => {
+  const { reservationPromptForClock } = await import("../llm.ts");
+  const { VirtualClock } = await import("../../core/clock/mod.ts");
+  // 2026-07-10T20:00Z = 2026-07-11 05:00 JST — the JST date must win.
+  const prompt = reservationPromptForClock(new VirtualClock("2026-07-10T20:00:00Z"));
+  assertEquals(prompt.includes("今日の日付は 2026-07-11"), true);
+  assertEquals(prompt.includes("最も近い将来"), true);
+});
+
+Deno.test("reservationPromptForClock: without a clock the date rule is omitted, not guessed", async () => {
+  const { reservationPromptForClock } = await import("../llm.ts");
+  const prompt = reservationPromptForClock();
+  assertEquals(prompt.includes("今日の日付は"), false);
+});

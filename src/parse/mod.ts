@@ -12,7 +12,12 @@ export { loadParserChainConfig, UnknownParserError, validateParserChainConfig } 
 export type { ParserChainConfig } from "./config.ts";
 export { MockParser } from "./mock-parser.ts";
 export type { MockFixture, MockFixtureMatcher, MockParserOptions } from "./mock-parser.ts";
-export { extractReservationJson, RESERVATION_PARSE_PROMPT } from "./llm.ts";
+export {
+  extractReservationJson,
+  RESERVATION_PARSE_PROMPT,
+  reservationParsePrompt,
+  reservationPromptForClock,
+} from "./llm.ts";
 export { GROQ_DEFAULT_MODEL, GROQ_PARSER_NAME, GroqParser } from "./groq.ts";
 export type { GroqParserOptions } from "./groq.ts";
 export { GEMINI_DEFAULT_MODEL, GEMINI_PARSER_NAME, GeminiParser } from "./gemini.ts";
