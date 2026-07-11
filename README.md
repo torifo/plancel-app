@@ -16,7 +16,8 @@
 ```sh
 deno task seed        # デモデータ投入
 deno task scenario    # E2E: 確定 → 3日進める → 通知列挙 を1コマンドで体験
-deno task test        # 299 tests — 外部サービス接続ゼロで完結
+deno task test        # 303 tests — 外部サービス接続ゼロで完結
+deno task verify      # check + lint + test + replay を一括実行
 ```
 
 ## なぜ plancel（カレンダー / 予約アプリと何が違う）
@@ -49,7 +50,7 @@ deno task test        # 299 tests — 外部サービス接続ゼロで完結
 - **検証**: Zod（全エンティティ単一ソース、MCP 入力・パーサー出力・Store 境界を同一スキーマで検証）
 - **ストア**: Deno KV（追記型イベントログ + 導出キャッシュ。Store 抽象で SQLite に差し替え可）
 - **入口**: Claude MCP（`@modelcontextprotocol/sdk`）＋ LINE Bot webhook（実機確認はデプロイ後）
-- **テスト**: `deno test` 299件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
+- **テスト**: `deno test` 303件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
 
 ## 使い方（Claude MCP）
 
@@ -62,7 +63,7 @@ claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unst
 ## ステータス
 
 **MVP-1（L0〜L3）＋パーサー基盤（L4）＋ L5 コード（実 LLM / LINE / Email）実装済み**・外部接続ゼロで動作検証可能。デプロイ先は Deno Deploy（VPS 退避可）。
-残り: API キー投入後の実データ回帰（`deno task parse:live --record` → `parsers.config.json` 切替 → `deno task replay`）、デプロイ + LINE 実機確認、天気（台風）連携。
+残り: デプロイ（初手は ADR-2 の KV リモート接続スパイク）+ LINE/メールの実機確認、天気（台風）連携。実チェーン切替・実データ回帰は完了済み（replay 9/9）。ローカル検証手順は [`docs/VERIFICATION.md`](./docs/VERIFICATION.md)。
 
 外部接続の環境変数: `GROQ_API_KEY` / `GEMINI_API_KEY`（パーサー）、`LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS`（`deno task line`）、`RESEND_API_KEY`（EmailNotifier、送信元/宛先はコンストラクタ注入）。
 

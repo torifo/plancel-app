@@ -12,7 +12,8 @@
     "scenario": "deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv src/cli/scenario.ts",
     "replay": "deno run --allow-env --allow-read --unstable-temporal src/cli/replay.ts",
     "parse:live": "deno run --allow-env --allow-read --allow-write --allow-net=api.groq.com,generativelanguage.googleapis.com --unstable-temporal src/cli/parse_live.ts",
-    "line": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/line/main.ts"
+    "line": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/line/main.ts",
+    "verify": "deno task check && deno lint && deno task test && deno task replay"
   },
   "compilerOptions": {
     "strict": true,

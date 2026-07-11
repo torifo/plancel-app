@@ -14,7 +14,8 @@ For the common pattern of **holding multiple candidate bookings → confirming o
 ```sh
 deno task seed        # load demo data
 deno task scenario    # one-command E2E: confirm → advance 3 days → list notifications
-deno task test        # 299 tests — completes with zero external connections
+deno task test        # 303 tests — completes with zero external connections
+deno task verify      # check + lint + test + replay in one go
 ```
 
 ## Why plancel (vs. calendars / booking apps)
@@ -47,7 +48,7 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
 - **Validation**: Zod — one schema source validates MCP inputs, parser outputs, and Store boundaries
 - **Store**: Deno KV (append-only event log + derived cache; swappable to SQLite via the Store interface)
 - **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (device verification after deploy)
-- **Tests**: 299 via `deno test`, shared contract suite across both Store implementations, one-command E2E, parse replay regression
+- **Tests**: 303 via `deno test`, shared contract suite across both Store implementations, one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)
 
@@ -59,7 +60,7 @@ Then just talk: "hold a table at ◯◯ for 7pm Sat, free cancellation until the
 
 ## Status
 
-**MVP-1 (L0–L3) + parser foundation (L4) + L5 code (real LLM / LINE / Email) implemented**, verifiable with zero external connections. Deploy target: Deno Deploy (VPS fallback). Remaining: real-data replay regression once API keys are set (`deno task parse:live --record` → flip `parsers.config.json` → `deno task replay`), deploy + LINE device verification, weather (typhoon) integration.
+**MVP-1 (L0–L3) + parser foundation (L4) + L5 code (real LLM / LINE / Email) implemented**, verifiable with zero external connections. Deploy target: Deno Deploy (VPS fallback). Remaining: deploy (first step: the ADR-2 remote-KV spike) + LINE/email device verification, weather (typhoon) integration. The real-chain cutover and real-data regression are done (replay 9/9). Local verification runbook: [`docs/VERIFICATION.md`](./docs/VERIFICATION.md).
 
 External-connection env vars: `GROQ_API_KEY` / `GEMINI_API_KEY` (parsers), `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS` (`deno task line`), `RESEND_API_KEY` (EmailNotifier; from/to are constructor-injected).
 
