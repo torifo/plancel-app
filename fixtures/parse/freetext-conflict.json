@@ -4,23 +4,32 @@
   "input_type": "text",
   "attempts": [
     {
-      "parser": "mock-primary",
+      "parser": "groq-llama",
       "raw_response": "{\"service_name\":\"◯◯\",\"starts_at\":\"2026-07-11T19:00:00+09:00\",\"amount_jpy\":-100}"
     },
     {
-      "parser": "mock-secondary",
+      "parser": "gemini-flash",
       "raw_response": "{\"service_name\":\"◯◯\",\"starts_at\":\"2026-07-11T19:30:00+09:00\"}"
     }
   ],
   "expected": {
     "status": "needs_review",
-    "output": { "service_name": "◯◯", "starts_at": "2026-07-11T19:30:00+09:00" },
+    "output": {
+      "service_name": "◯◯",
+      "starts_at": "2026-07-11T19:30:00+09:00"
+    },
     "conflicts": [
       {
         "field": "starts_at",
         "options": [
-          { "parser": "mock-primary", "value": "2026-07-11T19:00:00+09:00" },
-          { "parser": "mock-secondary", "value": "2026-07-11T19:30:00+09:00" }
+          {
+            "parser": "groq-llama",
+            "value": "2026-07-11T19:00:00+09:00"
+          },
+          {
+            "parser": "gemini-flash",
+            "value": "2026-07-11T19:30:00+09:00"
+          }
         ]
       }
     ]

@@ -1,0 +1,25 @@
+{
+  "name": "real-freetext-unknown",
+  "raw_input": "8/1 19時に炭火焼鳥 とり多津 4人で仮押さえした。キャンセル料の話はしてない",
+  "input_type": "text",
+  "attempts": [
+    {
+      "parser": "groq-llama",
+      "raw_response": "{\n  \"service_name\": \"炭火焼鳥 とり多津\",\n   \"provider\": null,\n   \"starts_at\": \"2026-08-01T19:00:00+09:00\",\n   \"ends_at\": null,\n   \"location\": null,\n   \"amount_jpy\": null,\n   \"cancellation_policy\": \"unknown\",\n   \"notes\": \"4人で仮押さえ\"\n}"
+    }
+  ],
+  "expected": {
+    "status": "parsed",
+    "output": {
+      "service_name": "炭火焼鳥 とり多津",
+      "provider": null,
+      "starts_at": "2026-08-01T19:00:00+09:00",
+      "ends_at": null,
+      "location": null,
+      "amount_jpy": null,
+      "cancellation_policy": "unknown",
+      "notes": "4人で仮押さえ"
+    },
+    "conflicts": []
+  }
+}

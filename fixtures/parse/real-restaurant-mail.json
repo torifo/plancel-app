@@ -1,0 +1,38 @@
+{
+  "name": "real-restaurant-mail",
+  "raw_input": "【ご予約確認】鮨さいとう 東京店 2026年8月15日(土) 19:00〜 2名様 おまかせコース 16,500円/名 ※キャンセルは前日20時まで無料、当日キャンセルは料金の100%を頂戴します。ご変更はお電話03-1234-5678まで",
+  "input_type": "text",
+  "attempts": [
+    {
+      "parser": "groq-llama",
+      "raw_response": "{\n  \"service_name\": \"鮨さいとう 東京店\",\n   \"provider\": null,\n   \"starts_at\": \"2026-08-15T19:00:00+09:00\",\n   \"ends_at\": null,\n   \"location\": null,\n   \"amount_jpy\": 33000,\n   \"cancellation_policy\": {\n      \"stages\": [\n         {\n            \"until_offset_hours\": 29,\n            \"fee_percent\": 0,\n            \"fee_fixed_jpy\": null\n         },\n         {\n            \"until_offset_hours\": 0,\n            \"fee_percent\": 100,\n            \"fee_fixed_jpy\": null\n         }\n      ]\n   },\n   \"notes\": null\n}"
+    }
+  ],
+  "expected": {
+    "status": "parsed",
+    "output": {
+      "service_name": "鮨さいとう 東京店",
+      "provider": null,
+      "starts_at": "2026-08-15T19:00:00+09:00",
+      "ends_at": null,
+      "location": null,
+      "amount_jpy": 33000,
+      "cancellation_policy": {
+        "stages": [
+          {
+            "until_offset_hours": 29,
+            "fee_percent": 0,
+            "fee_fixed_jpy": null
+          },
+          {
+            "until_offset_hours": 0,
+            "fee_percent": 100,
+            "fee_fixed_jpy": null
+          }
+        ]
+      },
+      "notes": null
+    },
+    "conflicts": []
+  }
+}

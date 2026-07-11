@@ -4,7 +4,7 @@
   "input_type": "text",
   "attempts": [
     {
-      "parser": "mock-primary",
+      "parser": "groq-llama",
       "raw_response": "{\"service_name\":\"焼肉 三田家\",\"starts_at\":\"2026-08-15T19:00:00+09:00\",\"cancellation_policy\":{\"stages\":[{\"until_offset_hours\":25,\"fee_percent\":0,\"fee_fixed_jpy\":null},{\"until_offset_hours\":0,\"fee_percent\":100,\"fee_fixed_jpy\":null}]}}"
     }
   ],
@@ -15,8 +15,16 @@
       "starts_at": "2026-08-15T19:00:00+09:00",
       "cancellation_policy": {
         "stages": [
-          { "until_offset_hours": 25, "fee_percent": 0, "fee_fixed_jpy": null },
-          { "until_offset_hours": 0, "fee_percent": 100, "fee_fixed_jpy": null }
+          {
+            "until_offset_hours": 25,
+            "fee_percent": 0,
+            "fee_fixed_jpy": null
+          },
+          {
+            "until_offset_hours": 0,
+            "fee_percent": 100,
+            "fee_fixed_jpy": null
+          }
         ]
       }
     },

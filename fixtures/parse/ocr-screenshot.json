@@ -4,13 +4,15 @@
   "input_type": "image",
   "attempts": [
     {
-      "parser": "mock-vision",
+      "parser": "gemini-flash",
       "raw_response": "{\"service_name\":\"カフェ・ド・ソラ\"}"
     }
   ],
   "expected": {
     "status": "needs_review",
-    "output": { "service_name": "カフェ・ド・ソラ" },
+    "output": {
+      "service_name": "カフェ・ド・ソラ"
+    },
     "conflicts": []
   }
 }
