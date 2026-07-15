@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>plancel — 予約とキャンセル期限の台帳</title>
+<style>
+:root{
+  --paper:#f6f5f1; --card:#ffffff; --ink:#22304a; --ink-soft:#5f6b82; --line:#dcd9d0;
+  --navy:#294066; --navy-soft:#eef1f6;
+  --free:#3e8e5a; --mid:#c99a2e; --high:#c0563b; --full:#a03028;
+  --free-soft:#edf7f0; --shadow:0 1px 2px rgba(30,40,60,.05),0 6px 20px rgba(30,40,60,.06);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;
+  background:var(--paper);color:var(--ink);line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1040px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:26px;font-weight:800;color:var(--navy);letter-spacing:.01em}
+h1 .lede{color:var(--ink);font-weight:800}
+.tagline{color:var(--ink-soft);font-size:14px;margin:6px 0 20px}
+.databar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  background:var(--navy-soft);border:1px solid #d7dceb;border-radius:10px;padding:12px 16px;margin-bottom:16px}
+.databar .txt{font-size:13.5px}.databar .txt b{color:var(--navy)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+button{font-family:inherit;cursor:pointer;font-size:14px;border-radius:8px;border:1px solid transparent;padding:9px 16px;transition:.12s}
+.btn-primary{background:var(--navy);color:#fff}.btn-primary:hover{background:#1f3251}
+.btn-ghost{background:#fff;color:var(--ink);border-color:var(--line)}.btn-ghost:hover{border-color:var(--navy);color:var(--navy)}
+.btn-small{background:#fff;color:var(--navy);border:1px solid var(--navy);border-radius:20px;padding:6px 14px;font-size:13px}
+.btn-small:hover{background:var(--navy-soft)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:32px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;box-shadow:var(--shadow)}
+.stat .v{font-size:30px;font-weight:800;line-height:1.1;color:var(--ink)}
+.stat .l{font-size:12.5px;color:var(--ink-soft);margin-top:4px}
+.stat.warn .v{color:var(--high)}
+section h2{font-size:18px;color:var(--navy);border-bottom:2px solid var(--navy);display:inline-block;padding-bottom:6px;margin-bottom:10px}
+.hint{color:var(--ink-soft);font-size:13px;margin-bottom:16px;max-width:720px}
+.empty{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px 24px;box-shadow:var(--shadow)}
+.empty h3{font-size:16px;margin-bottom:14px}
+.startgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.startcard{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#fbfaf7;cursor:pointer;transition:.12s}
+.startcard:hover{border-color:var(--navy);background:var(--navy-soft)}
+.startcard .t{font-weight:700;color:var(--navy);margin-bottom:4px}
+.startcard .d{font-size:12.5px;color:var(--ink-soft)}
+/* reservation cards + timeline */
+.plan{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 4px;margin-bottom:14px;box-shadow:var(--shadow)}
+.plan-head{display:flex;justify-content:space-between;align-items:center;padding:8px 14px 4px}
+.plan-title{font-weight:700;color:var(--navy)}
+.plan-note{font-size:12px;color:var(--ink-soft)}
+.resv{display:grid;grid-template-columns:150px 1fr auto;gap:12px;align-items:center;padding:10px 14px;border-top:1px solid #f0eee7}
+.resv:first-of-type{border-top:none}
+.resv .name{font-weight:600}.resv .sub{font-size:12px;color:var(--ink-soft)}
+.bar-track{position:relative;height:20px;border-radius:5px;overflow:hidden;background:linear-gradient(90deg,var(--free) 0%,var(--free) var(--freepct,20%),var(--mid) var(--freepct,20%),var(--high) 75%,var(--full) 100%)}
+.bar-track.unknown{background:repeating-linear-gradient(45deg,#e7e3da,#e7e3da 6px,#efece4 6px,#efece4 12px)}
+.bar-marker{position:absolute;top:-3px;font-size:12px;transform:translateX(-50%)}
+.bar-cap{font-size:11px;color:var(--ink-soft);margin-top:3px;display:flex;justify-content:space-between}
+.pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:11px;white-space:nowrap}
+.pill.candidate{background:#eef1f6;color:var(--navy)}
+.pill.confirmed{background:var(--free-soft);color:var(--free)}
+.pill.to_cancel{background:#fff0ee;color:var(--full)}
+.rowbtn{background:none;border:1px solid var(--line);border-radius:7px;padding:5px 10px;font-size:12px;color:var(--ink)}
+.rowbtn:hover{border-color:var(--navy);color:var(--navy)}
+/* modal */
+.overlay{position:fixed;inset:0;background:rgba(20,28,44,.5);display:none;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:50;overflow:auto}
+.overlay.on{display:flex}
+.modal{background:#fff;border-radius:14px;width:100%;max-width:560px;padding:24px 26px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.modal-head h3{font-size:19px;color:var(--ink)}
+.x{border:1px solid var(--line);background:#fff;border-radius:8px;width:32px;height:32px;font-size:16px;line-height:1;color:var(--ink-soft)}
+label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px}
+label .req{color:var(--high)}
+input,select,textarea{width:100%;font-family:inherit;font-size:14px;border:1px solid var(--line);border-radius:8px;padding:9px 11px;background:#fbfaf7}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--navy);background:#fff}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.radio-row{display:flex;gap:18px;font-size:14px;margin-bottom:4px}
+.radio-row label{display:flex;align-items:center;gap:6px;font-weight:500;margin:0}
+.modal-foot{margin-top:20px;display:flex;justify-content:center}
+.modal-foot .btn-primary{padding:11px 40px}
+.import-opt{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px;cursor:pointer;transition:.12s}
+.import-opt:hover{border-color:var(--navy);background:var(--navy-soft)}
+.import-opt.sel{border-color:var(--navy);border-width:2px}
+.import-opt .t{font-weight:700;color:var(--navy);margin-bottom:3px}
+.import-opt .d{font-size:12.5px;color:var(--ink-soft)}
+.import-manual{text-align:center;margin-top:6px}
+.import-manual a{color:var(--ink-soft);font-size:13px;text-decoration:underline;cursor:pointer}
+.foot-note{color:var(--ink-soft);font-size:12px;margin-top:28px;border-top:1px solid var(--line);padding-top:12px}
+@media(max-width:720px){.stats{grid-template-columns:1fr 1fr}.startgrid{grid-template-columns:1fr}.resv{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="lede">plancel</span> 予約とキャンセル期限の台帳</h1>
+  <p class="tagline">複数候補を仮押さえ → 1つ確定 → 残りを期限内にキャンセル。キャンセル忘れと余計なキャンセル料を防ぎます。</p>
+
+  <div class="databar">
+    <div class="txt"><b>自分のデータ</b>　この端末のブラウザにのみ保存されます。</div>
+    <button class="btn-small" id="demoBtn">デモデータを見る</button>
+  </div>
+
+  <div class="actions">
+    <button class="btn-primary" id="addBtn">＋ 予約を追加</button>
+    <button class="btn-ghost" id="importBtn">📥 メール・カレンダーから取り込み</button>
+    <button class="btn-ghost" id="helpBtn">？ 使い方</button>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="v" id="stCount">0</div><div class="l">予約</div></div>
+    <div class="stat warn"><div class="v" id="stCancel">0</div><div class="l">要キャンセル</div></div>
+    <div class="stat"><div class="v" id="stNext">—</div><div class="l">次の無料期限</div></div>
+    <div class="stat"><div class="v" id="stLoss">¥0</div><div class="l">放置時の最大損失</div></div>
+  </div>
+
+  <section>
+    <h2>意思決定タイムライン</h2>
+    <p class="hint">各バーは「今日 → 予約日」。色はその時点でキャンセルした場合の損失率（緑=無料、赤が濃いほど高率）。◆が無料キャンセル期限、▶が予約日です。</p>
+    <div id="list"></div>
+  </section>
+
+  <p class="foot-note">バーの区間にホバー（タップ）すると期間と損失額を表示します。自分のデータはこの端末のブラウザにのみ保存されます。</p>
+</div>
+
+<!-- Add modal -->
+<div class="overlay" id="addOverlay">
+  <div class="modal">
+    <div class="modal-head"><h3>予約を追加</h3><button class="x" data-close>×</button></div>
+    <div class="radio-row">
+      <label><input type="radio" name="kind" value="candidate" checked> 候補（プランに束ねる）</label>
+      <label><input type="radio" name="kind" value="confirmed"> 確定済みの予約</label>
+    </div>
+    <label>プラン名（例: 8月の宿）</label>
+    <input id="f_plan" list="planList" placeholder="既存プラン名 or 新しいプラン名">
+    <datalist id="planList"></datalist>
+    <label>お店・宿・サービス名 <span class="req">*</span></label>
+    <input id="f_service" placeholder="例: 湖畔の湯宿 蛍">
+    <div class="two">
+      <div><label>予約日 <span class="req">*</span></label><input id="f_date" type="date"></div>
+      <div><label>時刻</label><input id="f_time" type="time" value="18:00"></div>
+    </div>
+    <div class="two">
+      <div><label>金額（円）</label><input id="f_amount" type="number" placeholder="例: 18000"></div>
+      <div><label>キャンセル料</label>
+        <select id="f_policy">
+          <option value="unknown">不明（あとで入力）</option>
+          <option value="free24">前日まで無料 → 当日100%</option>
+          <option value="staged">7日前まで無料 → 30% → 50% → 100%</option>
+          <option value="none">キャンセル無料</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn-primary" id="f_submit">登録する</button></div>
+  </div>
+</div>
+
+<!-- Import modal -->
+<div class="overlay" id="importOverlay">
+  <div class="modal">
+    <div class="modal-head"><h3>予約を取り込む</h3><button class="x" data-close>×</button></div>
+    <p class="hint" style="margin-bottom:14px">お持ちの予約情報をそのまま使えます。手入力は最後の手段です。</p>
+    <div class="import-opt" data-imp="mail">
+      <div class="t">📧 予約確認メールを貼り付け</div>
+      <div class="d">予約サイトからの確認メール本文を貼るだけ。店名・日時・金額を自動で読み取り、確認してから登録します。</div>
+    </div>
+    <div class="import-opt" data-imp="ics">
+      <div class="t">📅 カレンダーから取り込み（.ics）</div>
+      <div class="d">Google カレンダーや TimeTree からエクスポートした .ics ファイルを選ぶと、今後の予定をまとめて登録します。</div>
+    </div>
+    <div class="import-opt" data-imp="photo">
+      <div class="t">📷 スクショ・写真から読み取り</div>
+      <div class="d">予約画面のスクリーンショットから読み取ります（LINE 連携版で対応予定。ここではサンプルで流れを体験できます）。</div>
+    </div>
+    <div class="import-manual"><a id="manualLink">✎ 手動でまとめて入力する（最後の手段）</a></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const KEY="plancel.v1";
+const DAY=86400000;
+const load=()=>{try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}};
+const save=d=>localStorage.setItem(KEY,JSON.stringify(d));
+let data=load();
+
+// cancellation policies: stages sorted farthest-first {h: hours-before-start, pct}
+const POLICIES={
+  unknown:"unknown",
+  none:{stages:[{h:0,pct:0}]},
+  free24:{stages:[{h:24,pct:0},{h:0,pct:100}]},
+  staged:{stages:[{h:168,pct:0},{h:72,pct:30},{h:24,pct:50},{h:0,pct:100}]},
+};
+const uid=()=>Math.random().toString(36).slice(2,9);
+const startMs=r=>new Date(r.startsAt).getTime();
+const yen=n=>"¥"+(n||0).toLocaleString("ja-JP");
+const fmtDate=ms=>{const d=new Date(ms);return `${d.getMonth()+1}/${d.getDate()}(${"日月火水木金土"[d.getDay()]})`};
+
+// free-cancel deadline = last stage with pct 0 boundary (the hour it flips above 0)
+function freeDeadline(r){
+  if(r.policy==="unknown"||!POLICIES[r.policy]||POLICIES[r.policy]==="unknown")return null;
+  const st=POLICIES[r.policy].stages;
+  // find first stage where pct>0; deadline is its h before start
+  const paid=st.find(s=>s.pct>0);
+  if(!paid)return null; // fully free
+  return startMs(r)-paid.h*3600000;
+}
+function lossPctAt(r,ms){
+  if(r.policy==="unknown"||POLICIES[r.policy]==="unknown")return null;
+  const st=POLICIES[r.policy].stages, start=startMs(r);
+  let pct=0;
+  for(const s of st){ if(ms>=start-s.h*3600000) pct=s.pct; }
+  return pct;
+}
+function maxLoss(r){
+  if(!r.amount||r.policy==="unknown")return 0;
+  const p=POLICIES[r.policy]; if(p==="unknown")return 0;
+  return Math.round(r.amount*Math.max(...p.stages.map(s=>s.pct))/100);
+}
+
+function render(){
+  const active=data.filter(r=>r.status!=="cancelled"&&r.status!=="voided");
+  document.getElementById("stCount").textContent=active.length;
+  document.getElementById("stCancel").textContent=active.filter(r=>r.status==="to_cancel").length;
+  // next free deadline
+  const now=Date.now();
+  const deadlines=active.map(freeDeadline).filter(d=>d&&d>now).sort((a,b)=>a-b);
+  document.getElementById("stNext").textContent=deadlines.length?fmtDate(deadlines[0]):"—";
+  const loss=active.filter(r=>r.status!=="cancelled").reduce((s,r)=>s+maxLoss(r),0);
+  document.getElementById("stLoss").textContent=yen(loss);
+
+  // plan datalist
+  const plans=[...new Set(data.map(r=>r.plan).filter(Boolean))];
+  document.getElementById("planList").innerHTML=plans.map(p=>`<option value="${p}">`).join("");
+
+  const list=document.getElementById("list");
+  if(active.length===0){
+    list.innerHTML=`<div class="empty"><h3>まだ予約がありません。どちらから始めますか？</h3>
+      <div class="startgrid">
+        <div class="startcard" id="sc-scratch"><div class="t">🌱 まっさらから始める</div><div class="d">これから取る予約を1件ずつ登録。候補を複数入れて「プラン」に束ねると、1つ確定したとき残りが自動で要キャンセルになります。</div></div>
+        <div class="startcard" id="sc-import"><div class="t">📚 すでに予約がある</div><div class="d">メール貼り付け・カレンダー取り込み（Google カレンダー / TimeTree）で、手入力なしでまとめて登録できます。</div></div>
+      </div></div>`;
+    document.getElementById("sc-scratch").onclick=openAdd;
+    document.getElementById("sc-import").onclick=openImport;
+    return;
+  }
+  // group by plan (null plan => standalone)
+  const groups={};
+  active.forEach(r=>{const k=r.plan||("__"+r.id);(groups[k]=groups[k]||[]).push(r)});
+  list.innerHTML=Object.entries(groups).map(([k,rs])=>{
+    const title=rs[0].plan?rs[0].plan:rs[0].service;
+    const settled=rs.some(r=>r.status==="confirmed");
+    return `<div class="plan"><div class="plan-head"><div class="plan-title">${title}</div>
+      <div class="plan-note">${rs[0].plan?rs.length+"件の候補":"単独予約"}${settled?" · 確定済み":""}</div></div>
+      ${rs.map(rowHtml).join("")}</div>`;
+  }).join("");
+  list.querySelectorAll("[data-confirm]").forEach(b=>b.onclick=()=>confirmResv(b.dataset.confirm));
+  list.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=()=>reportCancel(b.dataset.cancel));
+}
+function rowHtml(r){
+  const now=Date.now(),start=startMs(r);
+  const span=Math.max(start-now,DAY);
+  const dl=freeDeadline(r);
+  const freePct=dl?Math.max(0,Math.min(100,((dl-now)/span)*100)):0;
+  const track=r.policy==="unknown"
+    ? `<div class="bar-track unknown" title="キャンセル規定が不明です"></div>`
+    : `<div class="bar-track" style="--freepct:${freePct}%">
+         ${dl&&dl>now?`<span class="bar-marker" style="left:${freePct}%" title="無料キャンセル期限 ${fmtDate(dl)}">◆</span>`:""}
+         <span class="bar-marker" style="left:100%" title="予約日 ${fmtDate(start)}">▶</span></div>`;
+  const cap=`<div class="bar-cap"><span>今日</span><span>${r.policy==="unknown"?"キャンセル規定 不明":(dl&&dl>now?"無料期限 "+fmtDate(dl):"無料期間なし")}</span><span>${fmtDate(start)}</span></div>`;
+  const actions=r.status==="candidate"
+    ? `<button class="rowbtn" data-confirm="${r.id}">これで確定</button>`
+    : r.status==="confirmed"
+    ? `<button class="rowbtn" data-cancel="${r.id}">キャンセルした</button>`
+    : `<button class="rowbtn" data-cancel="${r.id}">キャンセル実施</button>`;
+  return `<div class="resv">
+    <div><div class="name">${r.service}</div><div class="sub">${r.amount?yen(r.amount):"金額未定"} · ${maxLoss(r)?"最大損失 "+yen(maxLoss(r)):"損失計算不可"}</div>
+      <span class="pill ${r.status}">${({candidate:"候補",confirmed:"確定",to_cancel:"要キャンセル"})[r.status]}</span></div>
+    <div>${track}${cap}</div>
+    <div>${actions}</div></div>`;
+}
+
+function confirmResv(id){
+  const r=data.find(x=>x.id===id);if(!r)return;
+  r.status="confirmed";
+  if(r.plan){data.forEach(x=>{if(x.plan===r.plan&&x.id!==id&&x.status==="candidate")x.status="to_cancel"})}
+  save(data);render();
+}
+function reportCancel(id){const r=data.find(x=>x.id===id);if(!r)return;r.status="cancelled";save(data);render()}
+
+// modals
+const q=s=>document.querySelector(s);
+function openAdd(){q("#addOverlay").classList.add("on");
+  const d=new Date(Date.now()+7*DAY);q("#f_date").value=d.toISOString().slice(0,10)}
+function openImport(){q("#importOverlay").classList.add("on")}
+function closeAll(){document.querySelectorAll(".overlay").forEach(o=>o.classList.remove("on"))}
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=closeAll);
+document.querySelectorAll(".overlay").forEach(o=>o.onclick=e=>{if(e.target===o)closeAll()});
+q("#addBtn").onclick=openAdd;q("#importBtn").onclick=openImport;
+q("#helpBtn").onclick=()=>alert("使い方\\n\\n1. 候補を複数「予約を追加」でプランに束ねる\\n2. 行き先が決まったら「これで確定」→ 同プランの残りが自動で要キャンセルに\\n3. タイムラインの◆（無料期限）を過ぎる前にキャンセルを実施\\n\\nデータはこの端末にだけ保存されます。");
+
+q("#f_submit").onclick=()=>{
+  const service=q("#f_service").value.trim(), date=q("#f_date").value;
+  if(!service||!date){alert("お店・宿・サービス名と予約日は必須です。");return}
+  const time=q("#f_time").value||"18:00";
+  const kind=[...document.getElementsByName("kind")].find(r=>r.checked).value;
+  const r={id:uid(),plan:q("#f_plan").value.trim()||null,service,
+    startsAt:new Date(date+"T"+time+":00").toISOString(),
+    amount:q("#f_amount").value?Number(q("#f_amount").value):null,
+    policy:q("#f_policy").value,status:kind==="confirmed"?"confirmed":"candidate"};
+  data.push(r);
+  if(r.status==="confirmed"&&r.plan){data.forEach(x=>{if(x.plan===r.plan&&x.id!==r.id&&x.status==="candidate")x.status="to_cancel"})}
+  save(data);closeAll();
+  q("#f_service").value="";q("#f_amount").value="";q("#f_plan").value="";
+  render();
+};
+
+// import options are guided stubs (real parsing arrives with the LINE/email pipeline)
+document.querySelectorAll(".import-opt").forEach(o=>o.onclick=()=>{
+  const t=o.dataset.imp;
+  const msg={mail:"予約確認メールの貼り付け解析は、LINE/メール連携パイプラインで対応予定です。今は「予約を追加」から手動で登録できます。",
+    ics:".ics 取り込みは近日対応予定です。今は「予約を追加」から手動で登録できます。",
+    photo:"スクショ読み取りは LINE 連携版で対応予定です。今は「予約を追加」から手動で登録できます。"}[t];
+  closeAll();alert(msg);openAdd();
+});
+q("#manualLink").onclick=()=>{closeAll();openAdd()};
+
+// demo data
+q("#demoBtn").onclick=()=>{
+  const base=Date.now();
+  const mk=(plan,service,days,amount,policy,status)=>({id:uid(),plan,service,
+    startsAt:new Date(base+days*DAY).toISOString(),amount,policy,status});
+  data=[
+    mk("8月の宿","湖畔の湯宿 蛍",20,36000,"staged","candidate"),
+    mk("8月の宿","山海の宿 花結び",20,28000,"free24","candidate"),
+    mk(null,"鮨さいとう 東京店",5,33000,"free24","confirmed"),
+    mk(null,"鉄板焼き 銀の匙",9,null,"unknown","candidate"),
+  ];
+  save(data);render();
+};
+
+render();
+</script>
+</body>
+</html>

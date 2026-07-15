@@ -1,9 +1,13 @@
 /**
  * Unified Deno Deploy entrypoint (deploy wiring — separate org per ADR-2).
  *
- * One deployment serves BOTH surfaces off a single managed-KV Store:
- *   - `Deno.serve` — LINE webhook (POST /webhook) + GET /healthz
+ * One deployment serves ALL surfaces off a single managed-KV Store:
+ *   - `Deno.serve` — the web UI (GET /), LINE webhook (POST /webhook), GET /healthz
  *   - `Deno.cron`  — the 15-minute boundary check (SDD §6 スケジューラ)
+ *
+ * The web UI (web/index.html, MVP per owner 2026-07-16) is the primary
+ * surface; it is a self-contained client-side app (localStorage) served at
+ * `/`. Wiring it to the core KV over an HTTP API is the next step.
  *
  * Deno Deploy runs `Deno.cron` and `Deno.serve` from the same entrypoint, so
  * plancel needs no second deployment. The cron and the webhook share one
@@ -65,8 +69,15 @@ if (import.meta.main) {
     : null;
   log.info("webhook configured", { enabled: webhookDeps !== null });
 
+  // Web UI served at `/` (read once at startup; the repo file ships with the deploy).
+  const INDEX_HTML = await Deno.readTextFile(new URL("../../web/index.html", import.meta.url));
+  const htmlHeaders = { "content-type": "text/html; charset=utf-8" };
+
   Deno.serve({ port: Number(env.get("PORT") ?? "8000") }, async (req) => {
     const url = new URL(req.url);
+    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+      return new Response(INDEX_HTML, { headers: htmlHeaders });
+    }
     if (req.method === "GET" && url.pathname === "/healthz") {
       return new Response("ok");
     }
