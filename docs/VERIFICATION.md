@@ -82,6 +82,20 @@ curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:18080/webhook -H
 ここで検証できる範囲は**署名検証と許可リストまで**。返信（reply）・画像取得は LINE の実トークンが要るため
 実機確認（デプロイ後）に属する。返信メッセージ生成・Quick Reply 解決のロジック自体は 1.1 のユニットテストが担保。
 
+### 1.6b 統合デプロイ・エントリポイントのローカルスモーク（任意）
+
+本番と同じ `src/deploy/main.ts`（`Deno.serve` webhook + `Deno.cron` を共有 KV で同居）を丸ごと起動する。
+
+```sh
+LINE_CHANNEL_SECRET=dummy LINE_CHANNEL_ACCESS_TOKEN=dummy \
+LINE_ALLOWED_USER_IDS=U-owner PORT=18091 deno task deploy:serve &
+
+curl -s http://localhost:18091/healthz    # → ok
+# 起動ログに cron registered（notifier: line/email/console）と webhook configured が出る
+```
+
+`--unstable-cron` はタスクに含めてある（Deploy 上はフラグ不要）。デプロイ手順は [`DEPLOY.md`](./DEPLOY.md)。
+
 ### 1.7 MCP サーバー（任意）
 
 ```sh

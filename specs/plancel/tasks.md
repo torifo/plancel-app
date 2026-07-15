@@ -89,6 +89,13 @@
   - Done when: 記録済みフィクスチャの再実行で一致/差分が報告される
   - Depends on: Task 5.1
 
+### Wave 7 — デプロイ配線（Deno Deploy、opulse と別 org）
+- [x] **Task 7.1**: 統合エントリポイント + 本番 Notifier 配線（2026-07-15）
+  - What: `src/deploy/main.ts` — 1 デプロイで `Deno.serve`（LINE webhook + /healthz）と `Deno.cron`（15分境界チェック）を共有 KvStore で同居。`src/deploy/notifier.ts` の `selectNotifier` が env から LINE push > Email > Console を選択
+  - Files: `src/deploy/main.ts`, `src/deploy/notifier.ts`, `docs/DEPLOY.md`
+  - Done when: ローカル起動で healthz=ok / 署名不正=401 / 正当=200 / cron 登録ログ、テスト green（`deno task deploy:serve` で確認済み・selectNotifier テスト6件）
+  - 残（ユーザー/ダッシュボード）: org 作成・GitHub 連携・KV リンク・env secret・ADR-2 KV スパイク・実機確認。手順は docs/DEPLOY.md
+
 ### Wave 6 — L5: 外部接続（after Wave 4, 5）
 - [ ] **Task 6.1**: 実 LLM パーサー（Groq / Gemini Flash）
   - What: 実装 + 無料枠クォータの現行条件再確認（ADR-5）。vision 経路は Gemini 固定
