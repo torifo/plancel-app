@@ -65,6 +65,12 @@ export class KvStore implements Store {
     return new KvStore(kv);
   }
 
+  /** The underlying Deno KV handle — for adjacent per-user stores (web API)
+   * that share the same database but use their own key namespace. */
+  get kv(): Deno.Kv {
+    return this.#kv;
+  }
+
   async getEvent(id: string): Promise<Event | null> {
     const entry = await this.#kv.get<Event>([EVENT, id]);
     if (entry.value === null) return null;

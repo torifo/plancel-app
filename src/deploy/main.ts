@@ -31,6 +31,7 @@ import { loadParserChainConfig, realParsers } from "../parse/mod.ts";
 import { runTick } from "../cron/tick.ts";
 import { createLineClient } from "../line/client.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../line/webhook.ts";
+import { handleWebApi, isApiPath } from "../web/api.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 
 const CRON_NAME = "plancel-boundary-check";
@@ -73,10 +74,19 @@ if (import.meta.main) {
   const INDEX_HTML = await Deno.readTextFile(new URL("../../web/index.html", import.meta.url));
   const htmlHeaders = { "content-type": "text/html; charset=utf-8" };
 
+  // Web API (per-user reservation CRUD in the shared KV, keyed by browser token).
+  const webIds = {
+    newId: () => ulid(),
+    nowIso: () => clock.now().toString({ smallestUnit: "millisecond" }),
+  };
+
   Deno.serve({ port: Number(env.get("PORT") ?? "8000") }, async (req) => {
     const url = new URL(req.url);
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return new Response(INDEX_HTML, { headers: htmlHeaders });
+    }
+    if (isApiPath(url.pathname)) {
+      return await handleWebApi(store.kv, req, webIds);
     }
     if (req.method === "GET" && url.pathname === "/healthz") {
       return new Response("ok");
