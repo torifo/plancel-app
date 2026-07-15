@@ -6,13 +6,14 @@
     "fmt": "deno fmt",
     "check:no-date": "deno run --allow-read scripts/no_direct_date_check.ts src",
     "check": "deno check src && deno task check:no-date",
-    "cron": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/cron/main.ts",
+    "cron": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv --unstable-cron src/cron/main.ts",
     "cron:once": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/cron/vps_main.ts",
     "seed": "deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv src/cli/seed.ts",
     "scenario": "deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv src/cli/scenario.ts",
     "replay": "deno run --allow-env --allow-read --unstable-temporal src/cli/replay.ts",
     "parse:live": "deno run --allow-env --allow-read --allow-write --allow-net=api.groq.com,generativelanguage.googleapis.com --unstable-temporal src/cli/parse_live.ts",
     "line": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/line/main.ts",
+    "deploy:serve": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv --unstable-cron src/deploy/main.ts",
     "verify": "deno task check && deno lint && deno task test && deno task replay"
   },
   "compilerOptions": {
