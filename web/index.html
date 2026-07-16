@@ -75,6 +75,26 @@
       color: var(--ink-soft);
       margin-top: 2px;
     }
+    .demobar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: #fff6e6;
+      border: 1px solid #e6d3a3;
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      font-size: 13.5px;
+      color: #8a5a12;
+    }
+    .demobar.on {
+      display: flex;
+    }
+    .demobar b {
+      color: #7a4e0e;
+    }
     .actions {
       display: flex;
       gap: 10px;
@@ -456,14 +476,19 @@
       <p
         class="tagline">複数候補を仮押さえ → 1つ確定 → 残りを期限内にキャンセル。キャンセル忘れと余計なキャンセル料を防ぎます。</p>
 
-      <div class="databar">
+      <div class="databar" id="dataBar">
         <div>
           <div
             class="txt"><b>自分のデータ</b>　この端末のトークンでサーバに保存（他端末は同じトークンで共有）。</div>
           <div
             class="tokline">あなたのトークン: <span id="tokView">…</span>　<a id="tokCopy" style="cursor:pointer;text-decoration:underline">コピー</a> · <a id="tokSet" style="cursor:pointer;text-decoration:underline">別のトークンを使う</a></div>
         </div>
-        <button class="btn-small" id="demoBtn">デモデータを追加</button>
+        <button class="btn-small" id="demoBtn">デモを見る</button>
+      </div>
+
+      <div class="demobar" id="demoBar">
+        <div><b>デモを表示中</b>　これはサンプルで、あなたのデータではありません。ここでの追加・編集・削除は自分の台帳に影響しません。</div>
+        <button class="btn-small" id="exitDemo">← 自分のデータに戻る</button>
       </div>
 
       <div class="actions">
@@ -565,17 +590,25 @@
     "use strict";
     const DAY = 86400000;
     // Per-user identity lives in localStorage; the actual data lives server-side in KV keyed by this token.
-    let TOKEN = localStorage.getItem("plancel.token");
-    if (!TOKEN) {
-      TOKEN = crypto.randomUUID
-        ? crypto.randomUUID()
-        : Math.random().toString(36).slice(2) + Date.now().toString(36);
-      localStorage.setItem("plancel.token", TOKEN);
+    function realToken() {
+      let t = localStorage.getItem("plancel.token");
+      if (!t) {
+        t = crypto.randomUUID
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem("plancel.token", t);
+      }
+      return t;
     }
-    async function api(method, path, body) {
+    let TOKEN = realToken(); // the ACTIVE token (real ledger, or the demo space)
+    let viewingDemo = false;
+    async function api(method, path, body, tok) {
       const res = await fetch(path, {
         method,
-        headers: { "x-plancel-token": TOKEN, ...(body ? { "content-type": "application/json" } : {}) },
+        headers: {
+          "x-plancel-token": tok || TOKEN,
+          ...(body ? { "content-type": "application/json" } : {}),
+        },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
       if (!res.ok) {
@@ -587,8 +620,7 @@
       }
       return res.json();
     }
-    let data = []; // cached server list
-    let editingId = null;
+    let data = [];
 
     const POLICIES = {
       unknown: "unknown",
@@ -598,7 +630,6 @@
         stages: [{ h: 168, pct: 0 }, { h: 72, pct: 30 }, { h: 24, pct: 50 }, { h: 0, pct: 100 }],
       },
     };
-    const uid = () => Math.random().toString(36).slice(2, 9);
     const startMs = (r) => new Date(r.startsAt).getTime();
     const yen = (n) => "¥" + (n || 0).toLocaleString("ja-JP");
     const fmtDate = (ms) => {
@@ -632,7 +663,9 @@
     }
 
     function render() {
-      q("#tokView").textContent = TOKEN.slice(0, 8) + "…";
+      q("#dataBar").style.display = viewingDemo ? "none" : "flex";
+      q("#demoBar").classList.toggle("on", viewingDemo);
+      if (!viewingDemo) q("#tokView").textContent = realToken().slice(0, 8) + "…";
       const active = data.filter((r) => r.status !== "cancelled");
       q("#stCount").textContent = active.length;
       q("#stCancel").textContent = active.filter((r) => r.status === "to_cancel").length;
@@ -755,6 +788,7 @@
       [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === "candidate");
       q("#addOverlay").classList.add("on");
     }
+    let editingId = null;
     function openImport() {
       q("#importOverlay").classList.add("on");
     }
@@ -837,46 +871,59 @@
     // token controls
     q("#tokCopy").onclick = async () => {
       try {
-        await navigator.clipboard.writeText(TOKEN);
+        await navigator.clipboard.writeText(realToken());
         alert("トークンをコピーしました。別端末で「別のトークンを使う」に貼ると同じ台帳が開けます。");
       } catch (e) {
-        prompt("このトークンを控えてください:", TOKEN);
+        prompt("このトークンを控えてください:", realToken());
       }
     };
     q("#tokSet").onclick = () => {
-      const t = prompt("使うトークンを入力（別端末と共有する場合はそのトークン）:", TOKEN);
+      const t = prompt("使うトークンを入力（別端末と共有する場合はそのトークン）:", realToken());
       if (t && t.trim()) {
-        TOKEN = t.trim();
-        localStorage.setItem("plancel.token", TOKEN);
+        localStorage.setItem("plancel.token", t.trim());
+        TOKEN = realToken();
+        viewingDemo = false;
         refresh();
       }
     };
 
-    // demo
-    q("#demoBtn").onclick = async () => {
-      const mk = (plan, service, days, amount, policy, confirmed) => ({
-        plan,
-        service,
-        startsAt: new Date(Date.now() + days * DAY).toISOString(),
-        amount,
-        policy,
-        confirmed: !!confirmed,
-      });
-      const demo = [
-        mk("8月の宿", "湖畔の湯宿 蛍", 20, 36000, "staged", false),
-        mk("8月の宿", "山海の宿 花結び", 20, 28000, "free24", false),
-        mk(null, "鮨さいとう 東京店", 5, 33000, "free24", true),
-        mk(null, "鉄板焼き 銀の匙", 9, null, "unknown", false),
-      ];
-      for (const r of demo) {
-        try {
-          await api("POST", "/api/reservations", r);
-        } catch (e) {
-          console.error(e);
+    // demo — a SEPARATE sample space (its own token), never mixed into your ledger
+    async function enterDemo() {
+      const dtok = realToken() + "::demo";
+      try {
+        const cur = await api("GET", "/api/reservations", null, dtok);
+        if (cur.reservations.length === 0) {
+          const mk = (plan, service, days, amount, policy, confirmed) => ({
+            plan,
+            service,
+            startsAt: new Date(Date.now() + days * DAY).toISOString(),
+            amount,
+            policy,
+            confirmed: !!confirmed,
+          });
+          const demo = [
+            mk("8月の宿", "湖畔の湯宿 蛍", 20, 36000, "staged", false),
+            mk("8月の宿", "山海の宿 花結び", 20, 28000, "free24", false),
+            mk(null, "鮨さいとう 東京店", 5, 33000, "free24", true),
+            mk(null, "鉄板焼き 銀の匙", 9, null, "unknown", false),
+          ];
+          for (const r of demo) await api("POST", "/api/reservations", r, dtok);
         }
+      } catch (e) {
+        alert("デモの読み込みに失敗しました: " + e.message);
+        return;
       }
+      TOKEN = dtok;
+      viewingDemo = true;
       await refresh();
-    };
+    }
+    function exitDemo() {
+      TOKEN = realToken();
+      viewingDemo = false;
+      refresh();
+    }
+    q("#demoBtn").onclick = enterDemo;
+    q("#exitDemo").onclick = exitDemo;
 
     refresh();
     </script>
