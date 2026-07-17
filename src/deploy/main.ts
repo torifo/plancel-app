@@ -32,6 +32,7 @@ import { runTick } from "../cron/tick.ts";
 import { createLineClient } from "../line/client.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../line/webhook.ts";
 import { handleWebApi, isApiPath } from "../web/api.ts";
+import { handleParseApi, type ParseApiDeps } from "../web/parse-api.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 
 const CRON_NAME = "plancel-boundary-check";
@@ -52,6 +53,10 @@ if (import.meta.main) {
   });
   log.info("cron registered", { schedule: CRON_SCHEDULE, notifier: kind });
 
+  // One parser chain shared by every intake surface (web /api/parse, LINE).
+  const parsers = realParsers({ clock });
+  const chainConfig = await loadParserChainConfig();
+
   // Webhook deps only when LINE is configured; healthz always serves.
   const channelSecret = env.get("LINE_CHANNEL_SECRET");
   const lineToken = env.get("LINE_CHANNEL_ACCESS_TOKEN");
@@ -63,8 +68,8 @@ if (import.meta.main) {
       channelSecret,
       allowedUserIds,
       ctx,
-      parsers: realParsers({ clock }),
-      chainConfig: await loadParserChainConfig(),
+      parsers,
+      chainConfig,
       client: createLineClient({ channelAccessToken: lineToken }),
     }
     : null;
@@ -79,11 +84,22 @@ if (import.meta.main) {
     newId: () => ulid(),
     nowIso: () => clock.now().toString({ smallestUnit: "millisecond" }),
   };
+  // Web intake: pasted mail text / screenshot images through the parse chain.
+  const parseDeps: ParseApiDeps = {
+    parsers,
+    chainConfig,
+    clock,
+    ids: { ulid: () => ulid(), nowIso: webIds.nowIso },
+    saveJob: (job) => store.putParseJob(job),
+  };
 
   Deno.serve({ port: Number(env.get("PORT") ?? "8000") }, async (req) => {
     const url = new URL(req.url);
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return new Response(INDEX_HTML, { headers: htmlHeaders });
+    }
+    if (url.pathname === "/api/parse") {
+      return await handleParseApi(req, parseDeps);
     }
     if (isApiPath(url.pathname)) {
       return await handleWebApi(store.kv, req, webIds);

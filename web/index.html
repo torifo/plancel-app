@@ -419,6 +419,16 @@
     .modal-foot .btn-primary {
       padding: 11px 40px;
     }
+    .parse-note {
+      display: none;
+      background: var(--free-soft);
+      border: 1px solid #bfe0cb;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12.5px;
+      color: var(--free);
+      margin-bottom: 6px;
+    }
     .import-opt {
       border: 1px solid var(--line);
       border-radius: 10px;
@@ -449,6 +459,22 @@
       font-size: 13px;
       text-decoration: underline;
       cursor: pointer;
+    }
+    .ics-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 8px 6px;
+      border-bottom: 1px solid #f0eee7;
+      font-weight: 500;
+    }
+    .ics-item input {
+      width: auto;
+      margin-top: 5px;
+    }
+    .ics-item .when {
+      font-size: 12px;
+      color: var(--ink-soft);
     }
     .foot-note {
       color: var(--ink-soft);
@@ -532,6 +558,8 @@
       <div class="modal">
         <div
           class="modal-head"><h3 id="addTitle">予約を追加</h3><button class="x" data-close>×</button></div>
+        <div class="parse-note"
+          id="parseNote">🤖 自動で読み取った内容です。確認・修正して登録してください。</div>
         <div class="radio-row" id="kindRow">
           <label><input type="radio" name="kind" value="candidate" checked> 候補（プランに束ねる）</label>
           <label><input type="radio" name="kind" value="confirmed"> 確定済みの予約</label>
@@ -560,7 +588,7 @@
       </div>
     </div>
 
-    <!-- Import modal -->
+    <!-- Import chooser -->
     <div class="overlay" id="importOverlay">
       <div class="modal">
         <div class="modal-head"><h3>予約を取り込む</h3><button class="x" data-close>×</button></div>
@@ -569,7 +597,7 @@
         <div class="import-opt" data-imp="mail">
           <div class="t">📧 予約確認メールを貼り付け</div>
           <div
-            class="d">予約サイトからの確認メール本文を貼るだけ。店名・日時・金額を自動で読み取り、確認してから登録します。</div>
+            class="d">予約サイトからの確認メール本文を貼るだけ。店名・日時・場所・金額・キャンセル規定を AI が読み取り、確認してから登録します。</div>
         </div>
         <div class="import-opt" data-imp="ics">
           <div class="t">📅 カレンダーから取り込み（.ics）</div>
@@ -579,12 +607,48 @@
         <div class="import-opt" data-imp="photo">
           <div class="t">📷 スクショ・写真から読み取り</div>
           <div
-            class="d">予約画面のスクリーンショットから読み取ります（LINE 連携版で対応予定。ここではサンプルで流れを体験できます）。</div>
+            class="d">予約画面のスクリーンショットや写真を AI（vision）が読み取り、確認してから登録します。</div>
         </div>
         <div
           class="import-manual"><a id="manualLink">✎ 手動でまとめて入力する（最後の手段）</a></div>
       </div>
     </div>
+
+    <!-- Paste-mail modal -->
+    <div class="overlay" id="pasteOverlay">
+      <div class="modal">
+        <div
+          class="modal-head"><h3>予約確認メールを貼り付け</h3><button class="x" data-close>×</button></div>
+        <p class="hint"
+          style="margin-bottom:10px">確認メールの本文を貼り付けてください。電話番号・メールアドレスは送信前に自動でマスクされます。</p>
+        <textarea id="pasteText" rows="10" placeholder="ここにメール本文を貼り付け"></textarea>
+        <div class="modal-foot"><button class="btn-primary" id="pasteSubmit">読み取る</button></div>
+      </div>
+    </div>
+
+    <!-- ICS selection modal -->
+    <div class="overlay" id="icsOverlay">
+      <div class="modal">
+        <div
+          class="modal-head"><h3>カレンダーから取り込み</h3><button class="x" data-close>×</button></div>
+        <p class="hint"
+          style="margin-bottom:10px">今後の予定が見つかりました。取り込むものを選んでください（「候補」・キャンセル規定「不明」で登録され、あとから編集できます）。</p>
+        <div id="icsList" style="max-height:320px;overflow:auto"></div>
+        <div
+          class="modal-foot"><button class="btn-primary" id="icsSubmit">選択した予定を登録</button></div>
+      </div>
+    </div>
+
+    <!-- Busy overlay -->
+    <div class="overlay" id="busyOverlay">
+      <div class="modal" style="max-width:320px;text-align:center">
+        <div id="busyText" style="font-weight:700;color:var(--navy)">読み取り中…</div>
+        <div class="hint" style="margin:8px 0 0">AI が解析しています（数秒かかります）</div>
+      </div>
+    </div>
+
+    <input type="file" id="icsInput" accept=".ics,text/calendar" style="display:none">
+    <input type="file" id="photoInput" accept="image/*" style="display:none">
 
     <script>
     "use strict";
@@ -621,6 +685,7 @@
       return res.json();
     }
     let data = [];
+    let editingId = null;
 
     const POLICIES = {
       unknown: "unknown",
@@ -768,27 +833,31 @@
       await refresh();
     }
 
-    // modal
+    // ---- add / edit modal (also the confirmation screen for parsed imports) ----
     function openAdd(r) {
-      editingId = r ? r.id : null;
-      q("#addTitle").textContent = r ? "予約を編集" : "予約を追加";
-      q("#f_submit").textContent = r ? "更新する" : "登録する";
-      q("#kindRow").style.display = r ? "none" : "flex";
-      q("#f_plan").value = r ? (r.plan || "") : "";
-      q("#f_service").value = r ? r.service : "";
-      const d = r ? new Date(r.startsAt) : new Date(Date.now() + 7 * DAY);
+      const isEdit = !!(r && r.id);
+      const isPrefill = !!(r && r._prefill);
+      editingId = isEdit ? r.id : null;
+      q("#addTitle").textContent = isEdit
+        ? "予約を編集"
+        : (isPrefill ? "読み取り結果の確認" : "予約を追加");
+      q("#parseNote").style.display = isPrefill ? "block" : "none";
+      q("#f_submit").textContent = isEdit ? "更新する" : "登録する";
+      q("#kindRow").style.display = isEdit ? "none" : "flex";
+      q("#f_plan").value = (r && r.plan) ? r.plan : "";
+      q("#f_service").value = (r && r.service) ? r.service : "";
+      const d = (r && r.startsAt) ? new Date(r.startsAt) : new Date(Date.now() + 7 * DAY);
       q("#f_date").value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
         String(d.getDate()).padStart(2, "0")
       }`;
       q("#f_time").value = `${String(d.getHours()).padStart(2, "0")}:${
         String(d.getMinutes()).padStart(2, "0")
       }`;
-      q("#f_amount").value = r && r.amount != null ? r.amount : "";
-      q("#f_policy").value = r ? r.policy : "unknown";
+      q("#f_amount").value = (r && r.amount != null) ? r.amount : "";
+      q("#f_policy").value = (r && r.policy) ? r.policy : "unknown";
       [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === "candidate");
       q("#addOverlay").classList.add("on");
     }
-    let editingId = null;
     function openImport() {
       q("#importOverlay").classList.add("on");
     }
@@ -798,14 +867,14 @@
     document.querySelectorAll("[data-close]").forEach((b) => b.onclick = closeAll);
     document.querySelectorAll(".overlay").forEach((o) =>
       o.onclick = (e) => {
-        if (e.target === o) closeAll();
+        if (e.target === o && o.id !== "busyOverlay") closeAll();
       }
     );
     q("#addBtn").onclick = () => openAdd();
     q("#importBtn").onclick = openImport;
     q("#helpBtn").onclick = () =>
       alert(
-        "使い方\\n\\n1. 候補を複数「予約を追加」でプランに束ねる\\n2. 決まったら「これで確定」→ 同プランの残りが自動で要キャンセルに\\n3. タイムラインの◆（無料期限）を過ぎる前にキャンセルを実施\\n\\nデータはあなたのトークンでサーバに保存。別端末は同じトークンで開けます。",
+        "使い方\n\n1. 候補を複数「予約を追加」でプランに束ねる\n2. 決まったら「これで確定」→ 同プランの残りが自動で要キャンセルに\n3. タイムラインの◆（無料期限）を過ぎる前にキャンセルを実施\n\n取り込み: メール本文の貼り付け・.ics・スクショから自動登録できます。\nデータはあなたのトークンでサーバに保存。別端末は同じトークンで開けます。",
       );
 
     q("#f_submit").onclick = async () => {
@@ -848,21 +917,204 @@
       await refresh();
     };
 
-    document.querySelectorAll(".import-opt").forEach((o) =>
-      o.onclick = () => {
-        const t = o.dataset.imp;
-        const msg = {
-          mail:
-            "予約確認メールの貼り付け解析は、LINE/メール連携パイプラインで対応予定です。今は「予約を追加」から手動で登録できます。",
-          ics: ".ics 取り込みは近日対応予定です。今は「予約を追加」から手動で登録できます。",
-          photo:
-            "スクショ読み取りは LINE 連携版で対応予定です。今は「予約を追加」から手動で登録できます。",
-        }[t];
-        closeAll();
-        alert(msg);
-        openAdd();
+    // ---- imports: all real now (mail paste / .ics / photo). LINE 連携のみ後日 ----
+    function busy(on, txt) {
+      q("#busyText").textContent = txt || "読み取り中…";
+      q("#busyOverlay").classList.toggle("on", !!on);
+    }
+    async function parseRemote(type, content) {
+      busy(true, type === "image" ? "画像を解析中…" : "テキストを解析中…");
+      try {
+        return await api("POST", "/api/parse", { type, content });
+      } finally {
+        busy(false);
       }
-    );
+    }
+    function handleParseResult(res) {
+      if (res.status === "failed") {
+        alert(
+          "読み取れませんでした。店名と日時がわかる形で貼り付けるか、手動で追加してください。" +
+            (res.detail ? "\n\n詳細: " + String(res.detail).slice(0, 200) : ""),
+        );
+        openAdd();
+        return;
+      }
+      if (res.status === "needs_review" && res.missing && res.missing.length) {
+        alert(
+          "一部読み取れませんでした（" + res.missing.join(" / ") + "）。確認画面で補完してください。",
+        );
+      }
+      const f = res.fields || {};
+      openAdd({
+        service: f.service || "",
+        startsAt: f.startsAt || null,
+        amount: f.amount,
+        policy: f.policy || "unknown",
+        plan: null,
+        _prefill: true,
+      });
+    }
+
+    // mail paste
+    document.querySelector('[data-imp="mail"]').onclick = () => {
+      closeAll();
+      q("#pasteText").value = "";
+      q("#pasteOverlay").classList.add("on");
+    };
+    q("#pasteSubmit").onclick = async () => {
+      const t = q("#pasteText").value.trim();
+      if (!t) {
+        alert("メール本文を貼り付けてください。");
+        return;
+      }
+      closeAll();
+      try {
+        handleParseResult(await parseRemote("text", t));
+      } catch (e) {
+        alert("解析に失敗しました: " + e.message);
+      }
+    };
+
+    // photo / screenshot
+    document.querySelector('[data-imp="photo"]').onclick = () => {
+      closeAll();
+      q("#photoInput").value = "";
+      q("#photoInput").click();
+    };
+    async function imageToDataUrl(file) {
+      try {
+        const img = await createImageBitmap(file);
+        const max = 1600, scale = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        return c.toDataURL("image/jpeg", 0.85);
+      } catch (e) {
+        return await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result);
+          r.onerror = rej;
+          r.readAsDataURL(file);
+        });
+      }
+    }
+    q("#photoInput").onchange = async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      try {
+        handleParseResult(await parseRemote("image", await imageToDataUrl(f)));
+      } catch (err) {
+        alert("画像の解析に失敗しました: " + err.message);
+      }
+    };
+
+    // .ics import (parsed locally in the browser — no upload of the whole calendar)
+    document.querySelector('[data-imp="ics"]').onclick = () => {
+      closeAll();
+      q("#icsInput").value = "";
+      q("#icsInput").click();
+    };
+    function unescapeIcs(s) {
+      return s.replace(/\\n/gi, " ").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\");
+    }
+    function icsDateToIso(v) {
+      let m = v.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+      if (m) {
+        const y = +m[1], mo = +m[2] - 1, d = +m[3], h = +m[4], mi = +m[5], s = +m[6];
+        return m[7]
+          ? new Date(Date.UTC(y, mo, d, h, mi, s)).toISOString()
+          : new Date(y, mo, d, h, mi, s).toISOString();
+      }
+      m = v.match(/^(\d{4})(\d{2})(\d{2})$/);
+      if (m) return new Date(+m[1], +m[2] - 1, +m[3], 0, 0, 0).toISOString();
+      return null;
+    }
+    function parseIcs(text) {
+      const unfolded = text.replace(/\r?\n[ \t]/g, "");
+      const events = [];
+      for (const block of unfolded.split("BEGIN:VEVENT").slice(1)) {
+        const body = block.split("END:VEVENT")[0];
+        const get = (re) => {
+          const m = body.match(re);
+          return m ? m[1].trim() : null;
+        };
+        const summary = get(/\nSUMMARY(?:;[^:\n]*)?:(.*)/);
+        const dt = get(/\nDTSTART(?:;[^:\n]*)?:(.*)/);
+        const loc = get(/\nLOCATION(?:;[^:\n]*)?:(.*)/);
+        if (!summary || !dt) continue;
+        const iso = icsDateToIso(dt);
+        if (!iso) continue;
+        events.push({
+          summary: unescapeIcs(summary),
+          startsAt: iso,
+          location: loc ? unescapeIcs(loc) : null,
+        });
+      }
+      return events;
+    }
+    let icsEvents = [];
+    q("#icsInput").onchange = async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const text = await f.text();
+      const now = Date.now();
+      icsEvents = parseIcs(text).filter((ev) => new Date(ev.startsAt).getTime() > now)
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, 100);
+      if (icsEvents.length === 0) {
+        alert("今後の予定が見つかりませんでした（過去の予定は対象外です）。");
+        return;
+      }
+      q("#icsList").innerHTML = icsEvents.map((ev, i) => {
+        const d = new Date(ev.startsAt);
+        const when = `${fmtDate(d.getTime())} ${String(d.getHours()).padStart(2, "0")}:${
+          String(d.getMinutes()).padStart(2, "0")
+        }`;
+        return `<label class="ics-item"><input type="checkbox" data-ics="${i}" checked><span><b>${
+          esc(ev.summary)
+        }</b><br><span class="when">${when}${
+          ev.location ? " · " + esc(ev.location) : ""
+        }</span></span></label>`;
+      }).join("");
+      q("#icsOverlay").classList.add("on");
+    };
+    q("#icsSubmit").onclick = async () => {
+      const checks = [...document.querySelectorAll("[data-ics]:checked")];
+      if (checks.length === 0) {
+        alert("取り込む予定を選んでください。");
+        return;
+      }
+      closeAll();
+      busy(true, "登録中…");
+      let ok = 0;
+      try {
+        for (const c of checks) {
+          const ev = icsEvents[+c.dataset.ics];
+          try {
+            await api("POST", "/api/reservations", {
+              plan: null,
+              service: ev.summary,
+              startsAt: ev.startsAt,
+              amount: null,
+              policy: "unknown",
+              confirmed: false,
+            });
+            ok++;
+          } catch (err) {
+            console.error(err);
+          }
+        }
+      } finally {
+        busy(false);
+      }
+      await refresh();
+      alert(
+        ok +
+          "件の予定を登録しました。キャンセル規定は「不明」なので、各予約の「編集」から補完できます。",
+      );
+    };
+
+    // manual (last resort)
     q("#manualLink").onclick = () => {
       closeAll();
       openAdd();
