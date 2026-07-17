@@ -2,7 +2,7 @@
  * GeminiParser — secondary TEXT parser and the ONLY image parser
  * (Task 6.1, ADR-5: vision 経路は Gemini 固定, SDD §5).
  *
- * Free-tier quota recheck (ADR-5 note), as of 2026-07: gemini-2.5-flash on
+ * Free-tier quota recheck (ADR-5 note), as of 2026-07: Gemini Flash on
  * the free tier is ~10 req/min / 250 req/day (Google cut free quotas
  * sharply in Dec 2025 — recheck again before deploy). Still comfortably
  * above this product's expected parse volume. Privacy: free-tier inputs may
@@ -23,7 +23,12 @@ import {
 } from "./llm.ts";
 
 export const GEMINI_PARSER_NAME = "gemini-flash";
-export const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash";
+// "gemini-flash-latest" is Google's rolling alias for the current Flash
+// model. Pinned "gemini-2.5-flash" started returning 404 ("no longer
+// available to new users") on 2026-07-16 even while still listed by
+// /models — the alias tracks whatever Flash is current (resolved to
+// gemini-3.5-flash at cutover) so the next rotation doesn't break us.
+export const GEMINI_DEFAULT_MODEL = "gemini-flash-latest";
 const GEMINI_DEFAULT_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_API_KEY_ENV = "GEMINI_API_KEY";
 

@@ -43,7 +43,7 @@ Deno.test("GeminiParser: text success — output extracted, model/endpoint corre
 
   assertEquals(result.raw_response, content);
   assertEquals(result.output, { service_name: "〇〇レストラン", amount_jpy: 8000 });
-  assertStringIncludes(calls[0]?.url ?? "", "models/gemini-2.5-flash:generateContent");
+  assertStringIncludes(calls[0]?.url ?? "", "models/gemini-flash-latest:generateContent");
   assertEquals(calls[0]?.body.generationConfig.responseMimeType, "application/json");
   assertEquals(calls[0]?.body.contents[0]?.parts[0]?.text, TEXT_INPUT.content);
 });
