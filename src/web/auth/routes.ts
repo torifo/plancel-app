@@ -29,12 +29,15 @@ import {
   createMagicLink,
   createSession,
   deleteSession,
+  findUserByApiToken,
   findUserByEmail,
   findUserByGoogleSub,
   getOrCreateUserByEmail,
   getSessionUser,
+  issueApiToken,
   linkGoogle,
   normalizeEmail,
+  revokeApiToken,
   rotateIcsSecret,
   saveOauthState,
   SESSION_TTL_MS,
@@ -182,6 +185,11 @@ export async function resolveIdentity(req: Request, deps: AuthDeps): Promise<Ide
     const demo = headerToken !== undefined && headerToken.endsWith("::demo");
     return { user, ledger: demo ? `${user.ledgerId}::demo` : user.ledgerId };
   }
+  // Personal API token (MCP 連携): the header token acts as that user.
+  if (headerToken !== undefined && headerToken !== "") {
+    const tokenUser = await findUserByApiToken(deps.kv, headerToken);
+    if (tokenUser !== null) return { user: tokenUser, ledger: tokenUser.ledgerId };
+  }
   const admin = req.headers.get("x-plancel-admin")?.trim();
   if (
     deps.adminToken !== undefined && deps.adminToken !== "" && admin === deps.adminToken &&
@@ -303,8 +311,23 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
       google: user.google !== null && user.google.error === null,
       googleError: user.google?.error ?? null,
       icsPath: `/calendar/${user.icsSecret}.ics`,
+      hasApiToken: user.apiToken !== null,
       ...adminExtras,
     });
+  }
+
+  // Personal API token for MCP: POST issues/rotates, DELETE revokes.
+  if (path === "/auth/token" && req.method === "POST") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    const token = await issueApiToken(deps.kv, user.id, deps.ids);
+    return json({ token });
+  }
+  if (path === "/auth/token" && req.method === "DELETE") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    await revokeApiToken(deps.kv, user.id, deps.ids);
+    return json({ ok: true });
   }
 
   if (path === "/auth/logout" && req.method === "POST") {

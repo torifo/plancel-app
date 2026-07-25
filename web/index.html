@@ -776,7 +776,10 @@
         </div>
         <label>② Google カレンダーへ即時反映</label>
         <div class="hint" id="gcalStatus" style="margin:4px 0 8px">…</div>
-        <div class="modal-foot"><button class="btn-primary" id="gcalConnectBtn">Google カレンダーと連携する</button></div>
+        <div class="modal-foot" style="margin-top:8px"><button class="btn-primary" id="gcalConnectBtn">Google カレンダーと連携する</button></div>
+        <label style="margin-top:16px">③ Claude（MCP）から操作</label>
+        <div class="hint" style="margin:4px 0 8px" id="mcpStatus">Claude に予約の登録・確定などを頼めるようになります。発行したトークンは MCP 設定の環境変数（PLANCEL_API_URL / PLANCEL_API_TOKEN）に入れてください。</div>
+        <div class="hint"><a id="mcpIssue" style="cursor:pointer;text-decoration:underline">🔑 MCP 用トークンを発行（再発行で旧トークンは失効）</a> · <a id="mcpRevoke" style="cursor:pointer;text-decoration:underline">失効</a></div>
       </div>
     </div>
 
@@ -1370,6 +1373,17 @@
       } catch (e) {
         q("#icsUrl").select();
       }
+    };
+    q("#mcpIssue").onclick = async () => {
+      const j = await (await fetch("/auth/token", { method: "POST" })).json();
+      ME.hasApiToken = true;
+      prompt("MCP 用トークンです。今だけ表示されるのでコピーしてください:", j.token);
+    };
+    q("#mcpRevoke").onclick = async () => {
+      if (!confirm("MCP 用トークンを失効します。Claude からの操作はできなくなります。")) return;
+      await fetch("/auth/token", { method: "DELETE" });
+      ME.hasApiToken = false;
+      alert("失効しました。");
     };
     q("#icsRotate").onclick = async () => {
       if (!confirm("購読 URL を再発行します。古い URL は使えなくなります。よろしいですか？")) return;

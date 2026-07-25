@@ -30,6 +30,8 @@ export const webUserSchema = z.object({
   email: z.string().regex(/^\S+@\S+$/),
   ledgerId: z.string().min(1),
   icsSecret: z.string().min(1),
+  /** Personal API token (MCP 連携). Defaulted so older records still parse. */
+  apiToken: z.string().nullable().default(null),
   google: webUserGoogleSchema.nullable(),
   created_at: z.string(),
   updated_at: z.string(),
@@ -51,6 +53,7 @@ const MAGIC = "magic";
 const MAGIC_RATE = "magic_rate";
 const OAUTH_STATE = "oauth_state";
 const ICS = "ics_secret";
+const APITOKEN = "apitoken";
 const GCAL = "gcal_map";
 
 export const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -113,6 +116,7 @@ export async function getOrCreateUserByEmail(
     email: norm,
     ledgerId: ids.newId(),
     icsSecret: ids.randomToken(),
+    apiToken: null,
     google: null,
     created_at: now,
     updated_at: now,
@@ -179,6 +183,37 @@ export async function rotateIcsSecret(
     .set([USER, userId], next)
     .commit();
   return next;
+}
+
+// ---------- personal API tokens (MCP 連携, owner 2026-07-23) ----------
+
+export function findUserByApiToken(kv: Deno.Kv, token: string): Promise<WebUser | null> {
+  return userIdFromIndex(kv, [APITOKEN, token]);
+}
+
+/** Issues (or rotates) the user's single personal API token. */
+export async function issueApiToken(
+  kv: Deno.Kv,
+  userId: string,
+  ids: AuthIds,
+): Promise<string | null> {
+  const cur = await getUser(kv, userId);
+  if (cur === null) return null;
+  const token = ids.randomToken();
+  const next: WebUser = { ...cur, apiToken: token, updated_at: ids.nowIso() };
+  const tx = kv.atomic().set([APITOKEN, token], userId).set([USER, userId], next);
+  if (cur.apiToken !== null) tx.delete([APITOKEN, cur.apiToken]);
+  await tx.commit();
+  return token;
+}
+
+export async function revokeApiToken(kv: Deno.Kv, userId: string, ids: AuthIds): Promise<void> {
+  const cur = await getUser(kv, userId);
+  if (cur === null || cur.apiToken === null) return;
+  await kv.atomic()
+    .delete([APITOKEN, cur.apiToken])
+    .set([USER, userId], { ...cur, apiToken: null, updated_at: ids.nowIso() })
+    .commit();
 }
 
 // ---------- sessions ----------

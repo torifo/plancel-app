@@ -253,6 +253,45 @@ Deno.test("adopt takes over a pre-login token ledger once, while empty", async (
   });
 });
 
+Deno.test("personal API token: issue -> act as user -> rotate invalidates -> revoke", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv, { devUserEmail: "me@example.com" });
+    const t1 = (await (await handleAuthApi(req("POST", "/auth/token"), deps)).json()).token;
+
+    // the token resolves to the user's ledger WITHOUT any session/dev context
+    const plain = makeDeps(kv); // no devUserEmail
+    const who = await resolveIdentity(
+      req("GET", "/api/reservations", undefined, { "x-plancel-token": t1 }),
+      plain,
+    );
+    assertEquals(who.user?.email, "me@example.com");
+    assertEquals(who.ledger, who.user?.ledgerId);
+
+    // rotation invalidates the old token
+    const t2 = (await (await handleAuthApi(req("POST", "/auth/token"), deps)).json()).token;
+    const stale = await resolveIdentity(
+      req("GET", "/api/reservations", undefined, { "x-plancel-token": t1 }),
+      plain,
+    );
+    assertEquals(stale.ledger, null);
+    const fresh = await resolveIdentity(
+      req("GET", "/api/reservations", undefined, { "x-plancel-token": t2 }),
+      plain,
+    );
+    assertEquals(fresh.user?.email, "me@example.com");
+
+    // revoke kills it and /auth/me reflects the state
+    await handleAuthApi(req("DELETE", "/auth/token"), deps);
+    const gone = await resolveIdentity(
+      req("GET", "/api/reservations", undefined, { "x-plancel-token": t2 }),
+      plain,
+    );
+    assertEquals(gone.ledger, null);
+    const me = await (await handleAuthApi(req("GET", "/auth/me"), deps)).json();
+    assertEquals(me.hasApiToken, false);
+  });
+});
+
 Deno.test("admin /auth/me carries userCount and warns at 100 users", async () => {
   await withKv(async (kv) => {
     const ids = makeAuthIds();
