@@ -1,7 +1,9 @@
-# plancel 検証ガイド（デプロイ前ローカル検証 + ドキュメント整合）
+# plancel 検証ガイド（ローカル検証 + ドキュメント整合 + 本番実機）
 
-> 最終更新: 2026-07-11（全コマンドはこの日に実行して期待出力を確認済み）。
+> 最終更新: 2026-07-25。§1 のローカルコマンドは 2026-07-11 に実行して期待出力を確認済み。
+> §3（ログイン・カレンダー・MCP の本番トラック）は 2026-07-21〜25 の変更を反映。
 > デプロイ前は §1 を上から順に全部通すこと。§2 はドキュメントを触ったとき・リリース前の照合用。
+> §3 はデプロイ後の実機確認（done-when）。
 
 ## 1. ローカル検証ランブック
 
@@ -131,6 +133,73 @@ Claude から `create_reservation` → `confirm_reservation` して副作用一�
 | parsers.config.json | 実チェーン宣言 | `{"text":["groq-llama","gemini-flash"],"image":["gemini-flash"]}` |
 | fixtures/parse/ | 回帰コーパス件数 | `deno task replay` の N/N と README/tasks の記述 |
 
-未整備（ドキュメントに書かれていない実装 — 次回ドキュメント更新の候補）:
-- `deno task verify`（本コミットで追加した 1.1〜1.4 の一括実行タスク）
-- Web UI プロトタイプは Artifact 上にあり、リポジトリには未収録（HTTP API 層とともに今後）
+2026-07-21〜25 の大規模変更（ログイン一本化・カレンダー連携・容量設計・MCP remote）で追加した
+照合ポイント:
+
+| ドキュメント | 照合する主張 | 実体（確認コマンド） |
+|---|---|---|
+| DEPLOY.md §3 env 表 | 認証・容量系の変数名 | `src/deploy/main.ts` ヘッダコメント / `env.get(...)` 呼び出し |
+| DEPLOY.md §2 容量設計 | 開放50 / 設計70 / 警告100 | `src/web/auth/routes.ts` の `DESIGN_TOTAL_USERS` `ADMIN_WARN_USERS`、`PLANCEL_MAX_USERS` 既定 |
+| DEPLOY.md §4 uid 規約 | 英小文字・6〜20・予約語 | `src/web/users.ts` の `uidSchema` `MIN_PUBLIC_UID_LEN` `RESERVED_UIDS` |
+| DEPLOY.md §5 同期方式 | キュー不使用（inline + dirty + cron） | `src/web/calendar/sync.ts` ヘッダと `requestSync`/`sweepDirtySync` |
+| DEPLOY.md §6 MCP | remote 7 ツールと GUI 専用の例外 | `src/mcp/web_api_tools.ts`、`src/mcp/main.ts` の mode 分岐 |
+
+## 3. 本番実機トラック（デプロイ後の done-when）
+
+3 トラックを本番 URL `https://plancel-app.torifo.deno.net` で再現する。
+
+### 3.0 curl 本番スモーク（外部から到達確認）
+
+```sh
+BASE=https://plancel-app.torifo.deno.net
+curl -s "$BASE/healthz"                                   # → ok
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/auth/me"  # → 401（未ログイン）
+# 管理者トークンでの台帳直アクセス（PLANCEL_ADMIN_TOKEN を設定している場合）:
+curl -s "$BASE/api/reservations" \
+  -H "x-plancel-admin: $PLANCEL_ADMIN_TOKEN" \
+  -H "x-plancel-token: <任意の台帳ID>"                    # → その台帳の予約 JSON
+```
+
+### 3.1 トラック1: Google 実ログイン → カレンダー反映 → 削除同期
+
+1. ブラウザで `$BASE/` を開き「Google でログイン」→ 同意（scope に「アプリが作成した
+   カレンダー」が出ること）→ `/` に戻りログイン済みになる。
+2. 予約を1件登録し**確定**する。Google カレンダーに専用「plancel」カレンダーが作られ、確定予約が
+   即時に入ること（iCal のポーリングを待たない）。`LOCATION` を入れた予約は会場がカレンダー側に出る。
+3. その予約を**削除**（または候補へ戻す）→ Google カレンダーからイベントが消えること。
+4. 全員向けフィード `$BASE/calendar/<secret>.ics`（マイページに表示）を購読すると、確定予約のみが
+   `Asia/Tokyo`・+1h で見えること。`POST /auth/ics/rotate` で URL を変えると旧 URL が無効化される。
+
+> refresh token が切れると UI に「要再接続」（`googleError: "reauth"`）が出る。再接続で OAuth を
+> やり直せば復旧する。
+
+### 3.2 トラック2: メール+パスワード登録 → UID ログイン
+
+1. `$BASE/` の登録フォームで email + パスワード（8文字以上）で `POST /auth/register`。作成直後は
+   **メール未検証**（`emailVerified: false`）。
+2. マイページで **uid**（英小文字・6〜20文字）を設定。予約語（`admin` 等）は一般アカウントでは
+   403（`uid_reserved`）になること。
+3. ログアウト → `POST /auth/login` に **uid**（email でなく）+ パスワードでログインできること。
+4. 同一 email で Google ログインを試すと乗っ取り防止で `auth_error=email_taken` になり、自動合流
+   しないこと。マイページから明示的に Google を「連携」すると検証済みへ昇格し合流する。
+
+### 3.3 トラック3: MCP トークン → ツール操作
+
+1. マイページのカレンダー連携画面でパーソナル API トークンを発行（`POST /auth/token`）。
+2. env を設定して MCP を remote モードで起動:
+
+```sh
+PLANCEL_API_URL=https://plancel-app.torifo.deno.net \
+PLANCEL_API_TOKEN=<発行トークン> \
+deno run --allow-env --allow-net --unstable-temporal --unstable-kv src/mcp/main.ts
+# 起動ログに mode: "web-api" が出る（env 無しなら "local-core"）
+```
+
+3. Claude Desktop からは `claude_desktop_config.json` に上記 env を書く（DEPLOY.md §6 の JSON 例）。
+4. `create_reservation`（`confirmed: true`）→ `list_reservations` で本番台帳に入ること、確定分が
+   トラック1のカレンダーにも流れることを確認。uid 確定・アカウント連携ツールは**存在しない**
+   （GUI 専用）ことも確認。
+
+### 3.4 未整備（次回ドキュメント更新の候補）
+
+- `deno task verify`（1.1〜1.4 の一括実行タスク）は §1 に反映済み。
