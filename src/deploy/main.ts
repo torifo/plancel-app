@@ -26,6 +26,7 @@
  *   PLANCEL_KEK (base64 32B, seals refresh tokens) · PLANCEL_BASE_URL
  *   PLANCEL_DEV_USER (local auto-login) · PLANCEL_ADMIN_TOKEN (smoke tests)
  *   PLANCEL_MAX_USERS (signup cap, default 20; 0 = unlimited)
+ *   PLANCEL_ALLOWED_EMAILS (comma-separated; always allowed past the cap)
  *   (RESEND_API_KEY + PLANCEL_EMAIL_FROM also power magic-link login)
  */
 import { SystemClock } from "../core/clock/mod.ts";
@@ -153,8 +154,13 @@ if (import.meta.main) {
       ? { adminToken: env.get("PLANCEL_ADMIN_TOKEN") as string }
       : {}),
     // Signup cap: Google-side stays open, the app limits how many accounts
-    // may exist (default 20; set PLANCEL_MAX_USERS=0 to disable).
+    // may exist (default 20; set PLANCEL_MAX_USERS=0 to disable). Addresses
+    // in PLANCEL_ALLOWED_EMAILS (comma-separated) always get in regardless.
     maxUsers: Number(env.get("PLANCEL_MAX_USERS") ?? "20"),
+    allowedEmails: new Set(
+      (env.get("PLANCEL_ALLOWED_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    ),
   };
   const syncDeps: SyncDeps = {
     kv: store.kv,

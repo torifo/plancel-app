@@ -34,6 +34,7 @@ import {
   getOrCreateUserByEmail,
   getSessionUser,
   linkGoogle,
+  normalizeEmail,
   rotateIcsSecret,
   saveOauthState,
   SESSION_TTL_MS,
@@ -76,11 +77,18 @@ export interface AuthDeps {
    * undefined / <= 0 disables the cap.
    */
   maxUsers?: number;
+  /**
+   * Guaranteed members (owner 2026-07-23, runs in PARALLEL with the cap):
+   * normalized addresses that may always create an account, even when the
+   * cap is already filled by strangers. 家族を確実に入れるための保険。
+   */
+  allowedEmails?: Set<string>;
 }
 
 /** True when signing in this identity would create a user past the cap. */
 async function atCapacity(deps: AuthDeps, email: string, sub?: string): Promise<boolean> {
   if (deps.maxUsers === undefined || deps.maxUsers <= 0) return false;
+  if (deps.allowedEmails?.has(normalizeEmail(email))) return false;
   const existing = (sub !== undefined ? await findUserByGoogleSub(deps.kv, sub) : null) ??
     await findUserByEmail(deps.kv, email);
   if (existing !== null) return false;

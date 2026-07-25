@@ -192,6 +192,21 @@ Deno.test("signup cap: new accounts refused at maxUsers, existing users still lo
     );
     assertEquals(again.status, 200);
 
+    // guaranteed member: allowed past a FULL cap (家族の保険)
+    const withAllow = makeDeps(kv, {
+      maxUsers: 1,
+      allowedEmails: new Set(["family@example.com"]),
+      sendMagicLink: (_email, url) => {
+        sent.push(url);
+        return Promise.resolve();
+      },
+    });
+    assertEquals(
+      (await handleAuthApi(req("POST", "/auth/email", { email: "Family@Example.com" }), withAllow))
+        .status,
+      200,
+    );
+
     // cap disabled (0) lets new users in again
     const open = makeDeps(kv, {
       maxUsers: 0,
