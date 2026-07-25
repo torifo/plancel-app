@@ -4,29 +4,44 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>plancel — 予約とキャンセル期限の台帳</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
     <style>
-    :root {
-      --paper: #f6f5f1;
-      --card: #ffffff;
-      --ink: #22304a;
-      --ink-soft: #5f6b82;
-      --line: #dcd9d0;
-      --navy: #294066;
-      --navy-soft: #eef1f6;
-      --free: #3e8e5a;
-      --mid: #c99a2e;
-      --high: #c0563b;
-      --full: #a03028;
-      --free-soft: #edf7f0;
-      --shadow: 0 1px 2px rgba(30,40,60,.05),0 6px 20px rgba(30,40,60,.06);
-    }
+    /* ═══ 帳場 × 宵の帳 — デザイントークン（Plancel Hi-fi.dc.html が正） ═══ */
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
     }
     body {
-      font-family: -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;
+      --paper: #f4f1e8;
+      --card: #fdfcf7;
+      --card2: #f3efe3;
+      --ink: #232c40;
+      --soft: #6b7183;
+      --line: #ddd7c8;
+      --lamp: #c97a1e;
+      --lamp-strong: #d98324;
+      --lamp-soft: #f6e7cd;
+      --on-lamp: #fffdf7;
+      --danger: #b3402a;
+      --danger-soft: #f6e3dc;
+      --safe: #3e7a54;
+      --safe-soft: #e4efe6;
+      --barglow: none;
+      --markglow: 0 1px 2px rgba(35,44,64,.25);
+      --shadow: 0 1px 2px rgba(35,44,64,.05),0 8px 24px rgba(35,44,64,.06);
+      /* 旧トークン名の別名（モーダル等の既存参照との互換用） */
+      --navy: var(--lamp);
+      --navy-soft: var(--lamp-soft);
+      --ink-soft: var(--soft);
+      --free: var(--safe);
+      --free-soft: var(--safe-soft);
+      --mid: var(--lamp);
+      --high: var(--danger);
+      --full: var(--danger);
+      font-family: 'Zen Kaku Gothic New','Hiragino Sans','Hiragino Kaku Gothic ProN',sans-serif;
       background: var(--paper);
       color: var(--ink);
       line-height: 1.7;
@@ -36,26 +51,178 @@
       line-break: strict;
       word-break: normal;
       overflow-wrap: break-word;
+      transition: background .25s;
     }
-    .wrap {
-      max-width: 1040px;
+    body.dark {
+      --paper: #151c2c;
+      --card: #1e2740;
+      --card2: #243050;
+      --ink: #e8e4d8;
+      --soft: #8b93a8;
+      --line: #2c3852;
+      --lamp: #f2a54a;
+      --lamp-strong: #f2a54a;
+      --lamp-soft: rgba(242,165,74,.14);
+      --on-lamp: #151c2c;
+      --danger: #e2604a;
+      --danger-soft: rgba(226,96,74,.14);
+      --safe: #7fae8e;
+      --safe-soft: rgba(127,174,142,.12);
+      --barglow: 0 0 14px rgba(242,165,74,.28);
+      --markglow: 0 0 10px rgba(242,165,74,.85);
+      --shadow: 0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+    }
+    a {
+      color: var(--lamp);
+    }
+    a:hover {
+      color: var(--danger);
+    }
+    @keyframes fallAway {
+      0% { transform: rotate(0) translateY(0); opacity: 1; }
+      100% { transform: rotate(1.5deg) translateY(2px); opacity: .55; }
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    /* ═══ トップバー ═══ */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      max-width: 1080px;
       margin: 0 auto;
-      padding: 28px 20px 80px;
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--line);
     }
-    h1 {
-      font-size: 26px;
-      font-weight: 800;
-      color: var(--navy);
-      letter-spacing: .01em;
+    .logo {
+      font-family: 'Instrument Serif',serif;
+      font-style: italic;
+      font-size: 27px;
+      letter-spacing: .005em;
+      line-height: 1.1;
     }
-    h1 .lede {
+    .logo .cel {
+      color: var(--lamp);
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+      text-underline-offset: 2px;
+    }
+    .logo .dia {
+      color: var(--lamp);
+      font-style: normal;
+      font-size: 13px;
+      vertical-align: 6px;
+      margin-left: 2px;
+    }
+    .logo-sub {
+      font-size: 10.5px;
+      color: var(--soft);
+      letter-spacing: .08em;
+    }
+    .top-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .chip {
+      font-size: 11px;
+      color: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 11px;
+      background: var(--card);
+      white-space: nowrap;
+    }
+    .chip.lamp {
+      background: var(--lamp-soft);
       color: var(--ink);
-      font-weight: 800;
     }
-    .tagline {
-      color: var(--ink-soft);
+    .chip b {
+      color: var(--ink);
+    }
+    .theme-toggle {
+      font-size: 13px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--ink);
+      box-shadow: var(--shadow);
+    }
+    .iconbtn {
+      background: none;
+      border: none;
+      padding: 4px;
+      display: inline-flex;
+      color: var(--soft);
+      cursor: pointer;
+    }
+    .avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--card2);
+      border: 1px solid var(--line);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--soft);
+      padding: 0;
+    }
+    /* ═══ 本文 ═══ */
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 14px 20px 80px;
+    }
+    button {
+      font-family: inherit;
+      cursor: pointer;
       font-size: 14px;
-      margin: 6px 0 20px;
+      border: 1px solid transparent;
+      transition: .12s;
+    }
+    .btn-primary {
+      background: var(--lamp);
+      color: var(--on-lamp);
+      border: none;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 9px 18px;
+    }
+    .btn-primary:hover {
+      background: var(--lamp-strong);
+    }
+    .btn-ghost {
+      background: var(--card);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 13px;
+      padding: 8px 16px;
+    }
+    .btn-ghost:hover {
+      border-color: var(--lamp);
+      color: var(--lamp);
+    }
+    .btn-small {
+      background: var(--card);
+      color: var(--lamp);
+      border: 1px solid var(--lamp);
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 12.5px;
+      font-weight: 700;
+    }
+    .btn-small:hover {
+      background: var(--lamp-soft);
     }
     .databar {
       display: flex;
@@ -63,21 +230,16 @@
       justify-content: space-between;
       gap: 12px;
       flex-wrap: wrap;
-      background: var(--navy-soft);
-      border: 1px solid #d7dceb;
-      border-radius: 10px;
-      padding: 12px 16px;
-      margin-bottom: 16px;
-    }
-    .databar .txt {
-      font-size: 13.5px;
+      font-size: 12px;
+      color: var(--soft);
+      margin: 0 0 12px;
     }
     .databar .txt b {
-      color: var(--navy);
+      color: var(--ink);
     }
     .databar .tokline {
       font-size: 11.5px;
-      color: var(--ink-soft);
+      color: var(--soft);
       margin-top: 2px;
     }
     .demobar {
@@ -86,99 +248,320 @@
       justify-content: space-between;
       gap: 12px;
       flex-wrap: wrap;
-      background: #fff6e6;
-      border: 1px solid #e6d3a3;
+      background: var(--lamp-soft);
+      border: 1px dashed var(--lamp);
       border-radius: 10px;
-      padding: 12px 16px;
-      margin-bottom: 16px;
-      font-size: 13.5px;
-      color: #8a5a12;
+      padding: 10px 14px;
+      margin: 0 0 12px;
+      font-size: 13px;
+      color: var(--ink);
     }
     .demobar.on {
       display: flex;
     }
-    .demobar b {
-      color: #7a4e0e;
-    }
     .actions {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
-      margin-bottom: 20px;
+      align-items: center;
+      margin-bottom: 14px;
     }
-    button {
-      font-family: inherit;
-      cursor: pointer;
-      font-size: 14px;
-      border-radius: 8px;
-      border: 1px solid transparent;
-      padding: 9px 16px;
-      transition: .12s;
+    .chips {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
     }
-    .btn-primary {
-      background: var(--navy);
-      color: #fff;
+    /* ═══ スタンプ（要処理 / 確定） ═══ */
+    .stamp {
+      display: inline-block;
+      border: 1.5px solid var(--danger);
+      color: var(--danger);
+      border-radius: 3px;
+      padding: 0 8px;
+      font-size: 10.5px;
+      letter-spacing: .16em;
+      font-weight: 700;
+      transform: rotate(-2deg);
+      white-space: nowrap;
     }
-    .btn-primary:hover {
-      background: #1f3251;
+    .stamp.safe {
+      border-color: var(--safe);
+      color: var(--safe);
+      transform: rotate(2deg);
     }
-    .btn-ghost {
-      background: #fff;
-      color: var(--ink);
-      border-color: var(--line);
+    /* ═══ 2カラム: 時間の地図 + やることレール ═══ */
+    .cols {
+      display: flex;
+      gap: 26px;
+      align-items: flex-start;
     }
-    .btn-ghost:hover {
-      border-color: var(--navy);
-      color: var(--navy);
+    .mapcol {
+      flex: 1.9;
+      min-width: 0;
     }
-    .btn-small {
-      background: #fff;
-      color: var(--navy);
-      border: 1px solid var(--navy);
-      border-radius: 20px;
-      padding: 6px 14px;
-      font-size: 13px;
+    .railcol {
+      flex: 1;
+      max-width: 330px;
     }
-    .btn-small:hover {
-      background: var(--navy-soft);
+    .datescale {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10.5px;
+      color: var(--soft);
+      padding: 0 2px 6px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 14px;
     }
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(4,1fr);
-      gap: 14px;
-      margin-bottom: 32px;
+    .datescale .today {
+      color: var(--danger);
+      font-weight: 700;
     }
-    .stat {
+    .rail-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .06em;
+    }
+    .rail-head .cnt {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--danger);
+    }
+    .rail-item {
       background: var(--card);
       border: 1px solid var(--line);
+      border-left: 3px solid var(--danger);
       border-radius: 10px;
-      padding: 16px 18px;
+      padding: 11px 13px;
+      margin-bottom: 9px;
+      box-shadow: var(--shadow);
+      animation: slideIn .3s ease-out;
+    }
+    .rail-item.soft {
+      border: 1px dashed var(--line);
+    }
+    .rail-item .lb {
+      font-size: 10.5px;
+      color: var(--danger);
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .rail-item .lb.lamp {
+      color: var(--lamp);
+    }
+    .rail-item .lb.muted {
+      color: var(--soft);
+    }
+    .rail-item .tt {
+      font-size: 13px;
+      margin-top: 3px;
+    }
+    .rail-item .ds {
+      font-size: 11px;
+      color: var(--soft);
+    }
+    .rail-item .btns {
+      display: flex;
+      gap: 7px;
+      margin-top: 7px;
+    }
+    .rail-done {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 13px;
+      font-size: 11.5px;
+      color: var(--soft);
+      background: var(--card2);
+    }
+    /* ═══ プランカード ═══ */
+    .plan {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 13px 16px;
+      margin-bottom: 12px;
       box-shadow: var(--shadow);
     }
-    .stat .v {
-      font-size: 30px;
-      font-weight: 800;
-      line-height: 1.1;
+    .plan.settled {
+      border-color: var(--safe);
+    }
+    .plan-head {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .plan-title {
+      font-weight: 700;
+      font-size: 14.5px;
+    }
+    .plan-note {
+      font-size: 11px;
+      color: var(--soft);
+      margin-left: auto;
+    }
+    .decide-note {
+      margin-top: 11px;
+      background: var(--lamp-soft);
+      border: 1px dashed var(--lamp);
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 11.5px;
+      line-height: 1.6;
+    }
+    .plan.solo .resv {
+      margin-top: 0;
+    }
+    .resv {
+      display: grid;
+      grid-template-columns: 170px 1fr auto;
+      gap: 6px 14px;
+      align-items: center;
+      margin-top: 11px;
+    }
+    .resv .name {
+      font-size: 12.5px;
+    }
+    .resv.off .name b {
+      text-decoration: line-through;
+      color: var(--soft);
+    }
+    .resv .cut {
+      font-size: 10.5px;
+      color: var(--danger);
+    }
+    .resv .sub {
+      font-size: 10.5px;
+      color: var(--soft);
+    }
+    .resv .tools {
+      font-size: 10.5px;
+      color: var(--soft);
+    }
+    .resv .tools a {
+      color: var(--soft);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .resv .tools a:hover {
+      color: var(--lamp);
+    }
+    .ract {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: stretch;
+    }
+    .okmark {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--safe);
+      white-space: nowrap;
+    }
+    .rowbtn {
+      background: var(--card2);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 11px;
+      font-size: 11.5px;
+      white-space: nowrap;
       color: var(--ink);
     }
-    .stat .l {
-      font-size: 12.5px;
-      color: var(--ink-soft);
-      margin-top: 4px;
+    .rowbtn:hover {
+      border-color: var(--lamp);
+      color: var(--lamp);
     }
-    .stat.warn .v {
-      color: var(--high);
+    .rowbtn.confirm {
+      background: transparent;
+      border: 1px solid var(--lamp);
+      color: var(--lamp);
+      font-weight: 700;
     }
-    section h2 {
-      font-size: 18px;
-      color: var(--navy);
-      border-bottom: 2px solid var(--navy);
-      display: inline-block;
-      padding-bottom: 6px;
-      margin-bottom: 10px;
+    .rowbtn.confirm:hover {
+      background: var(--lamp-soft);
     }
+    .rowbtn.act {
+      background: var(--lamp);
+      border: none;
+      color: var(--on-lamp);
+      font-weight: 700;
+    }
+    .rowbtn.act:hover {
+      background: var(--lamp-strong);
+      color: var(--on-lamp);
+    }
+    .rowbtn.dashed {
+      background: transparent;
+      border: 1px dashed var(--soft);
+      color: var(--soft);
+      font-size: 10.5px;
+    }
+    .rowbtn.danger {
+      color: var(--danger);
+    }
+    .rowbtn.danger:hover {
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+    /* ═══ 期限バー（今日 → 予約日） ═══ */
+    .bar {
+      position: relative;
+      height: 9px;
+      border-radius: 999px;
+      box-shadow: var(--barglow);
+    }
+    .bar.unknown {
+      background: repeating-linear-gradient(45deg,var(--card2) 0 5px,var(--line) 5px 7px);
+      box-shadow: none;
+    }
+    .bar .mark {
+      position: absolute;
+      top: -4px;
+      width: 7px;
+      height: 17px;
+      border-radius: 3px;
+      background: var(--lamp-strong);
+      box-shadow: var(--markglow);
+      transform: translateX(-50%);
+    }
+    .bar-cap {
+      display: flex;
+      justify-content: space-between;
+      font-size: 9.5px;
+      color: var(--soft);
+      margin-top: 3px;
+    }
+    .pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 9px;
+      border-radius: 11px;
+      white-space: nowrap;
+    }
+    .pill.candidate {
+      background: var(--card2);
+      color: var(--soft);
+    }
+    .pill.confirmed {
+      background: var(--safe-soft);
+      color: var(--safe);
+    }
+    .pill.to_cancel {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+    .pill.cancelled {
+      background: var(--card2);
+      color: var(--soft);
+    }
+    /* ═══ 空状態 ═══ */
     .hint {
-      color: var(--ink-soft);
+      color: var(--soft);
       font-size: 13px;
       margin-bottom: 16px;
       max-width: 720px;
@@ -203,137 +586,28 @@
       border: 1px solid var(--line);
       border-radius: 10px;
       padding: 14px 16px;
-      background: #fbfaf7;
+      background: var(--card2);
       cursor: pointer;
       transition: .12s;
     }
     .startcard:hover {
-      border-color: var(--navy);
-      background: var(--navy-soft);
+      border-color: var(--lamp);
+      background: var(--lamp-soft);
     }
     .startcard .t {
       font-weight: 700;
-      color: var(--navy);
+      color: var(--lamp);
       margin-bottom: 4px;
     }
     .startcard .d {
       font-size: 12.5px;
-      color: var(--ink-soft);
+      color: var(--soft);
     }
-    .plan {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 6px 4px;
-      margin-bottom: 14px;
-      box-shadow: var(--shadow);
-    }
-    .plan-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 14px 4px;
-    }
-    .plan-title {
-      font-weight: 700;
-      color: var(--navy);
-    }
-    .plan-note {
-      font-size: 12px;
-      color: var(--ink-soft);
-    }
-    .resv {
-      display: grid;
-      grid-template-columns: 150px 1fr auto;
-      gap: 12px;
-      align-items: center;
-      padding: 10px 14px;
-      border-top: 1px solid #f0eee7;
-    }
-    .resv:first-of-type {
-      border-top: none;
-    }
-    .resv .name {
-      font-weight: 600;
-    }
-    .resv .sub {
-      font-size: 12px;
-      color: var(--ink-soft);
-    }
-    .bar-track {
-      position: relative;
-      height: 20px;
-      border-radius: 5px;
-      overflow: hidden;
-      background: linear-gradient(90deg,var(--free) 0%,var(--free) var(--freepct,20%),var(--mid)
-        var(--freepct,20%),var(--high) 75%,var(--full) 100%);
-    }
-    .bar-track.unknown {
-      background: repeating-linear-gradient(45deg,#e7e3da,#e7e3da 6px,#efece4 6px,#efece4 12px);
-    }
-    .bar-marker {
-      position: absolute;
-      top: -3px;
-      font-size: 12px;
-      transform: translateX(-50%);
-    }
-    .bar-cap {
-      font-size: 11px;
-      color: var(--ink-soft);
-      margin-top: 3px;
-      display: flex;
-      justify-content: space-between;
-    }
-    .pill {
-      font-size: 11px;
-      font-weight: 700;
-      padding: 2px 9px;
-      border-radius: 11px;
-      white-space: nowrap;
-    }
-    .pill.candidate {
-      background: #eef1f6;
-      color: var(--navy);
-    }
-    .pill.confirmed {
-      background: var(--free-soft);
-      color: var(--free);
-    }
-    .pill.to_cancel {
-      background: #fff0ee;
-      color: var(--full);
-    }
-    .rowbtns {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      align-items: stretch;
-    }
-    .rowbtn {
-      background: none;
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      padding: 5px 10px;
-      font-size: 12px;
-      white-space: nowrap;
-      color: var(--ink);
-      white-space: nowrap;
-    }
-    .rowbtn:hover {
-      border-color: var(--navy);
-      color: var(--navy);
-    }
-    .rowbtn.danger {
-      color: var(--full);
-    }
-    .rowbtn.danger:hover {
-      border-color: var(--full);
-      color: var(--full);
-    }
+    /* ═══ モーダル ═══ */
     .overlay {
       position: fixed;
       inset: 0;
-      background: rgba(20,28,44,.5);
+      background: rgba(15,20,32,.55);
       display: none;
       align-items: flex-start;
       justify-content: center;
@@ -345,7 +619,8 @@
       display: flex;
     }
     .modal {
-      background: #fff;
+      background: var(--card);
+      border: 1px solid var(--line);
       border-radius: 14px;
       width: 100%;
       max-width: 560px;
@@ -363,15 +638,15 @@
     .sec-h {
       font-size: 12px;
       font-weight: 700;
-      color: var(--ink-soft);
+      color: var(--soft);
       margin-bottom: 6px;
     }
     .sec-danger {
       margin-top: 20px;
       padding: 12px 14px;
-      border: 1px solid var(--full);
+      border: 1px solid var(--danger);
       border-radius: 10px;
-      background: rgba(160,48,40,.06);
+      background: var(--danger-soft);
     }
     .profile-header {
       display: flex;
@@ -383,8 +658,8 @@
       height: 56px;
       border-radius: 50%;
       flex: 0 0 auto;
-      background: var(--navy);
-      color: #fff;
+      background: var(--lamp);
+      color: var(--on-lamp);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -408,11 +683,11 @@
     }
     .x {
       border: 1px solid var(--line);
-      background: #fff;
+      background: var(--card);
       border-radius: 8px;
       width: 32px;
       height: 32px;
-      /* The generic button rule sets padding: 9px 16px, which squashes the ×
+      /* The generic button rule sets padding elsewhere, which squashes the ×
          inside the fixed 32px box; flex-shrink lets long titles crush it. */
       padding: 0;
       flex: 0 0 auto;
@@ -421,7 +696,7 @@
       justify-content: center;
       font-size: 16px;
       line-height: 1;
-      color: var(--ink-soft);
+      color: var(--soft);
       cursor: pointer;
     }
     label {
@@ -431,7 +706,7 @@
       margin: 12px 0 5px;
     }
     label .req {
-      color: var(--high);
+      color: var(--danger);
     }
     input,
     select,
@@ -442,14 +717,15 @@
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 9px 11px;
-      background: #fbfaf7;
+      background: var(--card2);
+      color: var(--ink);
     }
     input:focus,
     select:focus,
     textarea:focus {
       outline: none;
-      border-color: var(--navy);
-      background: #fff;
+      border-color: var(--lamp);
+      background: var(--card);
     }
     .two {
       display: grid;
@@ -473,11 +749,14 @@
       margin: 0;
       white-space: nowrap;
     }
+    .radio-row input {
+      width: auto;
+    }
     .share-tag {
       display: inline-block;
-      font-size: 12px;
-      color: var(--ink-soft);
-      background: #f0efe9;
+      font-size: 11px;
+      color: var(--soft);
+      background: var(--card2);
       border-radius: 6px;
       padding: 2px 8px;
       margin: 4px 0;
@@ -504,12 +783,12 @@
     }
     .parse-note {
       display: none;
-      background: var(--free-soft);
-      border: 1px solid #bfe0cb;
+      background: var(--safe-soft);
+      border: 1px solid var(--safe);
       border-radius: 8px;
       padding: 8px 12px;
       font-size: 12.5px;
-      color: var(--free);
+      color: var(--safe);
       margin-bottom: 6px;
     }
     .import-opt {
@@ -521,17 +800,17 @@
       transition: .12s;
     }
     .import-opt:hover {
-      border-color: var(--navy);
-      background: var(--navy-soft);
+      border-color: var(--lamp);
+      background: var(--lamp-soft);
     }
     .import-opt .t {
       font-weight: 700;
-      color: var(--navy);
+      color: var(--lamp);
       margin-bottom: 3px;
     }
     .import-opt .d {
       font-size: 12.5px;
-      color: var(--ink-soft);
+      color: var(--soft);
     }
     .cancelled-sec {
       margin-top: 28px;
@@ -540,18 +819,15 @@
     }
     .cancelled-sec h3 {
       font-size: 14px;
-      color: var(--ink-soft);
+      color: var(--soft);
       margin-bottom: 4px;
     }
     .cancelled-row {
       opacity: .72;
+      animation: fallAway .5s ease-out backwards;
     }
     .cancelled-row .name {
       text-decoration: line-through;
-    }
-    .pill.cancelled {
-      background: #eee;
-      color: var(--ink-soft);
     }
     .ics-guide {
       border: 1px solid var(--line);
@@ -559,12 +835,12 @@
       padding: 10px 14px;
       margin: 10px 0 14px;
       font-size: 13px;
-      background: var(--navy-soft);
+      background: var(--lamp-soft);
     }
     .ics-guide summary {
       cursor: pointer;
       font-weight: 700;
-      color: var(--navy);
+      color: var(--lamp);
     }
     .ics-guide .g-app {
       margin: 10px 0 4px;
@@ -572,10 +848,10 @@
     }
     .ics-guide ol {
       margin: 4px 0 6px 20px;
-      color: var(--ink-soft);
+      color: var(--soft);
     }
     .back-link {
-      color: var(--navy);
+      color: var(--lamp);
       font-size: 14px;
       cursor: pointer;
       margin-right: 6px;
@@ -585,7 +861,7 @@
       margin-top: 6px;
     }
     .import-manual a {
-      color: var(--ink-soft);
+      color: var(--soft);
       font-size: 13px;
       text-decoration: underline;
       cursor: pointer;
@@ -595,7 +871,7 @@
       gap: 8px;
       align-items: flex-start;
       padding: 8px 6px;
-      border-bottom: 1px solid #f0eee7;
+      border-bottom: 1px solid var(--line);
       font-weight: 500;
     }
     .ics-item input {
@@ -604,40 +880,117 @@
     }
     .ics-item .when {
       font-size: 12px;
-      color: var(--ink-soft);
+      color: var(--soft);
     }
     .foot-note {
-      color: var(--ink-soft);
+      color: var(--soft);
       font-size: 12px;
       margin-top: 28px;
       border-top: 1px solid var(--line);
       padding-top: 12px;
     }
-    @media (max-width:720px) {
-      .stats {
-        grid-template-columns: 1fr 1fr;
+    /* ═══ ボトムナビ（モバイル） ═══ */
+    .bottomnav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      border-top: 1px solid var(--line);
+      background: var(--card);
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding: 9px 8px calc(13px + env(safe-area-inset-bottom));
+      z-index: 40;
+    }
+    .bn-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      color: var(--soft);
+      font-size: 9.5px;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .bn-item.active {
+      color: var(--lamp);
+      font-weight: 700;
+    }
+    .bn-fab {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: var(--lamp);
+      color: var(--on-lamp);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin-top: -26px;
+      border: 3px solid var(--paper);
+      box-shadow: var(--shadow);
+      font-size: 8.5px;
+      font-weight: 700;
+      padding: 0;
+    }
+    @media (min-width:861px) {
+      .bottomnav {
+        display: none;
       }
-      .startgrid {
-        grid-template-columns: 1fr;
+    }
+    @media (max-width:860px) {
+      .cols {
+        flex-direction: column;
+      }
+      .railcol {
+        order: -1;
+        max-width: none;
+        width: 100%;
+      }
+      .datescale {
+        display: none;
       }
       .resv {
+        grid-template-columns: 1fr;
+      }
+      .ract {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+      .wrap {
+        padding-bottom: 120px;
+      }
+      #importBtn {
+        display: none;
+      }
+      .startgrid {
         grid-template-columns: 1fr;
       }
     }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <h1><span class="lede">plancel</span> 予約とキャンセル期限の台帳</h1>
-      <p
-        class="tagline">複数候補を仮押さえ → 1つ確定 → 残りを期限内にキャンセル。キャンセル忘れと余計なキャンセル料を防ぎます。</p>
+    <div class="topbar">
+      <div>
+        <div class="logo">plan<span class="cel">cel</span><span class="dia">◆</span></div>
+        <div class="logo-sub">予約整理アプリ</div>
+      </div>
+      <div class="top-right">
+        <span class="chip" id="todayChip"></span>
+        <button class="theme-toggle" id="themeBtn" title="ライト/ダーク切替">◑</button>
+        <button class="btn-primary" id="importBtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M12 5v14M5 12h14"></path></svg>取り込む</button>
+        <button class="iconbtn" id="calBtn" title="カレンダー連携・通知"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg></button>
+        <button class="avatar" id="profileBtn" title="マイページ">？</button>
+      </div>
+    </div>
 
+    <div class="wrap">
       <div class="databar" id="dataBar">
         <div>
-          <div
-            class="txt"><b>自分のデータ</b>　ログイン中: <span id="meEmail">…</span></div>
-          <div
-            class="tokline"><a id="calBtn" style="cursor:pointer;text-decoration:underline">📅 カレンダー連携</a> · <a id="profileBtn" style="cursor:pointer;text-decoration:underline">👤 マイページ</a> · <a id="logoutBtn" style="cursor:pointer;text-decoration:underline">ログアウト</a></div>
+          <div class="txt"><b>自分のデータ</b>　ログイン中: <span id="meEmail">…</span></div>
+          <div class="tokline"><a id="logoutBtn" style="cursor:pointer;text-decoration:underline">ログアウト</a></div>
         </div>
         <button class="btn-small" id="demoBtn">デモを見る</button>
       </div>
@@ -648,40 +1001,39 @@
       </div>
 
       <div class="actions">
-        <button class="btn-primary" id="addBtn">＋ 予約を追加</button>
-        <button class="btn-ghost" id="importBtn">📥 メール・カレンダーから取り込み</button>
-        <button class="btn-ghost" id="helpBtn">？ 使い方</button>
+        <div class="chips">
+          <span class="chip lamp" id="chipNext">◆ 次の締切 —</span>
+          <span class="chip">放置損失 <b style="color:var(--danger)" id="stLoss">¥0</b></span>
+        </div>
+        <button class="btn-ghost" id="addBtn" style="font-size:11.5px;padding:4px 12px">＋手動で追加</button>
+        <button class="btn-ghost" id="helpBtn" style="font-size:11.5px;padding:4px 12px">？使い方</button>
       </div>
 
-      <div class="stats">
-        <div class="stat">
-          <div class="v" id="stCount">0</div>
-          <div class="l">予約</div>
+      <div class="cols">
+        <div class="mapcol">
+          <div class="datescale" id="dateScale"></div>
+          <div id="list"></div>
         </div>
-        <div class="stat warn">
-          <div class="v" id="stCancel">0</div>
-          <div class="l">要キャンセル</div>
-        </div>
-        <div class="stat">
-          <div class="v" id="stNext">—</div>
-          <div class="l">次の無料期限</div>
-        </div>
-        <div class="stat">
-          <div class="v" id="stLoss">¥0</div>
-          <div class="l">放置時の最大損失</div>
-        </div>
+        <aside class="railcol">
+          <div class="rail-head">
+            <span class="stamp">要処理</span>
+            <span>今日やること</span>
+            <span class="cnt" id="todoCount">0件</span>
+          </div>
+          <div id="rail"></div>
+        </aside>
       </div>
 
-      <section>
-        <h2>意思決定タイムライン</h2>
-        <p
-          class="hint">各バーは「今日 → 予約日」。色はその時点でキャンセルした場合の損失率（緑=無料、赤が濃いほど高率）。◆が無料キャンセル期限、▶が予約日です。</p>
-        <div id="list"></div>
-      </section>
-
-      <p
-        class="foot-note">データはログイン中のアカウントに紐づけてサーバ（KV）に保存されます。別の端末でも同じアカウントでログインすれば同じ台帳が開きます。</p>
+      <p class="foot-note">データはログイン中のアカウントに紐づけてサーバ（KV）に保存されます。別の端末でも同じアカウントでログインすれば同じ台帳が開きます。</p>
     </div>
+
+    <nav class="bottomnav">
+      <button class="bn-item active" id="bnLedger"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13Z"></path><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"></path></svg>台帳</button>
+      <button class="bn-item" id="bnDone"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M8.5 7.5 20 19M8.5 16.5 20 5"></path></svg>済み <span id="bnDoneCount">0</span></button>
+      <button class="bn-fab" id="bnImport"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>取り込む</button>
+      <button class="bn-item" id="bnCal"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg>連携</button>
+      <button class="bn-item" id="bnProfile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>マイページ</button>
+    </nav>
 
     <!-- Add / Edit modal -->
     <div class="overlay" id="addOverlay">
@@ -1017,19 +1369,30 @@
       q("#dataBar").style.display = viewingDemo ? "none" : "flex";
       q("#demoBar").classList.toggle("on", viewingDemo);
       if (ME) q("#meEmail").textContent = ME.email;
-      const active = data.filter((r) => r.status !== "cancelled");
-      q("#stCount").textContent = active.length;
-      q("#stCancel").textContent = active.filter((r) => r.status === "to_cancel").length;
+      const shown = ME ? (ME.displayName || ME.email || "") : "";
+      q("#profileBtn").textContent = shown ? shown.trim().charAt(0).toUpperCase() : "？";
       const now = Date.now();
+      const active = data.filter((r) => r.status !== "cancelled");
+      // キャンセル済みは自動では消さない（オーナー 2026-07-22）：
+      // 復元・日付変更・完全削除をユーザーが選ぶまで下に残す。共有された予約は
+      // メンバー側では操作できないので、この編集可能なセクションには含めない。
+      const cancelled = data.filter((r) => r.status === "cancelled" && !r.shared)
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       const dls = active.map(freeDeadline).filter((d) => d && d > now).sort((a, b) => a - b);
-      q("#stNext").textContent = dls.length ? fmtDate(dls[0]) : "—";
+      q("#chipNext").innerHTML = dls.length
+        ? `◆ 次の締切 <b>${fmtDate(dls[0])}</b>（あと${
+          Math.max(1, Math.ceil((dls[0] - now) / DAY))
+        }日）`
+        : "◆ 差し迫った締切なし";
       q("#stLoss").textContent = yen(active.reduce((s, r) => s + maxLoss(r), 0));
+      renderDateScale(now);
+      renderRail(active, cancelled.length, now);
       q("#planList").innerHTML = [...new Set(data.map((r) => r.plan).filter(Boolean))].map((p) =>
         `<option value="${p}">`
       ).join("");
 
       const list = q("#list");
-      if (active.length === 0) {
+      if (active.length === 0 && cancelled.length === 0) {
         list.innerHTML = `<div class="empty"><h3>まだ予約がありません。どちらから始めますか？</h3>
           <div class="startgrid">
             <div class="startcard" id="sc-scratch"><div class="t">🌱 まっさらから始める</div><div class="d">これから取る予約を1件ずつ登録。候補を複数入れて「プラン」に束ねると、1つ確定したとき残りが自動で要キャンセルになります。</div></div>
@@ -1045,52 +1408,71 @@
         (groups[k] = groups[k] || []).push(r);
       });
       list.innerHTML = Object.entries(groups).map(([k, rs]) => {
-        const title = rs[0].plan ? rs[0].plan : rs[0].service;
+        const isPlan = !!rs[0].plan;
+        const title = isPlan ? rs[0].plan : rs[0].service;
         const settled = rs.some((r) => r.status === "confirmed");
-        return `<div class="plan"><div class="plan-head"><div class="plan-title">${esc(title)}</div>
-          <div class="plan-note">${rs[0].plan ? rs.length + "件の候補" : "単独予約"}${
-          settled ? " · 確定済み" : ""
-        }</div></div>
-          ${rs.map(rowHtml).join("")}</div>`;
+        const cands = rs.filter((r) => r.status === "candidate");
+        const stamp = settled ? `<span class="stamp safe">確定</span>` : "";
+        const note = settled
+          ? ""
+          : (isPlan
+            ? (cands.length > 1 ? `${cands.length}候補 · どれか1つに` : `${rs.length}件の候補`)
+            : "単独予約");
+        // 複数候補が未確定のプランには「決めどき」バナー（最も早い◆と、過ぎた場合の最低損失）
+        let decide = "";
+        if (isPlan && !settled && cands.length > 1) {
+          const ds2 = cands.map(freeDeadline).filter((d) => d && d > now).sort((a, b) => a - b);
+          if (ds2.length) {
+            const first = cands.find((r) => freeDeadline(r) === ds2[0]);
+            const pen = first ? penaltyAfterFree(first) : 0;
+            decide = `<div class="decide-note">⏳ 決めどきは <b>${fmtDate(ds2[0])} まで</b>${
+              pen
+                ? ` — 過ぎると最低でも <b style="color:var(--danger)">${yen(pen)}</b> かかります`
+                : ""
+            }</div>`;
+          }
+        }
+        // 単独予約はタイトル行を省略（行内の店名と重複するため。デザインの単独カード相当）
+        const head = isPlan
+          ? `<div class="plan-head"><span class="plan-title">${esc(title)}</span>${stamp}<span class="plan-note">${note}</span></div>`
+          : "";
+        return `<div class="plan${settled ? " settled" : ""}${isPlan ? "" : " solo"}">${head}${
+          rs.map(rowHtml).join("")
+        }${decide}</div>`;
       }).join("");
-      // キャンセル済みは自動では消さない（オーナー 2026-07-22）：
-      // 復元・日付変更・完全削除をユーザーが選ぶまで下に残す。共有された予約は
-      // メンバー側では操作できないので、この編集可能なセクションには含めない。
-      const cancelled = data.filter((r) => r.status === "cancelled" && !r.shared)
-        .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       if (cancelled.length) {
         list.innerHTML += `<div class="cancelled-sec"><h3>キャンセル済み（${cancelled.length}件）</h3>
           <p class="hint" style="margin-bottom:10px">ここに残っている間は「復元」や日付を変えての取り直しができます。不要なら「完全に削除」で消し去れます。</p>
           ${cancelled.map(cancelledRowHtml).join("")}</div>`;
       }
-      list.querySelectorAll("[data-restore]").forEach((b) =>
+      document.querySelectorAll("[data-restore]").forEach((b) =>
         b.onclick = () => act("POST", `/api/reservations/${b.dataset.restore}/restore`)
       );
-      list.querySelectorAll("[data-confirm]").forEach((b) =>
+      document.querySelectorAll("[data-confirm]").forEach((b) =>
         b.onclick = () => act("POST", `/api/reservations/${b.dataset.confirm}/confirm`)
       );
-      list.querySelectorAll("[data-cancel]").forEach((b) =>
+      document.querySelectorAll("[data-cancel]").forEach((b) =>
         b.onclick = () => act("POST", `/api/reservations/${b.dataset.cancel}/cancel`)
       );
-      list.querySelectorAll("[data-edit]").forEach((b) =>
+      document.querySelectorAll("[data-edit]").forEach((b) =>
         b.onclick = () => openAdd(data.find((r) => r.id === b.dataset.edit))
       );
-      list.querySelectorAll("[data-del]").forEach((b) =>
+      document.querySelectorAll("[data-del]").forEach((b) =>
         b.onclick = () => {
           if (confirm("この予約を削除しますか？")) act("DELETE", `/api/reservations/${b.dataset.del}`);
         }
       );
-      list.querySelectorAll("[data-del-hard]").forEach((b) =>
+      document.querySelectorAll("[data-del-hard]").forEach((b) =>
         b.onclick = () => {
           if (confirm("完全に削除すると復元できません。よろしいですか？")) {
             act("DELETE", `/api/reservations/${b.dataset.delHard}`);
           }
         }
       );
-      list.querySelectorAll("[data-invite]").forEach((b) =>
+      document.querySelectorAll("[data-invite]").forEach((b) =>
         b.onclick = () => openInvite(b.dataset.invite)
       );
-      list.querySelectorAll("[data-leave]").forEach((b) =>
+      document.querySelectorAll("[data-leave]").forEach((b) =>
         b.onclick = () => {
           if (confirm("この共有予約から脱退しますか？相手の台帳からは消えません。")) {
             act("DELETE", `/api/reservations/${b.dataset.leave}/members/me`);
@@ -1106,7 +1488,7 @@
         <div class="sub" style="align-self:center">${
         r.plan ? "プラン: " + esc(r.plan) : ""
       }</div>
-        <div class="rowbtns"><button class="rowbtn" data-restore="${r.id}">↩ 復元</button><button class="rowbtn" data-edit="${r.id}">日付変更・編集</button><button class="rowbtn danger" data-del-hard="${r.id}">完全に削除</button></div></div>`;
+        <div class="ract"><button class="rowbtn" data-restore="${r.id}">↩ 復元</button><button class="rowbtn" data-edit="${r.id}">日付変更・編集</button><button class="rowbtn danger" data-del-hard="${r.id}">完全に削除</button></div></div>`;
     }
     function esc(s) {
       return String(s).replace(
@@ -1114,61 +1496,167 @@
         (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]),
       );
     }
+    // ---- 帳場×宵の帳: 期限バー・やることレールのヘルパー ----
+    function stagesOf(r) {
+      const p = POLICIES[r.policy];
+      return (p && p !== "unknown") ? p.stages : null;
+    }
+    // 今キャンセルした場合の損失率（%）。規定不明なら null。
+    function pctNow(r, now) {
+      const st = stagesOf(r);
+      if (!st) return null;
+      const hl = (startMs(r) - now) / 3600000;
+      const c = st.filter((s) => hl >= s.h);
+      if (!c.length) return st[st.length - 1].pct;
+      return c.reduce((a, b) => (a.h >= b.h ? a : b)).pct;
+    }
+    // 無料期限を過ぎた直後に発生する最低キャンセル料
+    function penaltyAfterFree(r) {
+      const st = stagesOf(r);
+      if (!st || !r.amount) return 0;
+      const paid = st.find((s) => s.pct > 0);
+      return paid ? Math.round(r.amount * paid.pct / 100) : 0;
+    }
+    // 「今日→予約日」を損失率で塗り分ける: 0%=safe / 中間=lamp / 100%=danger
+    function barGradient(r, now) {
+      const st = stagesOf(r);
+      if (!st) return "var(--card2)";
+      const start = startMs(r), span = Math.max(start - now, DAY);
+      const pos = (t) => Math.max(0, Math.min(100, ((t - now) / span) * 100));
+      const color = (p) => p === 0 ? "var(--safe)" : (p >= 100 ? "var(--danger)" : "var(--lamp)");
+      const segs = [];
+      for (let i = 0; i < st.length; i++) {
+        const from = i === 0 ? 0 : pos(start - st[i - 1].h * 3600000);
+        const to = pos(start - st[i].h * 3600000);
+        if (to > from) segs.push(`${color(st[i].pct)} ${from}% ${to}%`);
+      }
+      return segs.length ? `linear-gradient(90deg,${segs.join(",")})` : "var(--card2)";
+    }
+    function renderDateScale(now) {
+      q("#dateScale").innerHTML = [0, 7, 14, 21, 28].map((d, i) =>
+        i === 0
+          ? `<span class="today">│ 今日 ${fmtDate(now)}</span>`
+          : `<span>${fmtDate(now + d * DAY)}</span>`
+      ).join("");
+    }
+    // やることレール: 要キャンセル → プランの決めどき → 規定の補完 → 処理済み
+    function renderRail(active, doneCount, now) {
+      const items = [];
+      for (const r of active) {
+        if (r.shared || r.status !== "to_cancel") continue;
+        const dl = freeDeadline(r);
+        const label = dl ? (dl > now ? `◆${fmtDate(dl)} まで` : "今日中") : "早めに";
+        const pct = pctNow(r, now);
+        const ds = r.policy === "unknown"
+          ? "規定不明のため損失は未知"
+          : (r.amount
+            ? `今なら ${yen(Math.round(r.amount * (pct || 0) / 100))} · 放置で最大 ${
+              yen(maxLoss(r))
+            }`
+            : "金額未定");
+        items.push(
+          `<div class="rail-item"><div class="lb">${label}</div><div class="tt"><b>${
+            esc(r.service)
+          }をキャンセル</b> ✂</div><div class="ds">${ds}</div><div class="btns"><button class="rowbtn act" data-cancel="${r.id}">✓ キャンセルした</button></div></div>`,
+        );
+      }
+      const plans = {};
+      active.filter((r) => r.plan && !r.shared).forEach((r) =>
+        (plans[r.plan] = plans[r.plan] || []).push(r)
+      );
+      for (const [name, rs] of Object.entries(plans)) {
+        if (rs.some((r) => r.status === "confirmed")) continue;
+        const cds = rs.filter((r) => r.status === "candidate");
+        if (cds.length < 2) continue;
+        const ds2 = cds.map(freeDeadline).filter((d) => d && d > now).sort((a, b) => a - b);
+        items.push(
+          `<div class="rail-item soft"><div class="lb lamp">${
+            ds2.length ? `◆${fmtDate(ds2[0])} まで` : "いつでも"
+          }</div><div class="tt"><b>${
+            esc(name)
+          } を決める</b></div><div class="ds">決めると残りが自動でここに並びます</div></div>`,
+        );
+      }
+      for (const r of active) {
+        if (r.shared || r.policy !== "unknown" || r.status === "to_cancel") continue;
+        items.push(
+          `<div class="rail-item soft"><div class="lb muted">いつでも</div><div class="tt"><b>${
+            esc(r.service)
+          } の規定を入れる</b></div><div class="ds">入れると期限を見張れます</div><div class="btns"><button class="rowbtn" data-edit="${r.id}">規定を入れる</button></div></div>`,
+        );
+      }
+      const todo = active.filter((r) => r.status === "to_cancel").length;
+      q("#todoCount").textContent = todo + "件";
+      q("#bnDoneCount").textContent = doneCount;
+      q("#rail").innerHTML = (items.length
+        ? items.join("")
+        : `<div class="rail-item soft"><div class="ds">今やることはありません。よくできました。</div></div>`) +
+        `<div class="rail-done">処理済み ${doneCount}件</div>`;
+    }
     function rowHtml(r) {
       const now = Date.now(),
         start = startMs(r),
         span = Math.max(start - now, DAY),
         dl = freeDeadline(r);
-      const freePct = dl ? Math.max(0, Math.min(100, ((dl - now) / span) * 100)) : 0;
+      const pos = (t) => Math.max(0, Math.min(100, ((t - now) / span) * 100));
+      const freePct = dl ? pos(dl) : 0;
       const track = r.policy === "unknown"
-        ? `<div class="bar-track unknown" title="キャンセル規定が不明です"></div>`
-        : `<div class="bar-track" style="--freepct:${freePct}%">${
+        ? `<div class="bar unknown" title="キャンセル規定が不明です"></div>`
+        : `<div class="bar" style="background:${barGradient(r, now)}">${
           dl && dl > now
-            ? `<span class="bar-marker" style="left:${freePct}%" title="無料キャンセル期限 ${
+            ? `<span class="mark" style="left:${freePct}%" title="無料キャンセル期限 ${
               fmtDate(dl)
-            }">◆</span>`
+            }"></span>`
             : ""
-        }<span class="bar-marker" style="left:100%" title="予約日 ${fmtDate(start)}">▶</span></div>`;
-      const cap = `<div class="bar-cap"><span>今日</span><span>${
-        r.policy === "unknown"
-          ? "キャンセル規定 不明"
-          : (dl && dl > now ? "無料期限 " + fmtDate(dl) : "無料期間なし")
-      }</span><span>${fmtDate(start)}</span></div>`;
-      const statusBtn = r.status === "candidate"
-        ? `<button class="rowbtn" data-confirm="${r.id}">これで確定</button>`
-        : r.status === "confirmed"
-        ? `<button class="rowbtn" data-cancel="${r.id}">キャンセルした</button>`
-        : `<button class="rowbtn" data-cancel="${r.id}">キャンセル実施</button>`;
+        }</div>`;
+      const mid = r.policy === "unknown"
+        ? "規定が不明だと見張れません"
+        : (dl && dl > now ? `◆${fmtDate(dl)} ¥0で戻れる最終日` : "無料期間は終了");
+      const cap = `<div class="bar-cap"><span>今日</span><span>${mid}</span><span>${
+        fmtDate(start)
+      } ▶</span></div>`;
+      const d = new Date(start);
+      const timeS = (d.getHours() || d.getMinutes())
+        ? ` ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+        : "";
+      const sub = `${fmtDate(start)}${timeS} · ${r.amount ? yen(r.amount) : "金額未定"}`;
       const locLink = r.location
         ? `<div class="sub"><a href="https://www.google.com/maps/search/?api=1&query=${
           encodeURIComponent(r.location)
         }" target="_blank" rel="noopener">📍 ${esc(r.location)}</a></div>`
         : "";
-      const statusPill = `<span class="pill ${r.status}">${
-        ({ candidate: "候補", confirmed: "確定", to_cancel: "要キャンセル" })[r.status]
-      }</span>`;
+      const off = r.status === "to_cancel" ? " off" : "";
+      const cut = r.status === "to_cancel" ? ` <span class="cut">✂ 要キャンセル</span>` : "";
       // 共有された予約（自分はメンバー）: 操作は「脱退」のみ。オーナー表示名を行内に出す。
       if (r.shared) {
-        return `<div class="resv shared-row">
-        <div><div class="name">${esc(r.service)}</div><div class="sub">${
-          r.amount ? yen(r.amount) : "金額未定"
-        }</div>${locLink}<div class="share-tag">共有: ${
+        return `<div class="resv${off}">
+        <div><div class="name"><b>${esc(r.service)}</b>${cut}</div><div class="sub">${sub}</div>${locLink}<div class="share-tag">共有: ${
           esc(r.shared.ownerDisplayName)
-        }</div>${statusPill}</div>
+        }</div></div>
         <div>${track}${cap}</div>
-        <div class="rowbtns"><button class="rowbtn" data-leave="${r.id}">脱退</button></div></div>`;
+        <div class="ract"><button class="rowbtn" data-leave="${r.id}">脱退</button></div></div>`;
       }
-      // 自分の予約: 状態操作 + 招待 + 編集 + 削除。
-      const inviteBtn = viewingDemo
-        ? ""
-        : `<button class="rowbtn" data-invite="${r.id}">招待</button>`;
-      return `<div class="resv">
-        <div><div class="name">${esc(r.service)}</div><div class="sub">${
-        r.amount ? yen(r.amount) : "金額未定"
-      } · ${maxLoss(r) ? "最大損失 " + yen(maxLoss(r)) : "損失計算不可"}</div>${locLink}
-          ${statusPill}</div>
+      // 自分の予約: 主操作は右端のボタン、副操作（招待・編集・削除）は名前下のリンク。
+      let mainBtn = "";
+      if (r.status === "candidate") {
+        mainBtn = `<button class="rowbtn confirm" data-confirm="${r.id}">これで確定</button>`;
+        if (r.policy === "unknown") {
+          mainBtn += `<button class="rowbtn dashed" data-edit="${r.id}">規定 不明 → 入れる</button>`;
+        }
+      } else if (r.status === "to_cancel") {
+        mainBtn = `<button class="rowbtn act" data-cancel="${r.id}">✓ キャンセルした</button>`;
+      } else {
+        mainBtn = `<span class="okmark">✓ 確定済み</span>`;
+      }
+      const inviteLink = viewingDemo ? "" : `<a data-invite="${r.id}">招待</a> · `;
+      const cancelLink = r.status === "confirmed"
+        ? ` · <a data-cancel="${r.id}">キャンセルした</a>`
+        : "";
+      const tools = `<div class="tools">${inviteLink}<a data-edit="${r.id}">編集</a> · <a data-del="${r.id}">削除</a>${cancelLink}</div>`;
+      return `<div class="resv${off}">
+        <div><div class="name"><b>${esc(r.service)}</b>${cut}</div><div class="sub">${sub}</div>${locLink}${tools}</div>
         <div>${track}${cap}</div>
-        <div class="rowbtns">${statusBtn}${inviteBtn}<button class="rowbtn" data-edit="${r.id}">編集</button><button class="rowbtn danger" data-del="${r.id}">削除</button></div></div>`;
+        <div class="ract">${mainBtn}</div></div>`;
     }
 
     async function act(method, path, body) {
@@ -1788,6 +2276,35 @@
     }
     q("#demoBtn").onclick = enterDemo;
     q("#exitDemo").onclick = exitDemo;
+
+    // ---- 世界観: ライト（帳場）/ ダーク（宵の帳）切替とナビ ----
+    const THEME_KEY = "plancel.theme";
+    function applyTheme(t) {
+      document.body.classList.toggle("dark", t === "dark");
+      q("#themeBtn").textContent = t === "dark" ? "◐" : "◑";
+      q("#themeBtn").title = t === "dark" ? "ライトモードへ" : "ダークモードへ";
+    }
+    let theme = localStorage.getItem(THEME_KEY) ||
+      (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    applyTheme(theme);
+    q("#themeBtn").onclick = () => {
+      theme = theme === "dark" ? "light" : "dark";
+      localStorage.setItem(THEME_KEY, theme);
+      applyTheme(theme);
+    };
+    q("#todayChip").textContent = fmtDate(Date.now());
+    q("#bnLedger").onclick = () => scrollTo({ top: 0, behavior: "smooth" });
+    q("#bnDone").onclick = () => {
+      const el = document.querySelector(".cancelled-sec");
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+    };
+    q("#bnImport").onclick = openImport;
+    q("#bnCal").onclick = () => {
+      if (ME) q("#calBtn").onclick();
+    };
+    q("#bnProfile").onclick = () => {
+      if (ME) q("#profileBtn").onclick();
+    };
 
     // boot: session check -> (adopt legacy token once) -> app, else login
     const AUTH_ERRORS = {
