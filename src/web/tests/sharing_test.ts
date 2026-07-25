@@ -263,3 +263,25 @@ Deno.test("ICS feed: a member's subscription includes shared confirmed reservati
     assertStringIncludes(await feed.text(), "共有レストラン");
   });
 });
+
+Deno.test("退会 integration: share mirrors are cleaned on both sides", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const { addMember, listMemberIds, listSharedIn } = await import("../sharing.ts");
+    const { deleteAccount } = await import("../users.ts");
+    const owner = await getOrCreateUserByEmail(kv, "owner@example.com", ids);
+    const member = await getOrCreateUserByEmail(kv, "member@example.com", ids);
+    await addMember(kv, owner.id, "R1", member.id, ids);
+
+    // member 退会 -> owner's roster no longer lists them
+    await deleteAccount(kv, member.id, ids);
+    assertEquals(await listMemberIds(kv, owner.id, "R1"), []);
+
+    // owner 退会 -> a member's shared_in no longer references the owner
+    const owner2 = await getOrCreateUserByEmail(kv, "owner2@example.com", ids);
+    const member2 = await getOrCreateUserByEmail(kv, "member2@example.com", ids);
+    await addMember(kv, owner2.id, "R2", member2.id, ids);
+    await deleteAccount(kv, owner2.id, ids);
+    assertEquals(await listSharedIn(kv, member2.id), []);
+  });
+});

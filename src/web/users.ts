@@ -354,6 +354,19 @@ export async function deleteAccount(
     }
   }
 
+  // 1.5 share MIRRORS (integration with sharing.ts): the per-user prefixes
+  // below only cover this user's own side of each share, so delete the
+  // counterpart rows first — the owner-side member rows where this user was
+  // a member, and each member's shared_in row where this user was the owner.
+  for await (const e of kv.list({ prefix: [SHARED_IN, userId] })) {
+    const [, , ownerId, resvId] = e.key as [string, string, string, string];
+    await kv.delete([RESV_MEMBERS, ownerId, resvId, userId]);
+  }
+  for await (const e of kv.list({ prefix: [RESV_MEMBERS, userId] })) {
+    const [, , resvId, memberId] = e.key as [string, string, string, string];
+    await kv.delete([SHARED_IN, memberId, userId, resvId]);
+  }
+
   // 2. per-user prefixes (a prefix no code writes lists as empty — safe).
   for (const prefix of [[GCAL, userId], [DIRTY, userId], [SHARED_IN, userId], [RESV_MEMBERS, userId]]) {
     for await (const e of kv.list({ prefix })) {
