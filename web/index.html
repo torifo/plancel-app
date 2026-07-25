@@ -237,11 +237,6 @@
     .databar .txt b {
       color: var(--ink);
     }
-    .databar .tokline {
-      font-size: 11.5px;
-      color: var(--soft);
-      margin-top: 2px;
-    }
     .demobar {
       display: none;
       align-items: center;
@@ -266,11 +261,47 @@
       align-items: center;
       margin-bottom: 14px;
     }
+    .statusrow {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
     .chips {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-      margin-bottom: 16px;
+      align-items: center;
+    }
+    .miniacts {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .btn-ghost.mini {
+      font-size: 11.5px;
+      padding: 4px 12px;
+    }
+    /* ═══ ページビュー（マイページ） ═══ */
+    .page-head {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .page-head h2 {
+      font-size: 17px;
+      font-weight: 700;
+    }
+    .pagecard {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px 22px;
+      max-width: 620px;
+      box-shadow: var(--shadow);
     }
     /* ═══ スタンプ（要処理 / 確定） ═══ */
     .stamp {
@@ -629,7 +660,7 @@
       max-height: calc(100vh - 80px);
       overflow-y: auto;
     }
-    /* Settings-modal section pattern: shared by #profileOverlay and #calOverlay */
+    /* Settings-modal section pattern: shared by #profilePage and #calOverlay */
     .sec {
       margin-top: 16px;
       padding-top: 16px;
@@ -987,11 +1018,9 @@
     </div>
 
     <div class="wrap">
+      <div id="ledgerView">
       <div class="databar" id="dataBar">
-        <div>
-          <div class="txt"><b>自分のデータ</b>　ログイン中: <span id="meEmail">…</span></div>
-          <div class="tokline"><a id="logoutBtn" style="cursor:pointer;text-decoration:underline">ログアウト</a></div>
-        </div>
+        <div class="txt"><b>自分のデータ</b>　ログイン中: <span id="meEmail">…</span></div>
         <button class="btn-small" id="demoBtn">デモを見る</button>
       </div>
 
@@ -1000,13 +1029,15 @@
         <button class="btn-small" id="exitDemo">← 自分のデータに戻る</button>
       </div>
 
-      <div class="actions">
+      <div class="statusrow">
         <div class="chips">
           <span class="chip lamp" id="chipNext">◆ 次の締切 —</span>
           <span class="chip">放置損失 <b style="color:var(--danger)" id="stLoss">¥0</b></span>
         </div>
-        <button class="btn-ghost" id="addBtn" style="font-size:11.5px;padding:4px 12px">＋手動で追加</button>
-        <button class="btn-ghost" id="helpBtn" style="font-size:11.5px;padding:4px 12px">？使い方</button>
+        <div class="miniacts">
+          <button class="btn-ghost mini" id="addBtn">＋手動で追加</button>
+          <button class="btn-ghost mini" id="helpBtn">？使い方</button>
+        </div>
       </div>
 
       <div class="cols">
@@ -1025,6 +1056,63 @@
       </div>
 
       <p class="foot-note">データはログイン中のアカウントに紐づけてサーバ（KV）に保存されます。別の端末でも同じアカウントでログインすれば同じ台帳が開きます。</p>
+      </div>
+
+      <!-- My page: profile, credentials, account linking (GUI-only flows).
+           モーダルではなく台帳と同じページビュー（オーナー 2026-07-25） -->
+      <section id="profilePage" style="display:none">
+        <div class="page-head">
+          <a class="back-link" id="profileBack">‹ 台帳へ戻る</a>
+          <h2>マイページ</h2>
+        </div>
+        <div class="pagecard">
+          <div class="profile-header">
+            <div class="avatar-circle" id="p_avatar">?</div>
+            <div>
+              <div class="profile-name" id="p_avatarName">-</div>
+              <div class="hint" id="p_avatarEmail" style="margin-top:2px"></div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">プロフィール</div>
+            <label>表示名（他の人と同じでも OK）</label>
+            <input id="p_name" placeholder="例: あきと">
+            <label>ユーザーID（任意・半角英小文字のみ 6〜20文字・早い者勝ちで一意）</label>
+            <input id="p_uid" placeholder="例: akitosan">
+            <div class="hint" style="margin:4px 0 0">設定しなくても利用できます。設定するとログインや、今後の「予約への招待」で相手に見つけてもらう際に使えて便利です。</div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">ログイン方法</div>
+            <label>別のログイン用メールアドレス（iCloud など・任意）</label>
+            <input id="p_alt" type="email" placeholder="you@icloud.com">
+            <div class="modal-foot"><button class="btn-primary" id="profileSave">プロフィールを保存</button></div>
+            <label style="margin-top:16px">パスワード（設定するとメールアドレスでもログインできます）</label>
+            <input id="p_pw" type="password" placeholder="8文字以上" autocomplete="new-password">
+            <input id="p_pw2" type="password" placeholder="確認のためもう一度" autocomplete="new-password" style="margin-top:6px">
+            <div class="modal-foot"><button class="btn-ghost" id="passwordSave">パスワードを設定・変更</button></div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">アカウント連携</div>
+            <div class="hint" id="p_linkStatus" style="margin:0 0 8px"></div>
+            <div class="hint"><a id="p_linkGoogle" style="cursor:pointer;text-decoration:underline">🔗 Google アカウントを紐付ける</a></div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">セッション</div>
+            <div class="hint" style="margin:0"><a id="logoutBtn" style="cursor:pointer;text-decoration:underline">ログアウト</a></div>
+          </div>
+
+          <div class="sec sec-danger">
+            <div class="sec-h" style="color:var(--full)">⚠ 危険な操作</div>
+            <label style="color:var(--full);margin-top:0">退会（アカウントの完全削除）</label>
+            <div class="hint" style="margin:4px 0 8px">すべての予約・設定・カレンダー連携が削除され、元に戻すことはできません。</div>
+            <div class="hint"><a id="deleteAccountBtn" style="cursor:pointer;text-decoration:underline;color:var(--full)">⚠ 退会（すべてのデータを削除）</a></div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <nav class="bottomnav">
@@ -1185,53 +1273,6 @@
           <button class="btn-ghost" id="registerBtn" style="flex:1">新規登録</button>
         </div>
         <div class="hint" id="loginMsg" style="margin-top:8px"></div>
-      </div>
-    </div>
-
-    <!-- My page: profile, credentials, account linking (GUI-only flows) -->
-    <div class="overlay" id="profileOverlay">
-      <div class="modal">
-        <div class="modal-head"><h3>マイページ</h3><button class="x" data-close>×</button></div>
-        <div class="profile-header">
-          <div class="avatar-circle" id="p_avatar">?</div>
-          <div>
-            <div class="profile-name" id="p_avatarName">-</div>
-            <div class="hint" id="p_avatarEmail" style="margin-top:2px"></div>
-          </div>
-        </div>
-
-        <div class="sec">
-          <div class="sec-h">プロフィール</div>
-          <label>表示名（他の人と同じでも OK）</label>
-          <input id="p_name" placeholder="例: あきと">
-          <label>ユーザーID（任意・半角英小文字のみ 6〜20文字・早い者勝ちで一意）</label>
-          <input id="p_uid" placeholder="例: akitosan">
-          <div class="hint" style="margin:4px 0 0">設定しなくても利用できます。設定するとログインや、今後の「予約への招待」で相手に見つけてもらう際に使えて便利です。</div>
-        </div>
-
-        <div class="sec">
-          <div class="sec-h">ログイン方法</div>
-          <label>別のログイン用メールアドレス（iCloud など・任意）</label>
-          <input id="p_alt" type="email" placeholder="you@icloud.com">
-          <div class="modal-foot"><button class="btn-primary" id="profileSave">プロフィールを保存</button></div>
-          <label style="margin-top:16px">パスワード（設定するとメールアドレスでもログインできます）</label>
-          <input id="p_pw" type="password" placeholder="8文字以上" autocomplete="new-password">
-          <input id="p_pw2" type="password" placeholder="確認のためもう一度" autocomplete="new-password" style="margin-top:6px">
-          <div class="modal-foot"><button class="btn-ghost" id="passwordSave">パスワードを設定・変更</button></div>
-        </div>
-
-        <div class="sec">
-          <div class="sec-h">アカウント連携</div>
-          <div class="hint" id="p_linkStatus" style="margin:0 0 8px"></div>
-          <div class="hint"><a id="p_linkGoogle" style="cursor:pointer;text-decoration:underline">🔗 Google アカウントを紐付ける</a></div>
-        </div>
-
-        <div class="sec sec-danger">
-          <div class="sec-h" style="color:var(--full)">⚠ 危険な操作</div>
-          <label style="color:var(--full);margin-top:0">退会（アカウントの完全削除）</label>
-          <div class="hint" style="margin:4px 0 8px">すべての予約・設定・カレンダー連携が削除され、元に戻すことはできません。</div>
-          <div class="hint"><a id="deleteAccountBtn" style="cursor:pointer;text-decoration:underline;color:var(--full)">⚠ 退会（すべてのデータを削除）</a></div>
-        </div>
       </div>
     </div>
 
@@ -2143,7 +2184,7 @@
         : (ME.emailVerified
           ? "Google 未連携。紐付けると Google でもログインできます。"
           : "Google 未連携（このアカウントはメール登録のみ）。紐付けるとアカウントの本人確認も完了します。");
-      q("#profileOverlay").classList.add("on");
+      setView(true);
     };
     q("#profileSave").onclick = async () => {
       const body = {};
@@ -2293,8 +2334,21 @@
       applyTheme(theme);
     };
     q("#todayChip").textContent = fmtDate(Date.now());
-    q("#bnLedger").onclick = () => scrollTo({ top: 0, behavior: "smooth" });
+    // 台帳 / マイページのページ切替（マイページはモーダルではなくページ）
+    function setView(profile) {
+      q("#ledgerView").style.display = profile ? "none" : "";
+      q("#profilePage").style.display = profile ? "" : "none";
+      q("#bnLedger").classList.toggle("active", !profile);
+      q("#bnProfile").classList.toggle("active", profile);
+      scrollTo({ top: 0 });
+    }
+    q("#profileBack").onclick = () => setView(false);
+    q("#bnLedger").onclick = () => {
+      setView(false);
+      scrollTo({ top: 0, behavior: "smooth" });
+    };
     q("#bnDone").onclick = () => {
+      setView(false);
       const el = document.querySelector(".cancelled-sec");
       if (el) el.scrollIntoView({ behavior: "smooth" });
     };
