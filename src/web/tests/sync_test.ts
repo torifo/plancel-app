@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { handleSyncMessage, requestSync, type SyncDeps, type SyncMsg } from "../calendar/sync.ts";
+import { requestSync, sweepDirtySync, type SyncDeps } from "../calendar/sync.ts";
 import { cancelReservation, createReservation } from "../store.ts";
 import { getGcalEvent, getOrCreateUserByEmail, getUser, linkGoogle } from "../users.ts";
 import { seal } from "../../lib/seal.ts";
@@ -8,14 +8,14 @@ import { makeAuthIds } from "./users_test.ts";
 interface FakeGoogle {
   calls: string[];
   refreshStatus: number;
-  deps(kv: Deno.Kv, enqueued: Array<{ msg: SyncMsg; delayMs: number }>): SyncDeps;
+  deps(kv: Deno.Kv): SyncDeps;
 }
 
 function fakeGoogle(): FakeGoogle {
   const g: FakeGoogle = {
     calls: [],
     refreshStatus: 200,
-    deps(kv, enqueued) {
+    deps(kv) {
       const fetchFn = ((input: URL | RequestInfo, init?: RequestInit) => {
         const url = String(input instanceof Request ? input.url : input);
         const method = init?.method ?? "GET";
@@ -28,7 +28,6 @@ function fakeGoogle(): FakeGoogle {
           );
         }
         if (method === "GET" && url.includes("/calendars/")) {
-          // stored calendar id "calX" exists; anything else is gone
           return Promise.resolve(
             url.includes("calX") ? new Response("{}") : new Response("{}", { status: 404 }),
           );
@@ -50,14 +49,28 @@ function fakeGoogle(): FakeGoogle {
         fetchFn,
         google: { clientId: "cid", clientSecret: "sec" },
         kek: undefined,
-        enqueue: (msg, delayMs) => {
-          enqueued.push({ msg, delayMs });
-          return Promise.resolve();
-        },
       };
     },
   };
   return g;
+}
+
+/** Deps whose calendar API always 500s (token refresh still works). */
+function brokenDeps(base: SyncDeps): SyncDeps {
+  return {
+    ...base,
+    fetchFn: ((input: URL | RequestInfo) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.startsWith("https://oauth2.googleapis.com/token")) {
+        return Promise.resolve(new Response(JSON.stringify({ access_token: "at" })));
+      }
+      return Promise.resolve(new Response("{}", { status: 500 }));
+    }) as typeof fetch,
+  };
+}
+
+async function isDirty(kv: Deno.Kv, userId: string, resvId: string): Promise<boolean> {
+  return (await kv.get(["gcal_dirty", userId, resvId])).value !== null;
 }
 
 async function withUser(
@@ -84,118 +97,63 @@ async function withUser(
   }
 }
 
-const msg = (userId: string, resvId: string, attempt = 0): SyncMsg => ({
-  type: "gcal-sync",
-  userId,
-  resvId,
-  attempt,
-});
+const RESV = {
+  plan: null,
+  service: "宿",
+  startsAt: "2026-08-01T15:00:00+09:00",
+  amount: null,
+  location: null,
+  policy: "unknown" as const,
+  confirmed: true,
+};
 
-Deno.test("confirmed reservation syncs: calendar created, event inserted, mapping saved", async () => {
+Deno.test("requestSync (inline): calendar created, event inserted, dirty cleared", async () => {
   await withUser(async (kv, userId, ledger, ids) => {
-    const r = await createReservation(kv, ledger, {
-      plan: null,
-      service: "宿",
-      startsAt: "2026-08-01T15:00:00+09:00",
-      amount: null,
-      location: null,
-      policy: "unknown",
-      confirmed: true,
-    }, ids);
+    const r = await createReservation(kv, ledger, RESV, ids);
     const g = fakeGoogle();
-    const enq: Array<{ msg: SyncMsg; delayMs: number }> = [];
-    await handleSyncMessage(g.deps(kv, enq), msg(userId, r.id));
+    await requestSync(g.deps(kv), userId, r.id);
     assertEquals((await getGcalEvent(kv, userId, r.id))?.eventId, "evX");
     assertEquals((await getUser(kv, userId))?.google?.calendarId, "calX");
-    assertEquals(enq.length, 0); // success -> no retry
+    assertEquals(await isDirty(kv, userId, r.id), false);
   });
 });
 
 Deno.test("cancelled reservation deletes the event and the mapping", async () => {
   await withUser(async (kv, userId, ledger, ids) => {
-    const r = await createReservation(kv, ledger, {
-      plan: null,
-      service: "宿",
-      startsAt: "2026-08-01T15:00:00+09:00",
-      amount: null,
-      location: null,
-      policy: "unknown",
-      confirmed: true,
-    }, ids);
+    const r = await createReservation(kv, ledger, RESV, ids);
     const g = fakeGoogle();
-    const enq: Array<{ msg: SyncMsg; delayMs: number }> = [];
-    await handleSyncMessage(g.deps(kv, enq), msg(userId, r.id)); // sync up
+    await requestSync(g.deps(kv), userId, r.id); // sync up
     await cancelReservation(kv, ledger, r.id, ids);
-    await handleSyncMessage(g.deps(kv, enq), msg(userId, r.id)); // reconcile down
+    await requestSync(g.deps(kv), userId, r.id); // reconcile down
     assertEquals(await getGcalEvent(kv, userId, r.id), null);
     assertEquals(g.calls.some((c) => c.startsWith("DELETE ")), true);
-    assertEquals(enq.length, 0);
+    assertEquals(await isDirty(kv, userId, r.id), false);
   });
 });
 
-Deno.test("invalid_grant marks the user reauth and does NOT retry", async () => {
+Deno.test("invalid_grant marks the user reauth and clears the dirty flag", async () => {
   await withUser(async (kv, userId, ledger, ids) => {
-    const r = await createReservation(kv, ledger, {
-      plan: null,
-      service: "宿",
-      startsAt: "2026-08-01T15:00:00+09:00",
-      amount: null,
-      location: null,
-      policy: "unknown",
-      confirmed: true,
-    }, ids);
+    const r = await createReservation(kv, ledger, RESV, ids);
     const g = fakeGoogle();
     g.refreshStatus = 400;
-    const enq: Array<{ msg: SyncMsg; delayMs: number }> = [];
-    await handleSyncMessage(g.deps(kv, enq), msg(userId, r.id));
+    await requestSync(g.deps(kv), userId, r.id);
     assertEquals((await getUser(kv, userId))?.google?.error, "reauth");
-    assertEquals(enq.length, 0);
+    assertEquals(await isDirty(kv, userId, r.id), false); // permanent, no retry
   });
 });
 
-Deno.test("transient failure re-enqueues with backoff, then gives up at max", async () => {
+Deno.test("transient failure stays dirty; the cron sweep repairs it later", async () => {
   await withUser(async (kv, userId, ledger, ids) => {
-    const r = await createReservation(kv, ledger, {
-      plan: null,
-      service: "宿",
-      startsAt: "2026-08-01T15:00:00+09:00",
-      amount: null,
-      location: null,
-      policy: "unknown",
-      confirmed: true,
-    }, ids);
+    const r = await createReservation(kv, ledger, RESV, ids);
     const g = fakeGoogle();
-    const enq: Array<{ msg: SyncMsg; delayMs: number }> = [];
-    const deps = g.deps(kv, enq);
-    // break the calendar API (events insert 500s) by pointing fetch at junk:
-    const broken: SyncDeps = {
-      ...deps,
-      fetchFn: ((input: URL | RequestInfo) => {
-        const url = String(input instanceof Request ? input.url : input);
-        if (url.startsWith("https://oauth2.googleapis.com/token")) {
-          return Promise.resolve(new Response(JSON.stringify({ access_token: "at" })));
-        }
-        return Promise.resolve(new Response("{}", { status: 500 }));
-      }) as typeof fetch,
-    };
-    await handleSyncMessage(broken, msg(userId, r.id, 0));
-    assertEquals(enq.length, 1);
-    assertEquals(enq[0]?.msg.attempt, 1);
-    assertEquals(enq[0]?.delayMs, 30_000);
-    await handleSyncMessage(broken, msg(userId, r.id, 4)); // last attempt
-    assertEquals(enq.length, 1); // gave up, nothing new enqueued
-  });
-});
+    await requestSync(brokenDeps(g.deps(kv)), userId, r.id);
+    assertEquals(await isDirty(kv, userId, r.id), true);
+    assertEquals(await getGcalEvent(kv, userId, r.id), null);
 
-Deno.test("requestSync enqueues an attempt-0 reconcile", async () => {
-  const kv = await Deno.openKv(":memory:");
-  try {
-    const g = fakeGoogle();
-    const enq: Array<{ msg: SyncMsg; delayMs: number }> = [];
-    await requestSync(g.deps(kv, enq), "U1", "R1");
-    assertEquals(enq[0]?.msg, { type: "gcal-sync", userId: "U1", resvId: "R1", attempt: 0 });
-    assertEquals(enq[0]?.delayMs, 0);
-  } finally {
-    kv.close();
-  }
+    // Google recovers -> the 15-minute sweep repairs the entry
+    const repaired = await sweepDirtySync(g.deps(kv));
+    assertEquals(repaired, 1);
+    assertEquals((await getGcalEvent(kv, userId, r.id))?.eventId, "evX");
+    assertEquals(await isDirty(kv, userId, r.id), false);
+  });
 });

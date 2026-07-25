@@ -43,7 +43,7 @@ import { handleParseApi, type ParseApiDeps } from "../web/parse-api.ts";
 import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../web/auth/routes.ts";
 import type { AuthIds } from "../web/users.ts";
 import { handleCalendarFeed, isCalendarFeedPath } from "../web/calendar/ics.ts";
-import { handleSyncMessage, requestSync, type SyncDeps, syncMsgSchema } from "../web/calendar/sync.ts";
+import { requestSync, sweepDirtySync, type SyncDeps } from "../web/calendar/sync.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 
@@ -58,12 +58,8 @@ if (import.meta.main) {
   const clock = new SystemClock();
   const ctx = { store, clock, ids: { newUlid: () => ulid() } };
 
-  // Cron: shares the startup Store; never closes it (isolate-lived).
+  // Notifier for the cron (registered below, after syncDeps exists).
   const { notifier, kind } = selectNotifier(env);
-  Deno.cron(CRON_NAME, CRON_SCHEDULE, async () => {
-    await runTick({ store, clock, notifier });
-  });
-  log.info("cron registered", { schedule: CRON_SCHEDULE, notifier: kind });
 
   // One parser chain shared by every intake surface (web /api/parse, LINE).
   const parsers = realParsers({ clock });
@@ -171,24 +167,29 @@ if (import.meta.main) {
         .filter(Boolean),
     ),
   };
+  // Queue-free sync (KV Connect has no queues in production): inline
+  // reconcile on write + dirty-flag sweep from the cron below.
   const syncDeps: SyncDeps = {
     kv: store.kv,
     ids: authIds,
     fetchFn: fetch,
     google: googleApp,
     kek,
-    enqueue: async (msg, delayMs) => {
-      await store.kv.enqueue(msg, { delay: delayMs });
-    },
   };
-  store.kv.listenQueue(async (raw) => {
-    if (syncMsgSchema.safeParse(raw).success) await handleSyncMessage(syncDeps, raw);
-  });
   log.info("auth configured", {
     google: googleApp !== null,
     emailLogin: sendMagicLink !== null,
     kek: kek !== undefined,
   });
+
+  // Cron: shares the startup Store; never closes it (isolate-lived). Also
+  // retries any calendar syncs the inline pass left dirty.
+  Deno.cron(CRON_NAME, CRON_SCHEDULE, async () => {
+    await runTick({ store, clock, notifier });
+    const repaired = await sweepDirtySync(syncDeps);
+    if (repaired > 0) log.info("gcal sweep repaired", { repaired });
+  });
+  log.info("cron registered", { schedule: CRON_SCHEDULE, notifier: kind });
   // Web intake: pasted mail text / screenshot images through the parse chain.
   const parseDeps: ParseApiDeps = {
     parsers,

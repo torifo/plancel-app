@@ -1,15 +1,19 @@
 /**
  * Reservation → Google Calendar sync (spec §5).
  *
- * Reconcile-shaped: a sync message only says "look at (userId, resvId)";
+ * Reconcile-shaped: a sync task only says "look at (userId, resvId)";
  * the handler reads the reservation's CURRENT state and makes Google
  * match it (confirmed → upsert, anything else/deleted → remove event).
  * That makes retries and reordering harmless.
  *
- * Sync must never fail a user's request: the API layer fire-and-forgets
- * `requestSync`, failures re-enqueue with exponential backoff (30s·2^n,
- * max 5 tries). `invalid_grant` (revoked / 7-day testing expiry) is not
- * retried — the user record is marked `reauth` and the UI shows 要再接続.
+ * QUEUE-FREE (2026-07-25): Deno Deploy's KV Connect does not support
+ * kv.enqueue/listenQueue in production, so retries use a KV dirty flag
+ * instead: `requestSync` marks ["gcal_dirty", userId, resvId], runs one
+ * reconcile inline (never failing the user's request), and clears the
+ * flag on success. Entries left dirty are retried by `sweepDirtySync`
+ * from the existing 15-minute cron. `invalid_grant` (revoked / expiry)
+ * is permanent — the user record is marked `reauth` (UI: 要再接続) and
+ * the flag is cleared.
  */
 import { z } from "zod";
 import { logger } from "../../lib/log.ts";
@@ -34,8 +38,7 @@ export const syncMsgSchema = z.object({
 });
 export type SyncMsg = z.infer<typeof syncMsgSchema>;
 
-const MAX_ATTEMPTS = 5;
-const BACKOFF_BASE_MS = 30_000;
+const DIRTY = "gcal_dirty";
 
 export interface SyncDeps {
   kv: Deno.Kv;
@@ -43,15 +46,42 @@ export interface SyncDeps {
   fetchFn: typeof fetch;
   google: GoogleOauthApp | null;
   kek: string | undefined;
-  /** kv.enqueue in production; injected so tests capture messages. */
-  enqueue(msg: SyncMsg, delayMs: number): Promise<void>;
 }
 
 const log = logger("web.gcal-sync");
 
-/** Queues a reconcile for one reservation (call after any mutation). */
+/**
+ * Reconciles one reservation now (call after any mutation). Never throws:
+ * a transient failure leaves the dirty flag for the cron sweep to retry.
+ */
 export async function requestSync(deps: SyncDeps, userId: string, resvId: string): Promise<void> {
-  await deps.enqueue({ type: "gcal-sync", userId, resvId, attempt: 0 }, 0);
+  await deps.kv.set([DIRTY, userId, resvId], { at: deps.ids.nowIso() });
+  try {
+    await processSync(deps, { type: "gcal-sync", userId, resvId, attempt: 0 });
+    await deps.kv.delete([DIRTY, userId, resvId]);
+  } catch (err) {
+    log.warn("sync failed; left dirty for the cron sweep", {
+      userId,
+      resvId,
+      err: String(err),
+    });
+  }
+}
+
+/** Retries every dirty entry (wired into the 15-minute cron). */
+export async function sweepDirtySync(deps: SyncDeps): Promise<number> {
+  let repaired = 0;
+  for await (const e of deps.kv.list({ prefix: [DIRTY] })) {
+    const [, userId, resvId] = e.key as [string, string, string];
+    try {
+      await processSync(deps, { type: "gcal-sync", userId, resvId, attempt: 0 });
+      await deps.kv.delete(e.key);
+      repaired++;
+    } catch (err) {
+      log.warn("sweep retry failed; staying dirty", { userId, resvId, err: String(err) });
+    }
+  }
+  return repaired;
 }
 
 /** One reconcile pass; throws on retryable failure. */
@@ -100,33 +130,5 @@ export async function processSync(deps: SyncDeps, msg: SyncMsg): Promise<void> {
   if (mapping !== null && user.google.calendarId !== null) {
     await deleteEvent(gdeps, user.google.calendarId, mapping.eventId);
     await deleteGcalEvent(deps.kv, msg.userId, msg.resvId);
-  }
-}
-
-/**
- * Queue entrypoint: validates the raw message, runs a pass, re-enqueues
- * with backoff on retryable failure. Never throws (queue handlers that
- * throw would re-deliver forever).
- */
-export async function handleSyncMessage(deps: SyncDeps, raw: unknown): Promise<void> {
-  const parsed = syncMsgSchema.safeParse(raw);
-  if (!parsed.success) return;
-  const msg = parsed.data;
-  try {
-    await processSync(deps, msg);
-  } catch (err) {
-    if (msg.attempt + 1 >= MAX_ATTEMPTS) {
-      log.error("sync gave up", { userId: msg.userId, resvId: msg.resvId, err: String(err) });
-      return;
-    }
-    const delay = BACKOFF_BASE_MS * 2 ** msg.attempt;
-    log.warn("sync failed; retrying", {
-      userId: msg.userId,
-      resvId: msg.resvId,
-      attempt: msg.attempt + 1,
-      delayMs: delay,
-      err: String(err),
-    });
-    await deps.enqueue({ ...msg, attempt: msg.attempt + 1 }, delay);
   }
 }
