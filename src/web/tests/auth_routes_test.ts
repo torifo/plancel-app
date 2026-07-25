@@ -334,15 +334,33 @@ Deno.test("profile: display name free-form, uid unique, alt email becomes a logi
   await withKv(async (kv) => {
     const deps = makeDeps(kv, { devUserEmail: "me@example.com" });
     const ok = await handleAuthApi(
-      req("POST", "/auth/profile", { displayName: "あきと", uid: "akito_1" }),
+      req("POST", "/auth/profile", { displayName: "あきと", uid: "akitosan" }),
       deps,
     );
     assertEquals(ok.status, 200);
 
+    // lowercase letters only, 6+ for ordinary users
+    const badFormat = await handleAuthApi(req("POST", "/auth/profile", { uid: "akito_1" }), deps);
+    assertEquals(badFormat.status, 400);
+    const tooShort = await handleAuthApi(req("POST", "/auth/profile", { uid: "akito" }), deps);
+    assertEquals((await tooShort.json()).error, "uid_too_short");
+
     // another user cannot take the same uid, but may share the display name
     const other = makeDeps(kv, { devUserEmail: "other@example.com" });
-    const clash = await handleAuthApi(req("POST", "/auth/profile", { uid: "akito_1" }), other);
+    const clash = await handleAuthApi(req("POST", "/auth/profile", { uid: "akitosan" }), other);
     assertEquals(clash.status, 409);
+
+    // reserved uids: refused for ordinary users, claimable by admin accounts
+    const reserved = await handleAuthApi(req("POST", "/auth/profile", { uid: "torifo" }), other);
+    assertEquals(reserved.status, 403);
+    assertEquals((await reserved.json()).error, "uid_reserved");
+    const adminDeps = makeDeps(kv, {
+      devUserEmail: "boss@example.com",
+      adminEmails: new Set(["boss@example.com"]),
+    });
+    // reserved AND shorter than 6 — allowed only because the claimer is admin
+    const claimed = await handleAuthApi(req("POST", "/auth/profile", { uid: "admin" }), adminDeps);
+    assertEquals(claimed.status, 200);
     const sameName = await handleAuthApi(
       req("POST", "/auth/profile", { displayName: "あきと" }),
       other,

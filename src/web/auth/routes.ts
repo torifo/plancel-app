@@ -37,7 +37,9 @@ import {
   getUser,
   issueApiToken,
   linkGoogle,
+  MIN_PUBLIC_UID_LEN,
   normalizeEmail,
+  RESERVED_UIDS,
   revokeApiToken,
   rotateIcsSecret,
   saveOauthState,
@@ -432,6 +434,19 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
       await updateUser(deps.kv, user.id, (u) => ({ ...u, displayName }), deps.ids);
     }
     if (parsed.data.uid !== undefined) {
+      // Reserved uids are claimable only by admin accounts (owner plan:
+      // developer takes `admin` / `torifo` from their own マイページ).
+      const isAdmin = deps.adminEmails?.has(user.email) ?? false;
+      if (RESERVED_UIDS.has(parsed.data.uid) && !isAdmin) {
+        return json({ error: "uid_reserved" }, 403);
+      }
+      // 6+ for the public; admins claiming a reserved uid may go shorter.
+      if (
+        parsed.data.uid.length < MIN_PUBLIC_UID_LEN &&
+        !(isAdmin && RESERVED_UIDS.has(parsed.data.uid))
+      ) {
+        return json({ error: "uid_too_short" }, 400);
+      }
       if (!await setUid(deps.kv, user.id, parsed.data.uid, deps.ids)) {
         return json({ error: "uid_taken" }, 409);
       }

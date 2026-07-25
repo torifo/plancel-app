@@ -209,7 +209,36 @@ export async function rotateIcsSecret(
 
 // ---------- profile: uid / alt email / password (owner 2026-07-23) ----------
 
-export const uidSchema = z.string().regex(/^[a-z0-9_-]{3,20}$/);
+// Lowercase letters only (owner 2026-07-23): with the signup cap this is
+// plenty, and it keeps ids readable/typeable. Storage accepts 3+ so admin
+// accounts can claim short RESERVED uids (e.g. `admin`); ordinary users
+// are held to 6+ at the route (MIN_PUBLIC_UID_LEN).
+export const uidSchema = z.string().regex(/^[a-z]{3,20}$/);
+export const MIN_PUBLIC_UID_LEN = 6;
+
+/**
+ * Uids ordinary users may NOT claim (owner 2026-07-23). Admin accounts
+ * (PLANCEL_ADMIN_EMAILS) may claim them — the developer plans to take
+ * `admin` (開発者アカウント) and `torifo` (開発者の使用アカウント).
+ */
+export const RESERVED_UIDS = new Set([
+  "admin",
+  "administrator",
+  "root",
+  "system",
+  "support",
+  "help",
+  "info",
+  "official",
+  "staff",
+  "owner",
+  "moderator",
+  "operator",
+  "dev",
+  "developer",
+  "plancel",
+  "torifo",
+]);
 
 export function findUserByUid(kv: Deno.Kv, uid: string): Promise<WebUser | null> {
   return userIdFromIndex(kv, [BY_UID, uid]);
