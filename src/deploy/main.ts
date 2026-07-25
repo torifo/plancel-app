@@ -44,6 +44,7 @@ import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../we
 import type { AuthIds } from "../web/users.ts";
 import { handleCalendarFeed, isCalendarFeedPath } from "../web/calendar/ics.ts";
 import { requestSync, sweepDirtySync, type SyncDeps } from "../web/calendar/sync.ts";
+import { sweepDeadlineNotifications } from "../web/notify.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 
@@ -176,6 +177,28 @@ if (import.meta.main) {
     google: googleApp,
     kek,
   };
+
+  // Web-ledger deadline notifications (owner 2026-07-25). Delivery: Resend
+  // when configured (same shape as sendMagicLink), else a console log line.
+  const notifyLog = logger("web.notify");
+  const webNotifySend = resendKey !== undefined && emailFrom !== undefined
+    ? async (email: string, subject: string, text: string) => {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ from: emailFrom, to: [email], subject, text }),
+      });
+      if (!res.ok) throw new Error(`web notify send failed: http ${res.status}`);
+      await res.body?.cancel();
+    }
+    : (email: string, subject: string, text: string) => {
+      notifyLog.info("deadline notification (console fallback)", { email, subject, text });
+      return Promise.resolve();
+    };
+  const webNotifyBaseUrl = env.get("PLANCEL_BASE_URL") ?? "https://plancel-app.torifo.deno.net";
   log.info("auth configured", {
     google: googleApp !== null,
     emailLogin: sendMagicLink !== null,
@@ -188,6 +211,13 @@ if (import.meta.main) {
     await runTick({ store, clock, notifier });
     const repaired = await sweepDirtySync(syncDeps);
     if (repaired > 0) log.info("gcal sweep repaired", { repaired });
+    const notified = await sweepDeadlineNotifications({
+      kv: store.kv,
+      nowMs: clock.now().epochMilliseconds,
+      baseUrl: webNotifyBaseUrl,
+      send: webNotifySend,
+    });
+    if (notified > 0) log.info("web deadline notifications sent", { notified });
   });
   log.info("cron registered", { schedule: CRON_SCHEDULE, notifier: kind });
   // Web intake: pasted mail text / screenshot images through the parse chain.
