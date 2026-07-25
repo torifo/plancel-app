@@ -31,6 +31,11 @@
       color: var(--ink);
       line-height: 1.7;
       -webkit-font-smoothing: antialiased;
+      /* 日本語の折り返し: 行頭の句読点を禁止しつつ、長い英数字（URL 等）だけ
+         必要なときに折る。word-break: break-all は使わない（モバイル配慮）。 */
+      line-break: strict;
+      word-break: normal;
+      overflow-wrap: break-word;
     }
     .wrap {
       max-width: 1040px;
@@ -310,6 +315,7 @@
       border-radius: 7px;
       padding: 5px 10px;
       font-size: 12px;
+      white-space: nowrap;
       color: var(--ink);
       white-space: nowrap;
     }
@@ -362,9 +368,17 @@
       border-radius: 8px;
       width: 32px;
       height: 32px;
+      /* The generic button rule sets padding: 9px 16px, which squashes the ×
+         inside the fixed 32px box; flex-shrink lets long titles crush it. */
+      padding: 0;
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       font-size: 16px;
       line-height: 1;
       color: var(--ink-soft);
+      cursor: pointer;
     }
     label {
       display: block;
@@ -400,7 +414,10 @@
     }
     .radio-row {
       display: flex;
-      gap: 18px;
+      /* Wrap whole options (not mid-word): narrow screens stack the two
+         choices instead of breaking 日本語 one character per line. */
+      flex-wrap: wrap;
+      gap: 8px 18px;
       font-size: 14px;
       margin-bottom: 4px;
     }
@@ -410,6 +427,7 @@
       gap: 6px;
       font-weight: 500;
       margin: 0;
+      white-space: nowrap;
     }
     .modal-foot {
       margin-top: 20px;
@@ -449,6 +467,53 @@
     .import-opt .d {
       font-size: 12.5px;
       color: var(--ink-soft);
+    }
+    .cancelled-sec {
+      margin-top: 28px;
+      border-top: 1px dashed var(--line);
+      padding-top: 14px;
+    }
+    .cancelled-sec h3 {
+      font-size: 14px;
+      color: var(--ink-soft);
+      margin-bottom: 4px;
+    }
+    .cancelled-row {
+      opacity: .72;
+    }
+    .cancelled-row .name {
+      text-decoration: line-through;
+    }
+    .pill.cancelled {
+      background: #eee;
+      color: var(--ink-soft);
+    }
+    .ics-guide {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin: 10px 0 14px;
+      font-size: 13px;
+      background: var(--navy-soft);
+    }
+    .ics-guide summary {
+      cursor: pointer;
+      font-weight: 700;
+      color: var(--navy);
+    }
+    .ics-guide .g-app {
+      margin: 10px 0 4px;
+      font-weight: 700;
+    }
+    .ics-guide ol {
+      margin: 4px 0 6px 20px;
+      color: var(--ink-soft);
+    }
+    .back-link {
+      color: var(--navy);
+      font-size: 14px;
+      cursor: pointer;
+      margin-right: 6px;
     }
     .import-manual {
       text-align: center;
@@ -505,9 +570,9 @@
       <div class="databar" id="dataBar">
         <div>
           <div
-            class="txt"><b>自分のデータ</b>　この端末のトークンでサーバに保存（他端末は同じトークンで共有）。</div>
+            class="txt"><b>自分のデータ</b>　ログイン中: <span id="meEmail">…</span></div>
           <div
-            class="tokline">あなたのトークン: <span id="tokView">…</span>　<a id="tokCopy" style="cursor:pointer;text-decoration:underline">コピー</a> · <a id="tokSet" style="cursor:pointer;text-decoration:underline">別のトークンを使う</a></div>
+            class="tokline"><a id="calBtn" style="cursor:pointer;text-decoration:underline">📅 カレンダー連携</a> · <a id="logoutBtn" style="cursor:pointer;text-decoration:underline">ログアウト</a></div>
         </div>
         <button class="btn-small" id="demoBtn">デモを見る</button>
       </div>
@@ -550,7 +615,7 @@
       </section>
 
       <p
-        class="foot-note">データはこの端末のトークンに紐づけてサーバ（KV）に保存されます。トークンを控えれば別端末でも同じ台帳を開けます。</p>
+        class="foot-note">データはログイン中のアカウントに紐づけてサーバ（KV）に保存されます。別の端末でも同じアカウントでログインすれば同じ台帳が開きます。</p>
     </div>
 
     <!-- Add / Edit modal -->
@@ -569,6 +634,8 @@
         <datalist id="planList"></datalist>
         <label>お店・宿・サービス名 <span class="req">*</span></label>
         <input id="f_service" placeholder="例: 湖畔の湯宿 蛍">
+        <label>場所（任意）</label>
+        <input id="f_location" placeholder="店名・住所など。入れると地図リンクになります">
         <div class="two">
           <div><label>予約日 <span class="req">*</span></label><input id="f_date" type="date"></div>
           <div><label>時刻</label><input id="f_time" type="time" value="18:00"></div>
@@ -607,7 +674,12 @@
         <div class="import-opt" data-imp="photo">
           <div class="t">📷 スクショ・写真から読み取り</div>
           <div
-            class="d">予約画面のスクリーンショットや写真を AI（vision）が読み取り、確認してから登録します。</div>
+            class="d">予約画面やカレンダー画面のスクリーンショットを AI（vision）が読み取り、確認してから登録します。</div>
+        </div>
+        <div class="import-opt" data-imp="cal-sync">
+          <div class="t">🔄 カレンダーと自動連携（逆方向）</div>
+          <div
+            class="d">取り込みではなく出力：確定した予約を Google カレンダーや iPhone のカレンダーに自動で表示します。設定は1回だけ。</div>
         </div>
         <div
           class="import-manual"><a id="manualLink">✎ 手動でまとめて入力する（最後の手段）</a></div>
@@ -623,6 +695,35 @@
           style="margin-bottom:10px">確認メールの本文を貼り付けてください。電話番号・メールアドレスは送信前に自動でマスクされます。</p>
         <textarea id="pasteText" rows="10" placeholder="ここにメール本文を貼り付け"></textarea>
         <div class="modal-foot"><button class="btn-primary" id="pasteSubmit">読み取る</button></div>
+      </div>
+    </div>
+
+    <!-- ICS how-to modal (file picker is unfamiliar; explain before opening it) -->
+    <div class="overlay" id="icsHelpOverlay">
+      <div class="modal">
+        <div class="modal-head"><h3><span class="back-link" id="icsHelpBack">‹ 戻る</span>カレンダーから取り込み</h3><button class="x" data-close>×</button></div>
+        <p class="hint" style="margin-bottom:10px">カレンダーの「.ics ファイル」を選ぶと、今後の予定をまとめて取り込めます（候補・キャンセル料「不明」で登録され、あとから編集できます）。</p>
+        <details class="ics-guide">
+          <summary>.ics ファイルの取り出し方（アプリ別）</summary>
+          <div class="g-app">📗 Google カレンダー（PC ブラウザ）</div>
+          <ol>
+            <li>歯車 → 「設定」 → 左の「インポート / エクスポート」</li>
+            <li>「エクスポート」を押すと zip がダウンロードされる</li>
+            <li>zip を開いて中の .ics ファイルをここで選ぶ</li>
+          </ol>
+          <div class="g-app">🌳 TimeTree</div>
+          <ol>
+            <li>手軽なのは<b>スクショ読み取り</b>（下のボタン）。予定一覧が写った画面を撮るだけ</li>
+            <li>まとめて全部移すなら、PC で無料公開ツール「timetree-exporter」を使うと .ics を書き出せます（公式のエクスポート機能は無いため）</li>
+            <li>ツールに TimeTree のパスワードを入力するので、実行前に仮のパスワードへ変更 → 終わったら戻すと安心です</li>
+          </ol>
+          <div class="g-app">🍏 iPhone のカレンダー</div>
+          <ol>
+            <li>.ics の書き出しが難しいので<b>スクショ読み取りが手軽です</b>（下のボタン）</li>
+          </ol>
+        </details>
+        <button class="btn-primary" id="icsPick" style="width:100%">📂 .ics ファイルを選ぶ</button>
+        <div class="modal-foot" style="justify-content:center"><button class="btn-ghost" id="icsAltPhoto">📷 かわりにスクショで読み取る</button></div>
       </div>
     </div>
 
@@ -644,6 +745,38 @@
       <div class="modal" style="max-width:320px;text-align:center">
         <div id="busyText" style="font-weight:700;color:var(--navy)">読み取り中…</div>
         <div class="hint" style="margin:8px 0 0">AI が解析しています（数秒かかります）</div>
+      </div>
+    </div>
+
+    <!-- Login overlay (login is the only way in; spec 2026-07-21) -->
+    <div class="overlay" id="loginOverlay">
+      <div class="modal" style="max-width:400px">
+        <h3 style="margin-bottom:6px">plancel にログイン</h3>
+        <p class="hint" style="margin-bottom:14px">予約台帳はアカウントに紐づきます。Google か、メールに届くリンクでログインしてください。</p>
+        <button class="btn-primary" id="googleLoginBtn" style="width:100%">Google でログイン</button>
+        <div class="hint" style="text-align:center;margin:10px 0">— または —</div>
+        <label>メールアドレス</label>
+        <input id="loginEmail" type="email" placeholder="you@example.com" autocomplete="email">
+        <div class="modal-foot"><button class="btn-ghost" id="emailLoginBtn" style="width:100%">ログインリンクを送る</button></div>
+        <div class="hint" id="loginMsg" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <!-- Calendar integration / account modal -->
+    <div class="overlay" id="calOverlay">
+      <div class="modal">
+        <div class="modal-head"><h3>カレンダー連携</h3><button class="x" data-close>×</button></div>
+        <p class="hint" style="margin-bottom:10px">確定した予約だけがカレンダーに載ります。</p>
+        <label>① どのカレンダーでも: 購読 URL（iCloud / Google / TimeTree）</label>
+        <input id="icsUrl" readonly style="font-size:12px">
+        <div class="hint" style="margin:4px 0 12px">
+          <a id="icsCopy" style="cursor:pointer;text-decoration:underline">URL をコピー</a> ·
+          <a id="icsRotate" style="cursor:pointer;text-decoration:underline">URL を再発行（漏れたとき）</a><br>
+          iPhone: 設定 → カレンダー → 照会カレンダーを追加／Google: 他のカレンダー → URL で追加。反映はカレンダー側の巡回間隔に依存します（iCloud 15分〜 / Google 数時間）。TimeTree の方は②の Google 連携後、TimeTree の「外部カレンダーのインポート」で Google を接続すると表示されます。
+        </div>
+        <label>② Google カレンダーへ即時反映</label>
+        <div class="hint" id="gcalStatus" style="margin:4px 0 8px">…</div>
+        <div class="modal-foot"><button class="btn-primary" id="gcalConnectBtn">Google カレンダーと連携する</button></div>
       </div>
     </div>
 
@@ -730,7 +863,7 @@
     function render() {
       q("#dataBar").style.display = viewingDemo ? "none" : "flex";
       q("#demoBar").classList.toggle("on", viewingDemo);
-      if (!viewingDemo) q("#tokView").textContent = realToken().slice(0, 8) + "…";
+      if (ME) q("#meEmail").textContent = ME.email;
       const active = data.filter((r) => r.status !== "cancelled");
       q("#stCount").textContent = active.length;
       q("#stCancel").textContent = active.filter((r) => r.status === "to_cancel").length;
@@ -747,7 +880,7 @@
         list.innerHTML = `<div class="empty"><h3>まだ予約がありません。どちらから始めますか？</h3>
           <div class="startgrid">
             <div class="startcard" id="sc-scratch"><div class="t">🌱 まっさらから始める</div><div class="d">これから取る予約を1件ずつ登録。候補を複数入れて「プラン」に束ねると、1つ確定したとき残りが自動で要キャンセルになります。</div></div>
-            <div class="startcard" id="sc-import"><div class="t">📚 すでに予約がある</div><div class="d">メール貼り付け・カレンダー取り込み（Google カレンダー / TimeTree）で、手入力なしでまとめて登録できます。</div></div>
+            <div class="startcard" id="sc-import"><div class="t">📚 すでに予約がある</div><div class="d">メール貼り付け・スクショ読み取り・カレンダー取り込み（.ics）で、手入力なしでまとめて登録できます。</div></div>
           </div></div>`;
         q("#sc-scratch").onclick = () => openAdd();
         q("#sc-import").onclick = openImport;
@@ -767,6 +900,18 @@
         }</div></div>
           ${rs.map(rowHtml).join("")}</div>`;
       }).join("");
+      // キャンセル済みは自動では消さない（オーナー 2026-07-22）：
+      // 復元・日付変更・完全削除をユーザーが選ぶまで下に残す。
+      const cancelled = data.filter((r) => r.status === "cancelled")
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      if (cancelled.length) {
+        list.innerHTML += `<div class="cancelled-sec"><h3>キャンセル済み（${cancelled.length}件）</h3>
+          <p class="hint" style="margin-bottom:10px">ここに残っている間は「復元」や日付を変えての取り直しができます。不要なら「完全に削除」で消し去れます。</p>
+          ${cancelled.map(cancelledRowHtml).join("")}</div>`;
+      }
+      list.querySelectorAll("[data-restore]").forEach((b) =>
+        b.onclick = () => act("POST", `/api/reservations/${b.dataset.restore}/restore`)
+      );
       list.querySelectorAll("[data-confirm]").forEach((b) =>
         b.onclick = () => act("POST", `/api/reservations/${b.dataset.confirm}/confirm`)
       );
@@ -781,6 +926,23 @@
           if (confirm("この予約を削除しますか？")) act("DELETE", `/api/reservations/${b.dataset.del}`);
         }
       );
+      list.querySelectorAll("[data-del-hard]").forEach((b) =>
+        b.onclick = () => {
+          if (confirm("完全に削除すると復元できません。よろしいですか？")) {
+            act("DELETE", `/api/reservations/${b.dataset.delHard}`);
+          }
+        }
+      );
+    }
+    function cancelledRowHtml(r) {
+      return `<div class="resv cancelled-row">
+        <div><div class="name">${esc(r.service)}</div><div class="sub">${fmtDate(startMs(r))}${
+        r.amount ? " · " + yen(r.amount) : ""
+      }</div><span class="pill cancelled">キャンセル済み</span></div>
+        <div class="sub" style="align-self:center">${
+        r.plan ? "プラン: " + esc(r.plan) : ""
+      }</div>
+        <div class="rowbtns"><button class="rowbtn" data-restore="${r.id}">↩ 復元</button><button class="rowbtn" data-edit="${r.id}">日付変更・編集</button><button class="rowbtn danger" data-del-hard="${r.id}">完全に削除</button></div></div>`;
     }
     function esc(s) {
       return String(s).replace(
@@ -813,10 +975,15 @@
         : r.status === "confirmed"
         ? `<button class="rowbtn" data-cancel="${r.id}">キャンセルした</button>`
         : `<button class="rowbtn" data-cancel="${r.id}">キャンセル実施</button>`;
+      const locLink = r.location
+        ? `<div class="sub"><a href="https://www.google.com/maps/search/?api=1&query=${
+          encodeURIComponent(r.location)
+        }" target="_blank" rel="noopener">📍 ${esc(r.location)}</a></div>`
+        : "";
       return `<div class="resv">
         <div><div class="name">${esc(r.service)}</div><div class="sub">${
         r.amount ? yen(r.amount) : "金額未定"
-      } · ${maxLoss(r) ? "最大損失 " + yen(maxLoss(r)) : "損失計算不可"}</div>
+      } · ${maxLoss(r) ? "最大損失 " + yen(maxLoss(r)) : "損失計算不可"}</div>${locLink}
           <span class="pill ${r.status}">${
         ({ candidate: "候補", confirmed: "確定", to_cancel: "要キャンセル" })[r.status]
       }</span></div>
@@ -846,6 +1013,7 @@
       q("#kindRow").style.display = isEdit ? "none" : "flex";
       q("#f_plan").value = (r && r.plan) ? r.plan : "";
       q("#f_service").value = (r && r.service) ? r.service : "";
+      q("#f_location").value = (r && r.location) ? r.location : "";
       const d = (r && r.startsAt) ? new Date(r.startsAt) : new Date(Date.now() + 7 * DAY);
       q("#f_date").value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
         String(d.getDate()).padStart(2, "0")
@@ -886,16 +1054,22 @@
       const startsAt = new Date(date + "T" + (q("#f_time").value || "18:00") + ":00").toISOString();
       const plan = q("#f_plan").value.trim() || null;
       const amount = q("#f_amount").value ? Number(q("#f_amount").value) : null;
+      const location = q("#f_location").value.trim() || null;
       const policy = q("#f_policy").value;
       try {
         if (editingId) {
+          // Editing a cancelled reservation = 取り直し: revive it as a candidate
+          // on the new date (owner 2026-07-22).
+          const wasCancelled = data.find((r) => r.id === editingId)?.status === "cancelled";
           await api("PATCH", `/api/reservations/${editingId}`, {
             plan,
             service,
             startsAt,
             amount,
+            location,
             policy,
           });
+          if (wasCancelled) await api("POST", `/api/reservations/${editingId}/restore`);
         } else {
           const confirmed = [...document.getElementsByName("kind")].find((r) =>
             r.checked
@@ -905,6 +1079,7 @@
             service,
             startsAt,
             amount,
+            location,
             policy,
             confirmed,
           });
@@ -949,6 +1124,7 @@
         service: f.service || "",
         startsAt: f.startsAt || null,
         amount: f.amount,
+        location: f.location || null,
         policy: f.policy || "unknown",
         plan: null,
         _prefill: true,
@@ -1009,11 +1185,31 @@
       }
     };
 
-    // .ics import (parsed locally in the browser — no upload of the whole calendar)
+    // .ics import (parsed locally in the browser — no upload of the whole calendar).
+    // A file picker alone is baffling for non-technical family members, so the
+    // option first opens a how-to modal with per-app instructions + a screenshot
+    // fallback (owner 2026-07-22).
     document.querySelector('[data-imp="ics"]').onclick = () => {
       closeAll();
+      q("#icsHelpOverlay").classList.add("on");
+    };
+    q("#icsHelpBack").onclick = () => {
+      closeAll();
+      openImport();
+    };
+    q("#icsPick").onclick = () => {
       q("#icsInput").value = "";
       q("#icsInput").click();
+    };
+    q("#icsAltPhoto").onclick = () => {
+      closeAll();
+      q("#photoInput").value = "";
+      q("#photoInput").click();
+    };
+    // The calendar-sync card is OUTPUT (plancel -> calendar): open the settings modal.
+    document.querySelector('[data-imp="cal-sync"]').onclick = () => {
+      closeAll();
+      q("#calBtn").onclick();
     };
     function unescapeIcs(s) {
       return s.replace(/\\n/gi, " ").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\");
@@ -1065,6 +1261,7 @@
         alert("今後の予定が見つかりませんでした（過去の予定は対象外です）。");
         return;
       }
+      closeAll(); // the how-to modal may still be open behind the picker
       q("#icsList").innerHTML = icsEvents.map((ev, i) => {
         const d = new Date(ev.startsAt);
         const when = `${fmtDate(d.getTime())} ${String(d.getHours()).padStart(2, "0")}:${
@@ -1096,6 +1293,7 @@
               service: ev.summary,
               startsAt: ev.startsAt,
               amount: null,
+              location: ev.location || null,
               policy: "unknown",
               confirmed: false,
             });
@@ -1120,23 +1318,64 @@
       openAdd();
     };
 
-    // token controls
-    q("#tokCopy").onclick = async () => {
+    // ---- login / account (login is the only way in; spec 2026-07-21) ----
+    let ME = null;
+    q("#googleLoginBtn").onclick = () => location.href = "/auth/google";
+    q("#emailLoginBtn").onclick = async () => {
+      const email = q("#loginEmail").value.trim();
+      if (!email) return;
+      q("#loginMsg").textContent = "送信中…";
       try {
-        await navigator.clipboard.writeText(realToken());
-        alert("トークンをコピーしました。別端末で「別のトークンを使う」に貼ると同じ台帳が開けます。");
+        const res = await fetch("/auth/email", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (res.status === 429) throw new Error("送信回数の上限です。1時間ほど待ってください。");
+        if (!res.ok) throw new Error("送信できませんでした（メールログイン未設定の可能性）");
+        q("#loginMsg").textContent = "✉ ログインリンクを送りました。メールを開いてリンクを踏んでください（15分有効）。";
       } catch (e) {
-        prompt("このトークンを控えてください:", realToken());
+        q("#loginMsg").textContent = e.message;
       }
     };
-    q("#tokSet").onclick = () => {
-      const t = prompt("使うトークンを入力（別端末と共有する場合はそのトークン）:", realToken());
-      if (t && t.trim()) {
-        localStorage.setItem("plancel.token", t.trim());
-        TOKEN = realToken();
-        viewingDemo = false;
-        refresh();
+    q("#logoutBtn").onclick = async () => {
+      await fetch("/auth/logout", { method: "POST" });
+      location.reload();
+    };
+
+    // calendar integration modal
+    q("#calBtn").onclick = () => {
+      q("#icsUrl").value = location.origin + ME.icsPath;
+      const st = q("#gcalStatus");
+      const btn = q("#gcalConnectBtn");
+      if (ME.google) {
+        st.textContent = "✅ 連携済み。確定した予約は Google カレンダーの「plancel」カレンダーに自動反映されます。";
+        btn.style.display = "none";
+      } else if (ME.googleError === "reauth") {
+        st.textContent = "⚠ 連携が切れています（有効期限切れ・権限取り消し）。再接続してください。";
+        btn.textContent = "Google カレンダーと再接続する";
+        btn.style.display = "";
+      } else {
+        st.textContent = "Google アカウントを接続すると、確定予約が専用「plancel」カレンダーに即時反映されます。";
+        btn.style.display = "";
       }
+      q("#calOverlay").classList.add("on");
+    };
+    q("#gcalConnectBtn").onclick = () => location.href = "/auth/google";
+    q("#icsCopy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(q("#icsUrl").value);
+        alert("購読 URL をコピーしました。カレンダーアプリの「照会 / URL で追加」に貼り付けてください。");
+      } catch (e) {
+        q("#icsUrl").select();
+      }
+    };
+    q("#icsRotate").onclick = async () => {
+      if (!confirm("購読 URL を再発行します。古い URL は使えなくなります。よろしいですか？")) return;
+      const j = await (await fetch("/auth/ics/rotate", { method: "POST" })).json();
+      ME.icsPath = j.icsPath;
+      q("#icsUrl").value = location.origin + ME.icsPath;
+      alert("再発行しました。カレンダーアプリ側も新しい URL に登録し直してください。");
     };
 
     // demo — a SEPARATE sample space (its own token), never mixed into your ledger
@@ -1177,7 +1416,50 @@
     q("#demoBtn").onclick = enterDemo;
     q("#exitDemo").onclick = exitDemo;
 
-    refresh();
+    // boot: session check -> (adopt legacy token once) -> app, else login
+    const AUTH_ERRORS = {
+      link_expired: "ログインリンクの有効期限が切れています。もう一度送信してください。",
+      state_expired: "ログインの有効期限が切れました。もう一度お試しください。",
+      exchange_failed: "Google ログインに失敗しました。もう一度お試しください。",
+      access_denied: "Google ログインがキャンセルされました。",
+    };
+    async function boot() {
+      const err = new URLSearchParams(location.search).get("auth_error");
+      if (err) {
+        history.replaceState(null, "", "/");
+        alert(AUTH_ERRORS[err] || "ログインに失敗しました: " + err);
+      }
+      let res;
+      try {
+        res = await fetch("/auth/me");
+      } catch (e) {
+        q("#loginMsg").textContent = "サーバに接続できません。";
+        q("#loginOverlay").classList.add("on");
+        return;
+      }
+      if (!res.ok) {
+        q("#loginOverlay").classList.add("on");
+        return;
+      }
+      ME = await res.json();
+      q("#loginOverlay").classList.remove("on");
+      // one-time: carry the pre-login browser-token ledger into this account
+      const legacy = localStorage.getItem("plancel.token");
+      if (legacy && !localStorage.getItem("plancel.adopted")) {
+        try {
+          await fetch("/auth/adopt", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ token: legacy }),
+          });
+          localStorage.setItem("plancel.adopted", "1");
+        } catch (e) {
+          console.error("adopt failed (will retry next load):", e);
+        }
+      }
+      await refresh();
+    }
+    boot();
     </script>
   </body>
 </html>
