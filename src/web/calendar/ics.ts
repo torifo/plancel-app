@@ -11,6 +11,7 @@
 import type { WebReservation } from "../store.ts";
 import { listReservations } from "../store.ts";
 import { findUserByIcsSecret } from "../users.ts";
+import { listSharedReservations } from "../sharing.ts";
 
 /** "2026-08-01T19:00:00+09:00" | "2026-08-01T19:00" → Instant (JST default). */
 export function startsAtToInstant(startsAt: string): Temporal.Instant | null {
@@ -82,7 +83,11 @@ export async function handleCalendarFeed(kv: Deno.Kv, req: Request): Promise<Res
   if (secret === undefined) return new Response("not found", { status: 404 });
   const user = await findUserByIcsSecret(kv, secret);
   if (user === null) return new Response("not found", { status: 404 });
-  const body = buildIcs(await listReservations(kv, user.ledgerId));
+  // The subscription feed carries the user's OWN confirmed reservations plus
+  // the confirmed ones shared WITH them (buildIcs drops non-confirmed).
+  const own = await listReservations(kv, user.ledgerId);
+  const shared = (await listSharedReservations(kv, user.id)).map((s) => s.reservation);
+  const body = buildIcs([...own, ...shared]);
   return new Response(body, {
     headers: {
       "content-type": "text/calendar; charset=utf-8",

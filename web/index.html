@@ -429,6 +429,27 @@
       margin: 0;
       white-space: nowrap;
     }
+    .share-tag {
+      display: inline-block;
+      font-size: 12px;
+      color: var(--ink-soft);
+      background: #f0efe9;
+      border-radius: 6px;
+      padding: 2px 8px;
+      margin: 4px 0;
+    }
+    .inv-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+    }
+    .inv-row:last-child {
+      border-bottom: none;
+    }
     .modal-foot {
       margin-top: 20px;
       display: flex;
@@ -814,6 +835,22 @@
       </div>
     </div>
 
+    <!-- Invite / share modal -->
+    <div class="overlay" id="inviteOverlay">
+      <div class="modal" style="max-width:440px">
+        <div class="modal-head"><h3>予約に招待</h3><button class="x" data-close>×</button></div>
+        <p class="hint" style="margin-bottom:8px">メールアドレスまたはユーザーID（完全一致）で検索して追加します。追加された相手の台帳にこの予約が共有表示されます（相手は閲覧のみ）。</p>
+        <label>メールアドレスまたはユーザーID</label>
+        <div style="display:flex;gap:8px">
+          <input id="inv_q" placeholder="you@example.com ／ akitosan" style="flex:1" autocomplete="off">
+          <button class="btn-primary" id="inv_add" style="flex:0 0 auto;white-space:nowrap">検索して追加</button>
+        </div>
+        <div class="hint" id="inv_msg" style="margin-top:6px;min-height:16px"></div>
+        <label style="margin-top:12px">共有中の相手</label>
+        <div id="inv_members"></div>
+      </div>
+    </div>
+
     <input type="file" id="icsInput" accept=".ics,text/calendar" style="display:none">
     <input type="file" id="photoInput" accept="image/*" style="display:none">
 
@@ -935,8 +972,9 @@
           ${rs.map(rowHtml).join("")}</div>`;
       }).join("");
       // キャンセル済みは自動では消さない（オーナー 2026-07-22）：
-      // 復元・日付変更・完全削除をユーザーが選ぶまで下に残す。
-      const cancelled = data.filter((r) => r.status === "cancelled")
+      // 復元・日付変更・完全削除をユーザーが選ぶまで下に残す。共有された予約は
+      // メンバー側では操作できないので、この編集可能なセクションには含めない。
+      const cancelled = data.filter((r) => r.status === "cancelled" && !r.shared)
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       if (cancelled.length) {
         list.innerHTML += `<div class="cancelled-sec"><h3>キャンセル済み（${cancelled.length}件）</h3>
@@ -964,6 +1002,16 @@
         b.onclick = () => {
           if (confirm("完全に削除すると復元できません。よろしいですか？")) {
             act("DELETE", `/api/reservations/${b.dataset.delHard}`);
+          }
+        }
+      );
+      list.querySelectorAll("[data-invite]").forEach((b) =>
+        b.onclick = () => openInvite(b.dataset.invite)
+      );
+      list.querySelectorAll("[data-leave]").forEach((b) =>
+        b.onclick = () => {
+          if (confirm("この共有予約から脱退しますか？相手の台帳からは消えません。")) {
+            act("DELETE", `/api/reservations/${b.dataset.leave}/members/me`);
           }
         }
       );
@@ -1014,15 +1062,31 @@
           encodeURIComponent(r.location)
         }" target="_blank" rel="noopener">📍 ${esc(r.location)}</a></div>`
         : "";
+      const statusPill = `<span class="pill ${r.status}">${
+        ({ candidate: "候補", confirmed: "確定", to_cancel: "要キャンセル" })[r.status]
+      }</span>`;
+      // 共有された予約（自分はメンバー）: 操作は「脱退」のみ。オーナー表示名を行内に出す。
+      if (r.shared) {
+        return `<div class="resv shared-row">
+        <div><div class="name">${esc(r.service)}</div><div class="sub">${
+          r.amount ? yen(r.amount) : "金額未定"
+        }</div>${locLink}<div class="share-tag">共有: ${
+          esc(r.shared.ownerDisplayName)
+        }</div>${statusPill}</div>
+        <div>${track}${cap}</div>
+        <div class="rowbtns"><button class="rowbtn" data-leave="${r.id}">脱退</button></div></div>`;
+      }
+      // 自分の予約: 状態操作 + 招待 + 編集 + 削除。
+      const inviteBtn = viewingDemo
+        ? ""
+        : `<button class="rowbtn" data-invite="${r.id}">招待</button>`;
       return `<div class="resv">
         <div><div class="name">${esc(r.service)}</div><div class="sub">${
         r.amount ? yen(r.amount) : "金額未定"
       } · ${maxLoss(r) ? "最大損失 " + yen(maxLoss(r)) : "損失計算不可"}</div>${locLink}
-          <span class="pill ${r.status}">${
-        ({ candidate: "候補", confirmed: "確定", to_cancel: "要キャンセル" })[r.status]
-      }</span></div>
+          ${statusPill}</div>
         <div>${track}${cap}</div>
-        <div class="rowbtns">${statusBtn}<button class="rowbtn" data-edit="${r.id}">編集</button><button class="rowbtn danger" data-del="${r.id}">削除</button></div></div>`;
+        <div class="rowbtns">${statusBtn}${inviteBtn}<button class="rowbtn" data-edit="${r.id}">編集</button><button class="rowbtn danger" data-del="${r.id}">削除</button></div></div>`;
     }
 
     async function act(method, path, body) {
@@ -1033,6 +1097,63 @@
       }
       await refresh();
     }
+
+    // ---- invite / share ----
+    let inviteResvId = null;
+    function openInvite(id) {
+      inviteResvId = id;
+      q("#inv_q").value = "";
+      q("#inv_msg").textContent = "";
+      q("#inv_members").innerHTML = "";
+      q("#inviteOverlay").classList.add("on");
+      loadMembers();
+    }
+    async function loadMembers() {
+      const el = q("#inv_members");
+      try {
+        const j = await api("GET", `/api/reservations/${inviteResvId}/members`);
+        if (!j.members.length) {
+          el.innerHTML = `<div class="hint" style="padding:6px 0">まだ共有している相手はいません。</div>`;
+          return;
+        }
+        el.innerHTML = j.members.map((m) =>
+          `<div class="inv-row"><span>${esc(m.displayName || m.uid || "ユーザー")}${
+            m.uid ? ` <span class="hint">@${esc(m.uid)}</span>` : ""
+          }</span><button class="rowbtn danger" data-remove="${m.userId}">外す</button></div>`
+        ).join("");
+        el.querySelectorAll("[data-remove]").forEach((b) =>
+          b.onclick = async () => {
+            try {
+              await api("DELETE", `/api/reservations/${inviteResvId}/members/${b.dataset.remove}`);
+            } catch (e) {
+              alert("外せませんでした: " + e.message);
+            }
+            await loadMembers();
+            await refresh();
+          }
+        );
+      } catch (e) {
+        el.innerHTML = `<div class="hint">読み込みに失敗しました。</div>`;
+      }
+    }
+    q("#inv_add").onclick = async () => {
+      const val = q("#inv_q").value.trim();
+      if (!val) {
+        q("#inv_msg").textContent = "メールアドレスかユーザーIDを入力してください。";
+        return;
+      }
+      try {
+        await api("POST", `/api/reservations/${inviteResvId}/members`, { q: val });
+        q("#inv_q").value = "";
+        q("#inv_msg").textContent = "追加しました。";
+        await loadMembers();
+        await refresh();
+      } catch (e) {
+        q("#inv_msg").textContent = e.message === "user_not_found"
+          ? "そのメールアドレス・ユーザーIDのユーザーは見つかりませんでした（完全一致のみ）。"
+          : ("追加できませんでした: " + e.message);
+      }
+    };
 
     // ---- add / edit modal (also the confirmation screen for parsed imports) ----
     function openAdd(r) {

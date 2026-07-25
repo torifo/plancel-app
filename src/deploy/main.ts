@@ -38,7 +38,7 @@ import { loadParserChainConfig, realParsers } from "../parse/mod.ts";
 import { runTick } from "../cron/tick.ts";
 import { createLineClient } from "../line/client.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../line/webhook.ts";
-import { handleWebApi, isApiPath } from "../web/api.ts";
+import { handleUserLookup, handleWebApi, isApiPath, isUsersLookupPath } from "../web/api.ts";
 import { handleParseApi, type ParseApiDeps } from "../web/parse-api.ts";
 import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../web/auth/routes.ts";
 import type { AuthIds } from "../web/users.ts";
@@ -216,12 +216,18 @@ if (import.meta.main) {
       if (who.ledger === null) return new Response(`{"error":"login required"}`, { status: 401 });
       return await handleParseApi(req, parseDeps);
     }
+    if (isUsersLookupPath(url.pathname)) {
+      // Exact-match lookup for the invite box — login required (never leaks email).
+      const who = await resolveIdentity(req, authDeps);
+      return await handleUserLookup(store.kv, req, who.user);
+    }
     if (isApiPath(url.pathname)) {
       const who = await resolveIdentity(req, authDeps);
       if (who.ledger === null) return new Response(`{"error":"login required"}`, { status: 401 });
       const user = who.user;
       return await handleWebApi(store.kv, req, webIds, {
         ledger: who.ledger,
+        user,
         onMutate: (resvId) => {
           // Only real (non-demo) ledgers of Google-linked users sync.
           if (user === null || user.google === null || who.ledger !== user.ledgerId) return;
