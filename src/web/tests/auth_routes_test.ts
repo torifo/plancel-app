@@ -1,7 +1,13 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../auth/routes.ts";
-import { findUserByEmail, getOrCreateUserByEmail } from "../users.ts";
-import { createReservation } from "../store.ts";
+import {
+  findUserByApiToken,
+  findUserByEmail,
+  findUserByUid,
+  getOrCreateUserByEmail,
+  getUser,
+} from "../users.ts";
+import { createReservation, listReservations } from "../store.ts";
 import { makeAuthIds } from "./users_test.ts";
 
 function b64url(s: string): string {
@@ -452,6 +458,96 @@ Deno.test("admin /auth/me carries userCount and warns at 100 users", async () =>
     const p = await (await handleAuthApi(req("GET", "/auth/me"), plain)).json();
     assertEquals("userCount" in p, false);
     assertEquals("capacityWarning" in p, false);
+  });
+});
+
+Deno.test("退会: deletes the account + indexes + reservations, and frees a capacity slot", async () => {
+  await withKv(async (kv) => {
+    // maxUsers=1 so the freed slot is observable. A real session (cookie) is
+    // used, NOT devUserEmail — dev auto-login would re-create the user on the
+    // next /auth/me and defeat the "session no longer resolves" assertion.
+    const deps = makeDeps(kv, { maxUsers: 1 });
+    const reg = await handleAuthApi(
+      req("POST", "/auth/register", { email: "gone@example.com", password: "hunter2secret" }),
+      deps,
+    );
+    assertEquals(reg.status, 302);
+    const cookie = cookieOf(reg);
+
+    // give the account a uid, an API token, and two reservations
+    await handleAuthApi(req("POST", "/auth/profile", { uid: "goneuser" }, { cookie }), deps);
+    const apiToken =
+      (await (await handleAuthApi(req("POST", "/auth/token", undefined, { cookie }), deps)).json())
+        .token;
+    const user = await findUserByEmail(kv, "gone@example.com");
+    if (user === null) throw new Error("expected the registered user to exist");
+    const userId = user.id;
+    const ledger = user.ledgerId;
+    for (const service of ["宿A", "宿B"]) {
+      await createReservation(kv, ledger, {
+        plan: null,
+        service,
+        startsAt: "2026-08-01T15:00:00+09:00",
+        amount: null,
+        location: null,
+        policy: "unknown",
+        confirmed: false,
+      }, deps.ids);
+    }
+    assertEquals((await listReservations(kv, ledger)).length, 2);
+
+    // cap is full: a brand-new signup is refused
+    const full = await handleAuthApi(
+      req("POST", "/auth/register", { email: "new@example.com", password: "hunter2secret" }),
+      deps,
+    );
+    assertEquals(full.status, 403);
+
+    // confirm mismatch -> 400 and nothing is deleted
+    const mismatch = await handleAuthApi(
+      req("DELETE", "/auth/account", { confirm: "typo@example.com" }, { cookie }),
+      deps,
+    );
+    assertEquals(mismatch.status, 400);
+    assertEquals((await mismatch.json()).error, "confirm_mismatch");
+    assertEquals(await findUserByEmail(kv, "gone@example.com") !== null, true);
+
+    // real 退会 (confirm echoes the account email; casing is normalized)
+    const del = await handleAuthApi(
+      req("DELETE", "/auth/account", { confirm: "Gone@Example.com" }, { cookie }),
+      deps,
+    );
+    assertEquals(del.status, 200);
+
+    // the session no longer resolves
+    const me = await handleAuthApi(req("GET", "/auth/me", undefined, { cookie }), deps);
+    assertEquals(me.status, 401);
+
+    // every index that pointed at the user is gone
+    assertEquals(await getUser(kv, userId), null);
+    assertEquals(await findUserByEmail(kv, "gone@example.com"), null);
+    assertEquals(await findUserByUid(kv, "goneuser"), null);
+    assertEquals(await findUserByApiToken(kv, apiToken), null);
+
+    // reservations are gone
+    assertEquals((await listReservations(kv, ledger)).length, 0);
+
+    // capacity freed: a brand-new signup now succeeds
+    const fresh = await handleAuthApi(
+      req("POST", "/auth/register", { email: "new@example.com", password: "hunter2secret" }),
+      deps,
+    );
+    assertEquals(fresh.status, 302);
+  });
+});
+
+Deno.test("退会: requires a session (401 when logged out)", async () => {
+  await withKv(async (kv) => {
+    const res = await handleAuthApi(
+      req("DELETE", "/auth/account", { confirm: "x@y.jp" }),
+      makeDeps(kv),
+    );
+    assertEquals(res.status, 401);
   });
 });
 

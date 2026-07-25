@@ -15,6 +15,7 @@
  *   GET  /auth/verify?token=     magic link landing → session cookie → /
  *   GET  /auth/me                session info (401 when logged out)
  *   POST /auth/logout            drop session
+ *   DELETE /auth/account {confirm} 退会 — delete the account and all its data
  *   POST /auth/adopt {token}     adopt a pre-login browser-token ledger
  *   POST /auth/ics/rotate        rotate the iCal feed secret
  */
@@ -28,6 +29,7 @@ import {
   countUsers,
   createMagicLink,
   createSession,
+  deleteAccount,
   deleteSession,
   findUserByApiToken,
   findUserByEmail,
@@ -52,14 +54,16 @@ import {
   updateUser,
   type WebUser,
 } from "../users.ts";
-import { seal } from "../../lib/seal.ts";
+import { seal, unseal } from "../../lib/seal.ts";
 import { hashPassword, verifyPassword } from "../../lib/password.ts";
 import {
   exchangeCode,
   type GoogleOauthApp,
   googleAuthUrl,
   makePkce,
+  refreshAccessToken,
 } from "./google.ts";
+import { deleteCalendar } from "../calendar/gcal.ts";
 import {
   getCookie,
   isSecureRequest,
@@ -130,6 +134,24 @@ async function atCapacity(deps: AuthDeps, email: string, sub?: string): Promise<
     await findUserByEmail(deps.kv, email);
   if (existing !== null) return false;
   return (await countUsers(deps.kv)) >= deps.maxUsers;
+}
+
+/**
+ * Best-effort teardown of the user's dedicated Google calendar on 退会. Runs
+ * while the record still holds the sealed refresh token; any failure (revoked
+ * grant, network, no calendar yet) is logged and swallowed so the account
+ * deletion always proceeds.
+ */
+async function deleteGoogleCalendar(deps: AuthDeps, user: WebUser): Promise<void> {
+  if (deps.google === null || user.google === null || user.google.calendarId === null) return;
+  try {
+    const refreshToken = await unseal(user.google.refreshTokenSealed, deps.kek);
+    if (refreshToken === "") return;
+    const accessToken = await refreshAccessToken(deps.google, refreshToken, deps.fetchFn);
+    await deleteCalendar({ fetchFn: deps.fetchFn, accessToken }, user.google.calendarId);
+  } catch (err) {
+    log.warn("退会: Google calendar delete skipped", { userId: user.id, err: String(err) });
+  }
 }
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -210,6 +232,8 @@ export async function resolveIdentity(req: Request, deps: AuthDeps): Promise<Ide
 
 const emailReqSchema = z.object({ email: z.string().email() });
 const adoptReqSchema = z.object({ token: z.string().min(1) });
+// 退会: confirm must echo the account's own email (typo guard, owner 2026-07-25).
+const deleteAccountSchema = z.object({ confirm: z.string() });
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(200),
@@ -488,6 +512,22 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
   if (path === "/auth/logout" && req.method === "POST") {
     const sid = getCookie(req, SESSION_COOKIE);
     if (sid !== null) await deleteSession(deps.kv, sid);
+    return json({ ok: true }, 200, { "set-cookie": sessionClearCookie(isSecureRequest(req)) });
+  }
+
+  // 退会 (account deletion): irreversible. `confirm` must equal the account's
+  // own email (typo guard); we tear down the Google calendar best-effort, wipe
+  // every KV key the user owns, and expire this request's session cookie.
+  if (path === "/auth/account" && req.method === "DELETE") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    const parsed = deleteAccountSchema.safeParse(await readJson(req));
+    if (!parsed.success) return json({ error: "invalid" }, 400);
+    if (normalizeEmail(parsed.data.confirm) !== normalizeEmail(user.email)) {
+      return json({ error: "confirm_mismatch" }, 400);
+    }
+    await deleteGoogleCalendar(deps, user);
+    await deleteAccount(deps.kv, user.id, deps.ids);
     return json({ ok: true }, 200, { "set-cookie": sessionClearCookie(isSecureRequest(req)) });
   }
 

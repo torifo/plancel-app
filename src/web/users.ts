@@ -71,6 +71,16 @@ const ICS = "ics_secret";
 const APITOKEN = "apitoken";
 const BY_UID = "webuser_uid";
 const GCAL = "gcal_map";
+// Per-user prefixes cleared on 退会. `gcal_dirty` mirrors sync.ts's DIRTY;
+// shared_in / resv_members are future sharing tables — listing a prefix that
+// no code writes yet is simply empty, so sweeping them here is a harmless no-op.
+const DIRTY = "gcal_dirty";
+const SHARED_IN = "shared_in";
+const RESV_MEMBERS = "resv_members";
+// Reservation store layout (mirrors store.ts NS/RESV) — kept local so this
+// module stays free of a store.ts import.
+const WEB_NS = "web";
+const WEB_RESV = "resv";
 
 export const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 export const MAGIC_TTL_MS = 15 * 60 * 1000;
@@ -312,6 +322,53 @@ export async function revokeApiToken(kv: Deno.Kv, userId: string, ids: AuthIds):
     .delete([APITOKEN, cur.apiToken])
     .set([USER, userId], { ...cur, apiToken: null, updated_at: ids.nowIso() })
     .commit();
+}
+
+// ---------- account deletion (退会, owner 2026-07-25) ----------
+
+/**
+ * Permanently deletes a user and everything keyed to them. Sequential deletes
+ * (not one atomic): the reservation / index sets are unbounded, so this stays
+ * clear of KV's atomic-batch limits and is idempotent if a retry re-runs it.
+ *
+ * Sessions are deliberately NOT swept (that would need a full-KV scan). Once
+ * this user record is gone, getSessionUser → getUser returns null for any
+ * surviving session, so a stale cookie is already inert; the route also
+ * expires the caller's own cookie in its response.
+ *
+ * `ids` is accepted for signature parity with the other user mutators (no
+ * timestamps are written on a delete, so it is unused here).
+ */
+export async function deleteAccount(
+  kv: Deno.Kv,
+  userId: string,
+  _ids: AuthIds,
+): Promise<void> {
+  const user = await getUser(kv, userId);
+  if (user === null) return;
+
+  // 1. reservations in the user's own ledger AND its demo namespace.
+  for (const ledger of [user.ledgerId, `${user.ledgerId}::demo`]) {
+    for await (const e of kv.list({ prefix: [WEB_NS, ledger, WEB_RESV] })) {
+      await kv.delete(e.key);
+    }
+  }
+
+  // 2. per-user prefixes (a prefix no code writes lists as empty — safe).
+  for (const prefix of [[GCAL, userId], [DIRTY, userId], [SHARED_IN, userId], [RESV_MEMBERS, userId]]) {
+    for await (const e of kv.list({ prefix })) {
+      await kv.delete(e.key);
+    }
+  }
+
+  // 3. the user record + every unique index that resolves to it.
+  await kv.delete([USER, userId]);
+  await kv.delete([BY_EMAIL, user.email]);
+  if (user.altEmail !== null) await kv.delete([BY_EMAIL, user.altEmail]);
+  if (user.google !== null) await kv.delete([BY_GOOGLE, user.google.sub]);
+  if (user.uid !== null) await kv.delete([BY_UID, user.uid]);
+  await kv.delete([ICS, user.icsSecret]);
+  if (user.apiToken !== null) await kv.delete([APITOKEN, user.apiToken]);
 }
 
 // ---------- sessions ----------

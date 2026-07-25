@@ -103,6 +103,19 @@ export async function upsertEvent(
   return id;
 }
 
+/**
+ * Deletes the whole secondary calendar (退会: tears down the user's dedicated
+ * "plancel" calendar). Idempotent — 404/410 (already gone) counts as success.
+ */
+export async function deleteCalendar(deps: GcalDeps, calendarId: string): Promise<void> {
+  try {
+    await call(deps, "DELETE", `/calendars/${encodeURIComponent(calendarId)}`);
+  } catch (err) {
+    if (err instanceof GcalError && (err.status === 404 || err.status === 410)) return;
+    throw err;
+  }
+}
+
 /** Idempotent: 404/410 (already gone) is success. */
 export async function deleteEvent(
   deps: GcalDeps,

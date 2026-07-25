@@ -811,6 +811,10 @@
         <label style="margin-top:16px">アカウント連携</label>
         <div class="hint" id="p_linkStatus" style="margin:4px 0 8px"></div>
         <div class="hint"><a id="p_linkGoogle" style="cursor:pointer;text-decoration:underline">🔗 Google アカウントを紐付ける</a></div>
+        <hr style="margin:20px 0 12px;border:none;border-top:1px solid var(--line)">
+        <label style="color:var(--full)">退会（アカウントの完全削除）</label>
+        <div class="hint" style="margin:4px 0 8px">すべての予約・設定・カレンダー連携が削除され、元に戻すことはできません。</div>
+        <div class="hint"><a id="deleteAccountBtn" style="cursor:pointer;text-decoration:underline;color:var(--full)">⚠ 退会（すべてのデータを削除）</a></div>
       </div>
     </div>
 
@@ -1624,6 +1628,27 @@
       if (res.ok) ME.hasPassword = true;
     };
     q("#p_linkGoogle").onclick = () => location.href = "/auth/google?link=1";
+    q("#deleteAccountBtn").onclick = async () => {
+      const input = prompt(
+        "退会するとすべての予約・設定・カレンダー連携が完全に削除され、元に戻すことはできません。\n" +
+          "本当に退会する場合は、確認のためログイン中のメールアドレスを入力してください:",
+      );
+      if (input === null) return;
+      const res = await fetch("/auth/account", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: input.trim() }),
+      });
+      if (res.ok) {
+        alert("退会が完了しました。ご利用ありがとうございました。");
+        location.reload();
+        return;
+      }
+      const err = (await res.json().catch(() => ({}))).error;
+      alert(err === "confirm_mismatch"
+        ? "入力されたメールアドレスがログイン中のアカウントと一致しませんでした。退会を中止しました。"
+        : "退会処理に失敗しました。時間をおいて再度お試しください。");
+    };
 
     q("#mcpIssue").onclick = async () => {
       const j = await (await fetch("/auth/token", { method: "POST" })).json();
