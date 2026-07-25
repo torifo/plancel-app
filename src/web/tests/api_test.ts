@@ -129,6 +129,61 @@ Deno.test("web api: patch edits fields; delete removes", async () => {
   });
 });
 
+Deno.test("web api: location is optional, stored, and editable", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const created = (await (await handleWebApi(
+      kv,
+      reqOf("POST", "/api/reservations", "t", {
+        service: "宿",
+        startsAt: "2026-09-01T15:00:00+09:00",
+        policy: "unknown",
+      }),
+      ids,
+    )).json()).reservation;
+    assertEquals(created.location, null); // omitted -> null, not required
+
+    const edited = (await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${created.id}`, "t", { location: "諏訪湖畔" }),
+      ids,
+    )).json()).reservation;
+    assertEquals(edited.location, "諏訪湖畔");
+  });
+});
+
+Deno.test("web api: cancelled reservations can be restored to candidate", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const r = (await (await handleWebApi(
+      kv,
+      reqOf("POST", "/api/reservations", "t", {
+        service: "宿",
+        startsAt: "2026-09-01T15:00:00+09:00",
+        policy: "unknown",
+        confirmed: true,
+      }),
+      ids,
+    )).json()).reservation;
+
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${r.id}/cancel`, "t"), ids);
+    const restored = (await (await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${r.id}/restore`, "t"),
+      ids,
+    )).json()).reservation;
+    assertEquals(restored.status, "candidate");
+
+    // restore on a non-cancelled reservation is a harmless no-op
+    const again = (await (await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${r.id}/restore`, "t"),
+      ids,
+    )).json()).reservation;
+    assertEquals(again.status, "candidate");
+  });
+});
+
 Deno.test("web api: patch/confirm/delete on unknown id -> 404", async () => {
   await withKv(async (kv) => {
     const ids = makeIds();

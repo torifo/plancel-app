@@ -22,6 +22,10 @@
  *   PLANCEL_OWNER_USER_ID (push target; defaults to first allowed id)
  *   RESEND_API_KEY / PLANCEL_EMAIL_FROM / PLANCEL_EMAIL_TO (email fallback)
  *   GROQ_API_KEY / GEMINI_API_KEY (parsers) · PORT (default 8000)
+ *   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (Google login + calendar push)
+ *   PLANCEL_KEK (base64 32B, seals refresh tokens) · PLANCEL_BASE_URL
+ *   PLANCEL_DEV_USER (local auto-login) · PLANCEL_ADMIN_TOKEN (smoke tests)
+ *   (RESEND_API_KEY + PLANCEL_EMAIL_FROM also power magic-link login)
  */
 import { SystemClock } from "../core/clock/mod.ts";
 import { KvStore } from "../core/store/mod.ts";
@@ -33,6 +37,11 @@ import { createLineClient } from "../line/client.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../line/webhook.ts";
 import { handleWebApi, isApiPath } from "../web/api.ts";
 import { handleParseApi, type ParseApiDeps } from "../web/parse-api.ts";
+import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../web/auth/routes.ts";
+import type { AuthIds } from "../web/users.ts";
+import { handleCalendarFeed, isCalendarFeedPath } from "../web/calendar/ics.ts";
+import { handleSyncMessage, requestSync, type SyncDeps, syncMsgSchema } from "../web/calendar/sync.ts";
+import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 
 const CRON_NAME = "plancel-boundary-check";
@@ -79,11 +88,88 @@ if (import.meta.main) {
   const INDEX_HTML = await Deno.readTextFile(new URL("../../web/index.html", import.meta.url));
   const htmlHeaders = { "content-type": "text/html; charset=utf-8" };
 
-  // Web API (per-user reservation CRUD in the shared KV, keyed by browser token).
+  // Web API (per-user reservation CRUD in the shared KV, keyed by ledger id).
   const webIds = {
     newId: () => ulid(),
     nowIso: () => clock.now().toString({ smallestUnit: "millisecond" }),
   };
+
+  // ---- Login + calendar integration (spec 2026-07-21) ----
+  const authIds: AuthIds = {
+    ...webIds,
+    nowMs: () => clock.now().epochMilliseconds,
+    randomToken: () => {
+      const b = new Uint8Array(32);
+      crypto.getRandomValues(b);
+      return hexEncode(b);
+    },
+  };
+  const googleClientId = env.get("GOOGLE_CLIENT_ID");
+  const googleClientSecret = env.get("GOOGLE_CLIENT_SECRET");
+  const googleApp = googleClientId !== undefined && googleClientSecret !== undefined
+    ? { clientId: googleClientId, clientSecret: googleClientSecret }
+    : null;
+  const kek = env.get("PLANCEL_KEK");
+  if (kek === undefined) {
+    log.warn("PLANCEL_KEK unset — Google refresh tokens will be stored unencrypted");
+  }
+  const resendKey = env.get("RESEND_API_KEY");
+  const emailFrom = env.get("PLANCEL_EMAIL_FROM");
+  const sendMagicLink = resendKey !== undefined && emailFrom !== undefined
+    ? async (email: string, url: string) => {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: emailFrom,
+          to: [email],
+          subject: "[plancel] ログインリンク",
+          text: `plancel へのログインリンクです（15分間有効・1回のみ）:\n\n${url}\n\n` +
+            "心当たりがない場合はこのメールを無視してください。",
+        }),
+      });
+      if (!res.ok) throw new Error(`magic link send failed: http ${res.status}`);
+      await res.body?.cancel();
+    }
+    : null;
+  const authDeps: AuthDeps = {
+    kv: store.kv,
+    ids: authIds,
+    fetchFn: fetch,
+    google: googleApp,
+    sendMagicLink,
+    kek,
+    ...(env.get("PLANCEL_BASE_URL") !== undefined
+      ? { baseUrl: env.get("PLANCEL_BASE_URL") as string }
+      : {}),
+    ...(env.get("PLANCEL_DEV_USER") !== undefined
+      ? { devUserEmail: env.get("PLANCEL_DEV_USER") as string }
+      : {}),
+    ...(env.get("PLANCEL_ADMIN_TOKEN") !== undefined
+      ? { adminToken: env.get("PLANCEL_ADMIN_TOKEN") as string }
+      : {}),
+  };
+  const syncDeps: SyncDeps = {
+    kv: store.kv,
+    ids: authIds,
+    fetchFn: fetch,
+    google: googleApp,
+    kek,
+    enqueue: async (msg, delayMs) => {
+      await store.kv.enqueue(msg, { delay: delayMs });
+    },
+  };
+  store.kv.listenQueue(async (raw) => {
+    if (syncMsgSchema.safeParse(raw).success) await handleSyncMessage(syncDeps, raw);
+  });
+  log.info("auth configured", {
+    google: googleApp !== null,
+    emailLogin: sendMagicLink !== null,
+    kek: kek !== undefined,
+  });
   // Web intake: pasted mail text / screenshot images through the parse chain.
   const parseDeps: ParseApiDeps = {
     parsers,
@@ -98,11 +184,32 @@ if (import.meta.main) {
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return new Response(INDEX_HTML, { headers: htmlHeaders });
     }
+    if (isAuthPath(url.pathname)) {
+      return await handleAuthApi(req, authDeps);
+    }
+    if (isCalendarFeedPath(url.pathname)) {
+      return await handleCalendarFeed(store.kv, req);
+    }
     if (url.pathname === "/api/parse") {
+      // Login-gated: parsing burns LLM quota, so anonymous callers get 401.
+      const who = await resolveIdentity(req, authDeps);
+      if (who.ledger === null) return new Response(`{"error":"login required"}`, { status: 401 });
       return await handleParseApi(req, parseDeps);
     }
     if (isApiPath(url.pathname)) {
-      return await handleWebApi(store.kv, req, webIds);
+      const who = await resolveIdentity(req, authDeps);
+      if (who.ledger === null) return new Response(`{"error":"login required"}`, { status: 401 });
+      const user = who.user;
+      return await handleWebApi(store.kv, req, webIds, {
+        ledger: who.ledger,
+        onMutate: (resvId) => {
+          // Only real (non-demo) ledgers of Google-linked users sync.
+          if (user === null || user.google === null || who.ledger !== user.ledgerId) return;
+          requestSync(syncDeps, user.id, resvId).catch((err) =>
+            log.error("requestSync failed", { err: String(err) })
+          );
+        },
+      });
     }
     if (req.method === "GET" && url.pathname === "/healthz") {
       return new Response("ok");

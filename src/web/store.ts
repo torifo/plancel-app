@@ -23,6 +23,8 @@ export const webReservationSchema = z.object({
   service: z.string().min(1),
   startsAt: z.string().min(1),
   amount: z.number().nullable(),
+  // Optional venue (店名/住所). Defaulted so pre-2026-07-22 records still parse.
+  location: z.string().nullable().default(null),
   policy: webPolicySchema,
   status: webStatusSchema,
   created_at: z.string(),
@@ -36,6 +38,7 @@ export const webCreateSchema = z.object({
   service: z.string().min(1),
   startsAt: z.string().min(1),
   amount: z.number().nullable().default(null),
+  location: z.string().nullable().default(null),
   policy: webPolicySchema.default("unknown"),
   confirmed: z.boolean().default(false),
 });
@@ -46,6 +49,7 @@ export const webPatchSchema = z.object({
   service: z.string().min(1).optional(),
   startsAt: z.string().min(1).optional(),
   amount: z.number().nullable().optional(),
+  location: z.string().nullable().optional(),
   policy: webPolicySchema.optional(),
 });
 
@@ -112,6 +116,7 @@ export async function createReservation(
     service: input.service,
     startsAt: input.startsAt,
     amount: input.amount,
+    location: input.location,
     policy: input.policy,
     status: input.confirmed ? "confirmed" : "candidate",
     created_at: now,
@@ -139,6 +144,7 @@ export async function patchReservation(
     ...(patch.service !== undefined ? { service: patch.service } : {}),
     ...(patch.startsAt !== undefined ? { startsAt: patch.startsAt } : {}),
     ...(patch.amount !== undefined ? { amount: patch.amount } : {}),
+    ...(patch.location !== undefined ? { location: patch.location } : {}),
     ...(patch.policy !== undefined ? { policy: patch.policy } : {}),
     updated_at: ids.nowIso(),
   };
@@ -157,6 +163,26 @@ export async function confirmReservation(
   const next: WebReservation = { ...cur, status: "confirmed", updated_at: ids.nowIso() };
   await put(kv, token, next);
   await settleSiblings(kv, token, next, ids);
+  return next;
+}
+
+/**
+ * Brings a cancelled / to_cancel reservation back to candidate (owner
+ * 2026-07-22: nothing vanishes on its own — cancelled items stay listed
+ * until the user restores, reschedules, or explicitly hard-deletes them).
+ * Other statuses are returned unchanged (no-op).
+ */
+export async function restoreReservation(
+  kv: Deno.Kv,
+  token: string,
+  id: string,
+  ids: WebIds,
+): Promise<WebReservation | null> {
+  const cur = await getReservation(kv, token, id);
+  if (cur === null) return null;
+  if (cur.status !== "cancelled" && cur.status !== "to_cancel") return cur;
+  const next: WebReservation = { ...cur, status: "candidate", updated_at: ids.nowIso() };
+  await put(kv, token, next);
   return next;
 }
 
