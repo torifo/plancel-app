@@ -25,6 +25,7 @@
  *   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (Google login + calendar push)
  *   PLANCEL_KEK (base64 32B, seals refresh tokens) · PLANCEL_BASE_URL
  *   PLANCEL_DEV_USER (local auto-login) · PLANCEL_ADMIN_TOKEN (smoke tests)
+ *   PLANCEL_MAX_USERS (signup cap, default 20; 0 = unlimited)
  *   (RESEND_API_KEY + PLANCEL_EMAIL_FROM also power magic-link login)
  */
 import { SystemClock } from "../core/clock/mod.ts";
@@ -151,6 +152,9 @@ if (import.meta.main) {
     ...(env.get("PLANCEL_ADMIN_TOKEN") !== undefined
       ? { adminToken: env.get("PLANCEL_ADMIN_TOKEN") as string }
       : {}),
+    // Signup cap: Google-side stays open, the app limits how many accounts
+    // may exist (default 20; set PLANCEL_MAX_USERS=0 to disable).
+    maxUsers: Number(env.get("PLANCEL_MAX_USERS") ?? "20"),
   };
   const syncDeps: SyncDeps = {
     kv: store.kv,

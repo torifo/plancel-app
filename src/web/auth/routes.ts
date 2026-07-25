@@ -25,9 +25,11 @@ import {
   type AuthIds,
   allowMagicSend,
   consumeMagicLink,
+  countUsers,
   createMagicLink,
   createSession,
   deleteSession,
+  findUserByEmail,
   findUserByGoogleSub,
   getOrCreateUserByEmail,
   getSessionUser,
@@ -67,6 +69,22 @@ export interface AuthDeps {
   kek: string | undefined;
   devUserEmail?: string;
   adminToken?: string;
+  /**
+   * Signup cap (owner 2026-07-23): the Google side stays open to anyone,
+   * so the app itself limits how many accounts may EXIST. Existing users
+   * always get in; only new-account creation is refused at the cap.
+   * undefined / <= 0 disables the cap.
+   */
+  maxUsers?: number;
+}
+
+/** True when signing in this identity would create a user past the cap. */
+async function atCapacity(deps: AuthDeps, email: string, sub?: string): Promise<boolean> {
+  if (deps.maxUsers === undefined || deps.maxUsers <= 0) return false;
+  const existing = (sub !== undefined ? await findUserByGoogleSub(deps.kv, sub) : null) ??
+    await findUserByEmail(deps.kv, email);
+  if (existing !== null) return false;
+  return (await countUsers(deps.kv)) >= deps.maxUsers;
 }
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -187,6 +205,9 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
       console.error("auth: code exchange failed:", err);
       return redirect("/?auth_error=exchange_failed");
     }
+    if (await atCapacity(deps, tokens.claims.email, tokens.claims.sub)) {
+      return redirect("/?auth_error=capacity");
+    }
     const user = await findUserByGoogleSub(deps.kv, tokens.claims.sub) ??
       await getOrCreateUserByEmail(deps.kv, tokens.claims.email, deps.ids);
     await linkGoogle(deps.kv, user.id, {
@@ -203,6 +224,7 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     if (deps.sendMagicLink === null) return json({ error: "email login not configured" }, 503);
     const parsed = emailReqSchema.safeParse(await readJson(req));
     if (!parsed.success) return json({ error: "invalid email" }, 400);
+    if (await atCapacity(deps, parsed.data.email)) return json({ error: "capacity" }, 403);
     if (!await allowMagicSend(deps.kv, parsed.data.email)) {
       return json({ error: "rate limited" }, 429);
     }
@@ -219,6 +241,8 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     if (token === null) return redirect("/?auth_error=missing_token");
     const email = await consumeMagicLink(deps.kv, token, deps.ids.nowMs());
     if (email === null) return redirect("/?auth_error=link_expired");
+    // Re-check at redeem time: the cap may have filled since the link was sent.
+    if (await atCapacity(deps, email)) return redirect("/?auth_error=capacity");
     const user = await getOrCreateUserByEmail(deps.kv, email, deps.ids);
     return await sessionResponse(deps, req, user.id, "/");
   }

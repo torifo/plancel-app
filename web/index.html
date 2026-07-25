@@ -1331,6 +1331,7 @@
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ email }),
         });
+        if (res.status === 403) throw new Error("現在、新規アカウントの受付を停止しています（定員）。");
         if (res.status === 429) throw new Error("送信回数の上限です。1時間ほど待ってください。");
         if (!res.ok) throw new Error("送信できませんでした（メールログイン未設定の可能性）");
         q("#loginMsg").textContent = "✉ ログインリンクを送りました。メールを開いてリンクを踏んでください（15分有効）。";
@@ -1422,6 +1423,7 @@
       state_expired: "ログインの有効期限が切れました。もう一度お試しください。",
       exchange_failed: "Google ログインに失敗しました。もう一度お試しください。",
       access_denied: "Google ログインがキャンセルされました。",
+      capacity: "現在、新規アカウントの受付を停止しています（定員に達しました）。管理者にお問い合わせください。",
     };
     async function boot() {
       const err = new URLSearchParams(location.search).get("auth_error");

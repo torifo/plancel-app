@@ -156,6 +156,58 @@ Deno.test("magic link send is 503 when email login is not configured", async () 
   });
 });
 
+Deno.test("signup cap: new accounts refused at maxUsers, existing users still log in", async () => {
+  await withKv(async (kv) => {
+    const sent: string[] = [];
+    const deps = makeDeps(kv, {
+      maxUsers: 1,
+      sendMagicLink: (_email, url) => {
+        sent.push(url);
+        return Promise.resolve();
+      },
+    });
+    // first user fills the cap
+    await handleAuthApi(req("POST", "/auth/email", { email: "first@example.com" }), deps);
+    const t1 = new URL(sent[0] ?? "").searchParams.get("token") ?? "";
+    assertEquals((await handleAuthApi(req("GET", `/auth/verify?token=${t1}`), deps)).status, 302);
+
+    // second address: refused at send time
+    const second = await handleAuthApi(
+      req("POST", "/auth/email", { email: "second@example.com" }),
+      deps,
+    );
+    assertEquals(second.status, 403);
+    assertEquals((await second.json()).error, "capacity");
+
+    // Google login for a NEW identity: redirected to the capacity error
+    const start = await handleAuthApi(req("GET", "/auth/google"), deps);
+    const state = new URL(start.headers.get("location") ?? "").searchParams.get("state") ?? "";
+    const cb = await handleAuthApi(req("GET", `/auth/callback?code=c&state=${state}`), deps);
+    assertStringIncludes(cb.headers.get("location") ?? "", "auth_error=capacity");
+
+    // the EXISTING user still gets a fresh magic link + login
+    const again = await handleAuthApi(
+      req("POST", "/auth/email", { email: "first@example.com" }),
+      deps,
+    );
+    assertEquals(again.status, 200);
+
+    // cap disabled (0) lets new users in again
+    const open = makeDeps(kv, {
+      maxUsers: 0,
+      sendMagicLink: (_email, url) => {
+        sent.push(url);
+        return Promise.resolve();
+      },
+    });
+    assertEquals(
+      (await handleAuthApi(req("POST", "/auth/email", { email: "second@example.com" }), open))
+        .status,
+      200,
+    );
+  });
+});
+
 Deno.test("adopt takes over a pre-login token ledger once, while empty", async () => {
   await withKv(async (kv) => {
     const ids = makeAuthIds();

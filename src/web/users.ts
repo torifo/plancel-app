@@ -88,6 +88,13 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/** Total registered users — the signup-cap gate (owner 2026-07-23). */
+export async function countUsers(kv: Deno.Kv): Promise<number> {
+  let n = 0;
+  for await (const _ of kv.list({ prefix: [USER] })) n++;
+  return n;
+}
+
 async function putUser(kv: Deno.Kv, user: WebUser): Promise<void> {
   await kv.set([USER, user.id], user);
 }
