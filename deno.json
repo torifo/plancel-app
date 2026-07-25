@@ -14,6 +14,7 @@
     "parse:live": "deno run --allow-env --allow-read --allow-write --allow-net=api.groq.com,generativelanguage.googleapis.com --unstable-temporal src/cli/parse_live.ts",
     "line": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/line/main.ts",
     "deploy:serve": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv --unstable-cron src/deploy/main.ts",
+    "kv:spike": "deno run --allow-env --allow-net --unstable-kv src/cli/kv_spike.ts",
     "verify": "deno task check && deno lint && deno task test && deno task replay"
   },
   "compilerOptions": {
