@@ -988,7 +988,11 @@
       if (!p || p === "unknown") return null;
       const paid = p.stages.find((s) => s.pct > 0);
       if (!paid) return null;
-      return startMs(r) - paid.h * 3600000;
+      // 無料期限 = 最後の pct==0 ステージの境界（free24=24h前・staged=168h前）。
+      // 2026-07-25 修正: 従来の「最初の有料ステージの h」は1段ズレていた。
+      const lastFree = [...p.stages].reverse().find((s) => s.pct === 0);
+      if (!lastFree) return null;
+      return startMs(r) - lastFree.h * 3600000;
     }
     function maxLoss(r) {
       if (!r.amount || r.policy === "unknown") return 0;

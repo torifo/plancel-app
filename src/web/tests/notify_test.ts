@@ -60,12 +60,12 @@ async function withKv(fn: (kv: Deno.Kv) => Promise<void>) {
 }
 
 // ① a free24 reservation whose free deadline is inside the next 24h → 1 mail.
-// Per the canonical client `freeDeadline` (first pct>0 stage), free24's
-// deadline is start − 0h = start, so start itself must be within 24h.
+// free24 (「前日まで無料」) の無料期限は start − 24h（最後の pct==0 ステージ、
+// 2026-07-25 の期限バグ修正後の正）。start = now+36h → deadline = now+12h。
 Deno.test("notifies once for a free24 deadline within 24h", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
-    await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 12 * H);
+    await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
     const sent: Sent[] = [];
     const count = await sweepDeadlineNotifications(makeDeps(kv, sent));
     assertEquals(count, 1);
@@ -81,7 +81,7 @@ Deno.test("notifies once for a free24 deadline within 24h", async () => {
 Deno.test("does not re-notify on a second sweep", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
-    await putResv(kv, u.ledgerId, "R1", "free24", "confirmed", NOW + 12 * H);
+    await putResv(kv, u.ledgerId, "R1", "free24", "confirmed", NOW + 36 * H);
     const sent: Sent[] = [];
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 0);
@@ -89,7 +89,7 @@ Deno.test("does not re-notify on a second sweep", async () => {
 
     // The marker also survives the reservation being deleted → still no re-notify.
     await kv.delete(["web", u.ledgerId, "resv", "R1"]);
-    await putResv(kv, u.ledgerId, "R1", "free24", "confirmed", NOW + 12 * H);
+    await putResv(kv, u.ledgerId, "R1", "free24", "confirmed", NOW + 36 * H);
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 0);
     assertEquals(sent.length, 1);
   });
@@ -99,12 +99,12 @@ Deno.test("does not re-notify on a second sweep", async () => {
 Deno.test("skips far-future, past, cancelled and unknown-policy reservations", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
-    // free24 deadline = start; start = now+100h → deadline >24h away → too far.
+    // free24 deadline = start−24h; start = now+100h → deadline = now+76h → too far.
     await putResv(kv, u.ledgerId, "FAR", "free24", "candidate", NOW + 100 * H);
     // deadline = now−1h → past (not future).
-    await putResv(kv, u.ledgerId, "PAST", "free24", "candidate", NOW - 1 * H);
+    await putResv(kv, u.ledgerId, "PAST", "free24", "candidate", NOW + 1 * H); // deadline は過去
     // in-window shape but cancelled.
-    await putResv(kv, u.ledgerId, "CANC", "free24", "cancelled", NOW + 12 * H);
+    await putResv(kv, u.ledgerId, "CANC", "free24", "cancelled", NOW + 36 * H);
     // in-window shape but policy unknown → no deadline.
     await putResv(kv, u.ledgerId, "UNK", "unknown", "candidate", NOW + 12 * H);
     // in-window shape but policy none → no paid stage.
@@ -116,14 +116,12 @@ Deno.test("skips far-future, past, cancelled and unknown-policy reservations", a
 });
 
 // ④ staged deadline math matches the canonical client `freeDeadline`: the
-// first pct>0 stage of the staged table is {h:72,pct:30}, so the free
-// deadline is start − 72h (see report: spec prose says 168h, but the client
-// implementation — declared authoritative — resolves to 72h).
-Deno.test("staged free deadline is start − 72h (first paid stage) and notifies in-window", async () => {
+// staged (「7日前まで無料」) の無料期限は start − 168h（最後の pct==0 ステージ）。
+Deno.test("staged free deadline is start − 168h (last free stage) and notifies in-window", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
-    const start = NOW + 84 * H; // deadline = start − 72h = now+12h (in window)
-    assertEquals(freeDeadlineMs("staged", iso(start)), start - 72 * H);
+    const start = NOW + 180 * H; // deadline = start − 168h = now+12h (in window)
+    assertEquals(freeDeadlineMs("staged", iso(start)), start - 168 * H);
     await putResv(kv, u.ledgerId, "S1", "staged", "to_cancel", start);
     const sent: Sent[] = [];
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
@@ -135,7 +133,7 @@ Deno.test("staged free deadline is start − 72h (first paid stage) and notifies
 Deno.test("ignores the ::demo ledger", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
-    await putResv(kv, `${u.ledgerId}::demo`, "D1", "free24", "candidate", NOW + 12 * H);
+    await putResv(kv, `${u.ledgerId}::demo`, "D1", "free24", "candidate", NOW + 36 * H);
     const sent: Sent[] = [];
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 0);
     assertEquals(sent.length, 0);

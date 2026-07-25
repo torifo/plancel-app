@@ -70,10 +70,17 @@ export interface NotifyDeps {
 export function freeDeadlineMs(policy: string, startsAt: string): number | null {
   const stages = STAGES[policy];
   if (stages === undefined) return null; // unknown (and any unmapped policy)
+  // Stage semantics: `pct` applies to cancellations made until `h` hours
+  // before the start (stages listed descending). The free window therefore
+  // ends at the LAST pct==0 stage's boundary — free24 (「前日まで無料」) =
+  // start−24h, staged (「7日前まで無料」) = start−168h. (2026-07-25 fix: the
+  // old first-paid-stage reading was off by one stage on both sides.)
   const paid = stages.find((s) => s.pct > 0);
-  if (paid === undefined) return null; // none
+  if (paid === undefined) return null; // none — always free, no deadline
+  const lastFree = [...stages].reverse().find((s) => s.pct === 0);
+  if (lastFree === undefined) return null; // paid from the outset — no free window
   const startMs = Temporal.Instant.from(startsAt).epochMilliseconds;
-  return startMs - paid.h * HOUR_MS;
+  return startMs - lastFree.h * HOUR_MS;
 }
 
 /** Formats an epoch-ms instant as `YYYY/MM/DD(曜) HH:MM JST`. */
