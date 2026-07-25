@@ -32,6 +32,7 @@ import {
   findUserByApiToken,
   findUserByEmail,
   findUserByGoogleSub,
+  findUserByUid,
   getOrCreateUserByEmail,
   getSessionUser,
   getUser,
@@ -211,6 +212,12 @@ const emailReqSchema = z.object({ email: z.string().email() });
 const adoptReqSchema = z.object({ token: z.string().min(1) });
 const credentialsSchema = z.object({
   email: z.string().email(),
+  password: z.string().min(8).max(200),
+});
+// Login accepts EITHER an email address or a uid in the same field
+// (owner 2026-07-23); registration stays strictly email-only.
+const loginSchema = z.object({
+  email: z.string().min(3).max(200),
   password: z.string().min(8).max(200),
 });
 const passwordSchema = z.object({ password: z.string().min(8).max(200) });
@@ -397,12 +404,17 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
   }
 
   if (path === "/auth/login" && req.method === "POST") {
-    const parsed = credentialsSchema.safeParse(await readJson(req));
+    const parsed = loginSchema.safeParse(await readJson(req));
     if (!parsed.success) return json({ error: "invalid" }, 400);
-    if (!await pwAttemptAllowed(deps.kv, parsed.data.email)) {
+    const identifier = parsed.data.email.trim().toLowerCase();
+    if (!await pwAttemptAllowed(deps.kv, identifier)) {
       return json({ error: "rate limited" }, 429);
     }
-    const user = await findUserByEmail(deps.kv, parsed.data.email);
+    const user = identifier.includes("@")
+      ? await findUserByEmail(deps.kv, identifier)
+      : (uidSchema.safeParse(identifier).success
+        ? await findUserByUid(deps.kv, identifier)
+        : null);
     if (user === null || user.passwordHash === null) {
       return json({ error: "bad_credentials" }, 401);
     }

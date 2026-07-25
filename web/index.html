@@ -755,8 +755,8 @@
         <p class="hint" style="margin-bottom:14px">予約台帳はアカウントに紐づきます。Google か、メールに届くリンクでログインしてください。</p>
         <button class="btn-primary" id="googleLoginBtn" style="width:100%">Google でログイン</button>
         <div class="hint" style="text-align:center;margin:10px 0">— またはメールアドレスで —</div>
-        <label>メールアドレス（iCloud なども可）</label>
-        <input id="loginEmail" type="email" placeholder="you@icloud.com" autocomplete="email">
+        <label>メールアドレス または ユーザーID</label>
+        <input id="loginEmail" placeholder="you@icloud.com ／ akitosan" autocomplete="username">
         <label>パスワード（8文字以上）</label>
         <input id="loginPassword" type="password" autocomplete="current-password">
         <div id="pwConfirmRow" style="display:none">
@@ -777,8 +777,9 @@
         <div class="modal-head"><h3>マイページ</h3><button class="x" data-close>×</button></div>
         <label>表示名（他の人と同じでも OK）</label>
         <input id="p_name" placeholder="例: あきと">
-        <label>ユーザーID（半角英小文字のみ 6〜20文字・早い者勝ちで一意）</label>
+        <label>ユーザーID（任意・半角英小文字のみ 6〜20文字・早い者勝ちで一意）</label>
         <input id="p_uid" placeholder="例: akitosan">
+        <div class="hint" style="margin:4px 0 0">設定しなくても利用できます。設定するとログインや、今後の「予約への招待」で相手に見つけてもらう際に使えて便利です。</div>
         <label>別のログイン用メールアドレス（iCloud など・任意）</label>
         <input id="p_alt" type="email" placeholder="you@icloud.com">
         <div class="modal-foot"><button class="btn-primary" id="profileSave">プロフィールを保存</button></div>
@@ -1386,8 +1387,12 @@
         q("#loginMsg").textContent = "確認用パスワードも入力して、もう一度「新規登録」を押してください。";
         return;
       }
-      if (!email || password.length < 8) {
-        q("#loginMsg").textContent = "メールアドレスと8文字以上のパスワードを入力してください。";
+      if (!email.includes("@")) {
+        q("#loginMsg").textContent = "新規登録はメールアドレスで行ってください（IDはログイン時に使えます）。";
+        return;
+      }
+      if (password.length < 8) {
+        q("#loginMsg").textContent = "8文字以上のパスワードを入力してください。";
         return;
       }
       if (password !== q("#loginPassword2").value) {

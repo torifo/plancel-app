@@ -367,6 +367,19 @@ Deno.test("profile: display name free-form, uid unique, alt email becomes a logi
     );
     assertEquals(sameName.status, 200);
 
+    // uid + password also logs in (owner 2026-07-23: uid OR email)
+    await handleAuthApi(req("POST", "/auth/password", { password: "hunter2secret" }), deps);
+    const uidLogin = await handleAuthApi(
+      req("POST", "/auth/login", { email: "akitosan", password: "hunter2secret" }),
+      makeDeps(kv),
+    );
+    assertEquals(uidLogin.status, 302);
+    const unknownUid = await handleAuthApi(
+      req("POST", "/auth/login", { email: "nobodyx", password: "hunter2secret" }),
+      makeDeps(kv),
+    );
+    assertEquals(unknownUid.status, 401);
+
     // alt email + password -> can log in with the icloud address
     await handleAuthApi(req("POST", "/auth/profile", { altEmail: "Me@icloud.com" }), deps);
     await handleAuthApi(req("POST", "/auth/password", { password: "hunter2secret" }), deps);
