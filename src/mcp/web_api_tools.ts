@@ -9,6 +9,11 @@
  * to their calendars through the existing sync.
  *
  * fetch is injected for tests; every tool returns the API's JSON verbatim.
+ *
+ * Scope principle (owner 2026-07-23): 「GUI でできることは MCP でもできる」
+ * が理念 — future tools may cover profile edits (display name etc.). The
+ * EXCEPTIONS are identity-critical, deliberately human/GUI-only flows:
+ * unique-uid claiming and account linking/merging are NEVER exposed here.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";

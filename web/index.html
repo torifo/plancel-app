@@ -572,7 +572,7 @@
           <div
             class="txt"><b>自分のデータ</b>　ログイン中: <span id="meEmail">…</span></div>
           <div
-            class="tokline"><a id="calBtn" style="cursor:pointer;text-decoration:underline">📅 カレンダー連携</a> · <a id="logoutBtn" style="cursor:pointer;text-decoration:underline">ログアウト</a></div>
+            class="tokline"><a id="calBtn" style="cursor:pointer;text-decoration:underline">📅 カレンダー連携</a> · <a id="profileBtn" style="cursor:pointer;text-decoration:underline">👤 マイページ</a> · <a id="logoutBtn" style="cursor:pointer;text-decoration:underline">ログアウト</a></div>
         </div>
         <button class="btn-small" id="demoBtn">デモを見る</button>
       </div>
@@ -754,11 +754,41 @@
         <h3 style="margin-bottom:6px">plancel にログイン</h3>
         <p class="hint" style="margin-bottom:14px">予約台帳はアカウントに紐づきます。Google か、メールに届くリンクでログインしてください。</p>
         <button class="btn-primary" id="googleLoginBtn" style="width:100%">Google でログイン</button>
-        <div class="hint" style="text-align:center;margin:10px 0">— または —</div>
-        <label>メールアドレス</label>
-        <input id="loginEmail" type="email" placeholder="you@example.com" autocomplete="email">
-        <div class="modal-foot"><button class="btn-ghost" id="emailLoginBtn" style="width:100%">ログインリンクを送る</button></div>
+        <div class="hint" style="text-align:center;margin:10px 0">— またはメールアドレスで —</div>
+        <label>メールアドレス（iCloud なども可）</label>
+        <input id="loginEmail" type="email" placeholder="you@icloud.com" autocomplete="email">
+        <label>パスワード（8文字以上）</label>
+        <input id="loginPassword" type="password" autocomplete="current-password">
+        <div id="pwConfirmRow" style="display:none">
+          <label>パスワード（確認）</label>
+          <input id="loginPassword2" type="password" autocomplete="new-password">
+        </div>
+        <div class="modal-foot" style="gap:8px">
+          <button class="btn-primary" id="pwLoginBtn" style="flex:1">ログイン</button>
+          <button class="btn-ghost" id="registerBtn" style="flex:1">新規登録</button>
+        </div>
         <div class="hint" id="loginMsg" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <!-- My page: profile, credentials, account linking (GUI-only flows) -->
+    <div class="overlay" id="profileOverlay">
+      <div class="modal">
+        <div class="modal-head"><h3>マイページ</h3><button class="x" data-close>×</button></div>
+        <label>表示名（他の人と同じでも OK）</label>
+        <input id="p_name" placeholder="例: あきと">
+        <label>ユーザーID（半角英数字と - _ / 3〜20文字・早い者勝ちで一意）</label>
+        <input id="p_uid" placeholder="例: akito_1">
+        <label>別のログイン用メールアドレス（iCloud など・任意）</label>
+        <input id="p_alt" type="email" placeholder="you@icloud.com">
+        <div class="modal-foot"><button class="btn-primary" id="profileSave">プロフィールを保存</button></div>
+        <label style="margin-top:16px">パスワード（設定するとメールアドレスでもログインできます）</label>
+        <input id="p_pw" type="password" placeholder="8文字以上" autocomplete="new-password">
+        <input id="p_pw2" type="password" placeholder="確認のためもう一度" autocomplete="new-password" style="margin-top:6px">
+        <div class="modal-foot"><button class="btn-ghost" id="passwordSave">パスワードを設定・変更</button></div>
+        <label style="margin-top:16px">アカウント連携</label>
+        <div class="hint" id="p_linkStatus" style="margin:4px 0 8px"></div>
+        <div class="hint"><a id="p_linkGoogle" style="cursor:pointer;text-decoration:underline">🔗 Google アカウントを紐付ける</a></div>
       </div>
     </div>
 
@@ -1324,23 +1354,50 @@
     // ---- login / account (login is the only way in; spec 2026-07-21) ----
     let ME = null;
     q("#googleLoginBtn").onclick = () => location.href = "/auth/google";
-    q("#emailLoginBtn").onclick = async () => {
-      const email = q("#loginEmail").value.trim();
-      if (!email) return;
-      q("#loginMsg").textContent = "送信中…";
-      try {
-        const res = await fetch("/auth/email", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email }),
-        });
-        if (res.status === 403) throw new Error("現在、新規アカウントの受付を停止しています（定員）。");
-        if (res.status === 429) throw new Error("送信回数の上限です。1時間ほど待ってください。");
-        if (!res.ok) throw new Error("送信できませんでした（メールログイン未設定の可能性）");
-        q("#loginMsg").textContent = "✉ ログインリンクを送りました。メールを開いてリンクを踏んでください（15分有効）。";
-      } catch (e) {
-        q("#loginMsg").textContent = e.message;
+    async function credCall(path, body, errMap) {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        location.reload();
+        return;
       }
+      const err = (await res.json().catch(() => ({}))).error || "";
+      q("#loginMsg").textContent = errMap[err] || errMap[res.status] ||
+        "失敗しました。入力内容を確認してください。";
+    }
+    q("#pwLoginBtn").onclick = () => {
+      const email = q("#loginEmail").value.trim(), password = q("#loginPassword").value;
+      if (!email || password.length < 8) {
+        q("#loginMsg").textContent = "メールアドレスと8文字以上のパスワードを入力してください。";
+        return;
+      }
+      credCall("/auth/login", { email, password }, {
+        bad_credentials: "メールアドレスまたはパスワードが違います。",
+        429: "試行回数の上限です。15分ほど待ってください。",
+      });
+    };
+    q("#registerBtn").onclick = () => {
+      const email = q("#loginEmail").value.trim(), password = q("#loginPassword").value;
+      if (q("#pwConfirmRow").style.display === "none") {
+        q("#pwConfirmRow").style.display = "block";
+        q("#loginMsg").textContent = "確認用パスワードも入力して、もう一度「新規登録」を押してください。";
+        return;
+      }
+      if (!email || password.length < 8) {
+        q("#loginMsg").textContent = "メールアドレスと8文字以上のパスワードを入力してください。";
+        return;
+      }
+      if (password !== q("#loginPassword2").value) {
+        q("#loginMsg").textContent = "確認用パスワードが一致しません。";
+        return;
+      }
+      credCall("/auth/register", { email, password }, {
+        email_taken: "そのアドレスのアカウントは既にあります。「ログイン」してください。",
+        capacity: "現在、新規アカウントの受付を停止しています（定員）。",
+      });
     };
     q("#logoutBtn").onclick = async () => {
       await fetch("/auth/logout", { method: "POST" });
@@ -1374,6 +1431,72 @@
         q("#icsUrl").select();
       }
     };
+    // マイページ: プロフィール・パスワード・アカウント連携（GUI 専用フロー）
+    q("#profileBtn").onclick = () => {
+      q("#p_name").value = ME.displayName || "";
+      q("#p_uid").value = ME.uid || "";
+      q("#p_alt").value = ME.altEmail || "";
+      q("#p_pw").value = "";
+      q("#p_pw2").value = "";
+      q("#p_linkStatus").textContent = ME.google
+        ? "✅ Google アカウント連携済み。Google でもメールアドレス＋パスワードでもログインできます。"
+        : (ME.emailVerified
+          ? "Google 未連携。紐付けると Google でもログインできます。"
+          : "Google 未連携（このアカウントはメール登録のみ）。紐付けるとアカウントの本人確認も完了します。");
+      q("#profileOverlay").classList.add("on");
+    };
+    q("#profileSave").onclick = async () => {
+      const body = {};
+      const name = q("#p_name").value.trim();
+      if (name !== (ME.displayName || "")) body.displayName = name || null;
+      const uid = q("#p_uid").value.trim();
+      if (uid && uid !== (ME.uid || "")) body.uid = uid;
+      const alt = q("#p_alt").value.trim();
+      if (alt && alt !== (ME.altEmail || "")) body.altEmail = alt;
+      if (Object.keys(body).length === 0) {
+        alert("変更はありません。");
+        return;
+      }
+      const res = await fetch("/auth/profile", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const me = await (await fetch("/auth/me")).json();
+        ME = me;
+        alert("保存しました。");
+        closeAll();
+        render();
+        return;
+      }
+      const err = (await res.json().catch(() => ({}))).error;
+      alert(err === "uid_taken"
+        ? "そのユーザーIDは既に使われています。別の ID にしてください。"
+        : (err === "email_taken"
+          ? "そのメールアドレスは別のアカウントで使われています。"
+          : "保存できませんでした。入力形式を確認してください（IDは半角英数字と - _ で3〜20文字）。"));
+    };
+    q("#passwordSave").onclick = async () => {
+      const pw = q("#p_pw").value;
+      if (pw.length < 8) {
+        alert("パスワードは8文字以上にしてください。");
+        return;
+      }
+      if (pw !== q("#p_pw2").value) {
+        alert("確認用パスワードが一致しません。");
+        return;
+      }
+      const res = await fetch("/auth/password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: pw }),
+      });
+      alert(res.ok ? "パスワードを設定しました。メールアドレスでもログインできます。" : "設定に失敗しました。");
+      if (res.ok) ME.hasPassword = true;
+    };
+    q("#p_linkGoogle").onclick = () => location.href = "/auth/google?link=1";
+
     q("#mcpIssue").onclick = async () => {
       const j = await (await fetch("/auth/token", { method: "POST" })).json();
       ME.hasApiToken = true;
@@ -1438,6 +1561,8 @@
       exchange_failed: "Google ログインに失敗しました。もう一度お試しください。",
       access_denied: "Google ログインがキャンセルされました。",
       capacity: "現在、新規アカウントの受付を停止しています（定員に達しました）。管理者にお問い合わせください。",
+      email_taken: "そのメールアドレスのアカウントが既にあります。メールアドレス＋パスワードでログインし、マイページから Google を紐付けてください。",
+      google_taken: "その Google アカウントは別のアカウントに紐付いています。",
     };
     async function boot() {
       const err = new URLSearchParams(location.search).get("auth_error");

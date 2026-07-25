@@ -253,6 +253,113 @@ Deno.test("adopt takes over a pre-login token ledger once, while empty", async (
   });
 });
 
+Deno.test("password auth: register -> login (wrong pw rejected) -> me", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv);
+    const reg = await handleAuthApi(
+      req("POST", "/auth/register", { email: "IC@icloud.com", password: "hunter2secret" }),
+      deps,
+    );
+    assertEquals(reg.status, 302);
+    const cookie = cookieOf(reg);
+
+    const me = await (await handleAuthApi(req("GET", "/auth/me", undefined, { cookie }), deps))
+      .json();
+    assertEquals(me.email, "ic@icloud.com");
+    assertEquals(me.hasPassword, true);
+    assertEquals(me.emailVerified, false); // password signup = unverified
+
+    // duplicate register refused
+    const dup = await handleAuthApi(
+      req("POST", "/auth/register", { email: "ic@icloud.com", password: "hunter2secret" }),
+      deps,
+    );
+    assertEquals(dup.status, 409);
+
+    const bad = await handleAuthApi(
+      req("POST", "/auth/login", { email: "ic@icloud.com", password: "wrongwrong1" }),
+      deps,
+    );
+    assertEquals(bad.status, 401);
+    const good = await handleAuthApi(
+      req("POST", "/auth/login", { email: "ic@icloud.com", password: "hunter2secret" }),
+      deps,
+    );
+    assertEquals(good.status, 302);
+  });
+});
+
+Deno.test("google login with an UNVERIFIED same-address account is refused (no auto-merge)", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv, {
+      fetchFn: fakeGoogleFetch(), // claims g@example.com
+    });
+    await handleAuthApi(
+      req("POST", "/auth/register", { email: "g@example.com", password: "hunter2secret" }),
+      deps,
+    );
+    const start = await handleAuthApi(req("GET", "/auth/google"), deps);
+    const state = new URL(start.headers.get("location") ?? "").searchParams.get("state") ?? "";
+    const cb = await handleAuthApi(req("GET", `/auth/callback?code=c&state=${state}`), deps);
+    assertStringIncludes(cb.headers.get("location") ?? "", "auth_error=email_taken");
+  });
+});
+
+Deno.test("link mode attaches Google to the logged-in account and verifies it", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv);
+    const reg = await handleAuthApi(
+      req("POST", "/auth/register", { email: "g@example.com", password: "hunter2secret" }),
+      deps,
+    );
+    const cookie = cookieOf(reg);
+    const start = await handleAuthApi(
+      req("GET", "/auth/google?link=1", undefined, { cookie }),
+      deps,
+    );
+    assertEquals(start.status, 302);
+    const state = new URL(start.headers.get("location") ?? "").searchParams.get("state") ?? "";
+    const cb = await handleAuthApi(req("GET", `/auth/callback?code=c&state=${state}`), deps);
+    assertEquals(cb.headers.get("location"), "/");
+    const me = await (await handleAuthApi(
+      req("GET", "/auth/me", undefined, { cookie: cookieOf(cb) }),
+      deps,
+    )).json();
+    assertEquals(me.google, true);
+    assertEquals(me.emailVerified, true); // link verified the account
+  });
+});
+
+Deno.test("profile: display name free-form, uid unique, alt email becomes a login id", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv, { devUserEmail: "me@example.com" });
+    const ok = await handleAuthApi(
+      req("POST", "/auth/profile", { displayName: "あきと", uid: "akito_1" }),
+      deps,
+    );
+    assertEquals(ok.status, 200);
+
+    // another user cannot take the same uid, but may share the display name
+    const other = makeDeps(kv, { devUserEmail: "other@example.com" });
+    const clash = await handleAuthApi(req("POST", "/auth/profile", { uid: "akito_1" }), other);
+    assertEquals(clash.status, 409);
+    const sameName = await handleAuthApi(
+      req("POST", "/auth/profile", { displayName: "あきと" }),
+      other,
+    );
+    assertEquals(sameName.status, 200);
+
+    // alt email + password -> can log in with the icloud address
+    await handleAuthApi(req("POST", "/auth/profile", { altEmail: "Me@icloud.com" }), deps);
+    await handleAuthApi(req("POST", "/auth/password", { password: "hunter2secret" }), deps);
+    const login = await handleAuthApi(
+      req("POST", "/auth/login", { email: "me@icloud.com", password: "hunter2secret" }),
+      makeDeps(kv),
+    );
+    assertEquals(login.status, 302);
+  });
+});
+
 Deno.test("personal API token: issue -> act as user -> rotate invalidates -> revoke", async () => {
   await withKv(async (kv) => {
     const deps = makeDeps(kv, { devUserEmail: "me@example.com" });

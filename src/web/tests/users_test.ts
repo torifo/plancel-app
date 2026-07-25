@@ -86,7 +86,7 @@ Deno.test("magic send rate limit stops after the cap", async () => {
 Deno.test("oauth state is single-use", async () => {
   await withKv(async (kv) => {
     await saveOauthState(kv, "st1", "ver1");
-    assertEquals(await takeOauthState(kv, "st1"), "ver1");
+    assertEquals(await takeOauthState(kv, "st1"), { verifier: "ver1", linkUserId: null });
     assertEquals(await takeOauthState(kv, "st1"), null);
   });
 });

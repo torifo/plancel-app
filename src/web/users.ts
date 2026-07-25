@@ -32,6 +32,21 @@ export const webUserSchema = z.object({
   icsSecret: z.string().min(1),
   /** Personal API token (MCP 連携). Defaulted so older records still parse. */
   apiToken: z.string().nullable().default(null),
+  /** 表示名 (non-unique) — invites show this; null falls back to the email. */
+  displayName: z.string().nullable().default(null),
+  /** Unique handle the user picks on マイページ (invite lookup, ^[a-z0-9_-]{3,20}$). */
+  uid: z.string().nullable().default(null),
+  /** Additional login address (e.g. icloud.com) — shares the email index. */
+  altEmail: z.string().nullable().default(null),
+  /** PBKDF2 hash; null = password login not set up. */
+  passwordHash: z.string().nullable().default(null),
+  /**
+   * True when the primary email's ownership was proven (Google id_token /
+   * magic link). Password-signup accounts are false until linked — and an
+   * UNVERIFIED account is never auto-merged into a Google login with the
+   * same address (account-takeover guard; linking is explicit).
+   */
+  emailVerified: z.boolean().default(true),
   google: webUserGoogleSchema.nullable(),
   created_at: z.string(),
   updated_at: z.string(),
@@ -54,6 +69,7 @@ const MAGIC_RATE = "magic_rate";
 const OAUTH_STATE = "oauth_state";
 const ICS = "ics_secret";
 const APITOKEN = "apitoken";
+const BY_UID = "webuser_uid";
 const GCAL = "gcal_map";
 
 export const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -106,6 +122,7 @@ export async function getOrCreateUserByEmail(
   kv: Deno.Kv,
   email: string,
   ids: AuthIds,
+  opts: { emailVerified?: boolean; passwordHash?: string | null } = {},
 ): Promise<WebUser> {
   const norm = normalizeEmail(email);
   const existing = await findUserByEmail(kv, norm);
@@ -117,6 +134,11 @@ export async function getOrCreateUserByEmail(
     ledgerId: ids.newId(),
     icsSecret: ids.randomToken(),
     apiToken: null,
+    displayName: null,
+    uid: null,
+    altEmail: null,
+    passwordHash: opts.passwordHash ?? null,
+    emailVerified: opts.emailVerified ?? true,
     google: null,
     created_at: now,
     updated_at: now,
@@ -183,6 +205,53 @@ export async function rotateIcsSecret(
     .set([USER, userId], next)
     .commit();
   return next;
+}
+
+// ---------- profile: uid / alt email / password (owner 2026-07-23) ----------
+
+export const uidSchema = z.string().regex(/^[a-z0-9_-]{3,20}$/);
+
+export function findUserByUid(kv: Deno.Kv, uid: string): Promise<WebUser | null> {
+  return userIdFromIndex(kv, [BY_UID, uid]);
+}
+
+/** Claims a unique uid for the user. False when the uid is already taken. */
+export async function setUid(
+  kv: Deno.Kv,
+  userId: string,
+  uid: string,
+  ids: AuthIds,
+): Promise<boolean> {
+  const cur = await getUser(kv, userId);
+  if (cur === null) return false;
+  if (cur.uid === uid) return true;
+  const key = [BY_UID, uid];
+  const tx = kv.atomic()
+    .check({ key, versionstamp: null }) // fails when someone owns this uid
+    .set(key, userId)
+    .set([USER, userId], { ...cur, uid, updated_at: ids.nowIso() });
+  if (cur.uid !== null) tx.delete([BY_UID, cur.uid]);
+  return (await tx.commit()).ok;
+}
+
+/** Registers an additional login address. False when the address is taken. */
+export async function setAltEmail(
+  kv: Deno.Kv,
+  userId: string,
+  email: string,
+  ids: AuthIds,
+): Promise<boolean> {
+  const cur = await getUser(kv, userId);
+  if (cur === null) return false;
+  const norm = normalizeEmail(email);
+  if (norm === cur.email || norm === cur.altEmail) return true;
+  const key = [BY_EMAIL, norm];
+  const tx = kv.atomic()
+    .check({ key, versionstamp: null })
+    .set(key, userId)
+    .set([USER, userId], { ...cur, altEmail: norm, updated_at: ids.nowIso() });
+  if (cur.altEmail !== null) tx.delete([BY_EMAIL, cur.altEmail]);
+  return (await tx.commit()).ok;
 }
 
 // ---------- personal API tokens (MCP 連携, owner 2026-07-23) ----------
@@ -286,19 +355,29 @@ export async function consumeMagicLink(
 
 // ---------- oauth state ----------
 
-const oauthStateSchema = z.object({ verifier: z.string() });
+const oauthStateSchema = z.object({
+  verifier: z.string(),
+  /** Set when this flow LINKS Google to an existing logged-in user. */
+  linkUserId: z.string().nullable().default(null),
+});
+export type OauthState = z.infer<typeof oauthStateSchema>;
 
-export async function saveOauthState(kv: Deno.Kv, state: string, verifier: string): Promise<void> {
-  await kv.set([OAUTH_STATE, state], { verifier }, { expireIn: OAUTH_STATE_TTL_MS });
+export async function saveOauthState(
+  kv: Deno.Kv,
+  state: string,
+  verifier: string,
+  linkUserId: string | null = null,
+): Promise<void> {
+  await kv.set([OAUTH_STATE, state], { verifier, linkUserId }, { expireIn: OAUTH_STATE_TTL_MS });
 }
 
-/** Single-use: returns the PKCE verifier and deletes the state. */
-export async function takeOauthState(kv: Deno.Kv, state: string): Promise<string | null> {
+/** Single-use: returns the PKCE verifier (+link target) and deletes the state. */
+export async function takeOauthState(kv: Deno.Kv, state: string): Promise<OauthState | null> {
   const e = await kv.get([OAUTH_STATE, state]);
   const parsed = oauthStateSchema.safeParse(e.value);
   if (!parsed.success) return null;
   await kv.delete([OAUTH_STATE, state]);
-  return parsed.data.verifier;
+  return parsed.data;
 }
 
 // ---------- reservation ⇄ Google Calendar event mapping ----------

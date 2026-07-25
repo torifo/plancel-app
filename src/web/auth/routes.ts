@@ -34,6 +34,7 @@ import {
   findUserByGoogleSub,
   getOrCreateUserByEmail,
   getSessionUser,
+  getUser,
   issueApiToken,
   linkGoogle,
   normalizeEmail,
@@ -41,11 +42,15 @@ import {
   rotateIcsSecret,
   saveOauthState,
   SESSION_TTL_MS,
+  setAltEmail,
+  setUid,
   takeOauthState,
+  uidSchema,
   updateUser,
   type WebUser,
 } from "../users.ts";
 import { seal } from "../../lib/seal.ts";
+import { hashPassword, verifyPassword } from "../../lib/password.ts";
 import {
   exchangeCode,
   type GoogleOauthApp,
@@ -202,6 +207,30 @@ export async function resolveIdentity(req: Request, deps: AuthDeps): Promise<Ide
 
 const emailReqSchema = z.object({ email: z.string().email() });
 const adoptReqSchema = z.object({ token: z.string().min(1) });
+const credentialsSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(200),
+});
+const passwordSchema = z.object({ password: z.string().min(8).max(200) });
+const profileSchema = z.object({
+  displayName: z.string().min(1).max(50).nullable().optional(),
+  uid: uidSchema.optional(),
+  altEmail: z.string().email().optional(),
+});
+
+/** Failed password logins per address: 10 tries / 15 min. */
+const PW_RATE = "pwrate";
+const PW_RATE_LIMIT = 10;
+const PW_RATE_WINDOW_MS = 15 * 60 * 1000;
+
+async function pwAttemptAllowed(kv: Deno.Kv, email: string): Promise<boolean> {
+  const key = [PW_RATE, normalizeEmail(email)];
+  const cur = (await kv.get<{ count: number }>(key)).value;
+  const count = cur?.count ?? 0;
+  if (count >= PW_RATE_LIMIT) return false;
+  await kv.set(key, { count: count + 1 }, { expireIn: PW_RATE_WINDOW_MS });
+  return true;
+}
 
 async function readJson(req: Request): Promise<unknown> {
   try {
@@ -217,9 +246,17 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
 
   if (path === "/auth/google" && req.method === "GET") {
     if (deps.google === null) return json({ error: "google login not configured" }, 503);
+    // ?link=1: attach Google to the CURRENT session's account (GUI-only flow —
+    // account linking is deliberately human-initiated, owner 2026-07-23).
+    let linkUserId: string | null = null;
+    if (url.searchParams.get("link") === "1") {
+      const user = await requestUser(req, deps);
+      if (user === null) return json({ error: "not logged in" }, 401);
+      linkUserId = user.id;
+    }
     const state = deps.ids.randomToken();
     const { verifier, challenge } = await makePkce(deps.ids.randomToken);
-    await saveOauthState(deps.kv, state, verifier);
+    await saveOauthState(deps.kv, state, verifier, linkUserId);
     return redirect(
       googleAuthUrl(deps.google, `${origin(req, deps)}/auth/callback`, state, challenge),
     );
@@ -232,29 +269,48 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     if (code === null || state === null) return redirect("/?auth_error=missing_code");
-    const verifier = await takeOauthState(deps.kv, state);
-    if (verifier === null) return redirect("/?auth_error=state_expired");
+    const st = await takeOauthState(deps.kv, state);
+    if (st === null) return redirect("/?auth_error=state_expired");
     let tokens;
     try {
       tokens = await exchangeCode(
         deps.google,
         `${origin(req, deps)}/auth/callback`,
         code,
-        verifier,
+        st.verifier,
         deps.fetchFn,
       );
     } catch (err) {
       console.error("auth: code exchange failed:", err);
       return redirect("/?auth_error=exchange_failed");
     }
-    if (await atCapacity(deps, tokens.claims.email, tokens.claims.sub)) {
-      return redirect("/?auth_error=capacity");
-    }
-    let user = await findUserByGoogleSub(deps.kv, tokens.claims.sub);
-    if (user === null) {
-      const existed = await findUserByEmail(deps.kv, tokens.claims.email);
-      user = existed ?? await getOrCreateUserByEmail(deps.kv, tokens.claims.email, deps.ids);
-      if (existed === null) await warnIfAboveDesign(deps);
+
+    let user: WebUser | null;
+    if (st.linkUserId !== null) {
+      // Link mode: attach this Google identity to the logged-in account.
+      const owner = await findUserByGoogleSub(deps.kv, tokens.claims.sub);
+      if (owner !== null && owner.id !== st.linkUserId) {
+        return redirect("/?auth_error=google_taken");
+      }
+      user = await getUser(deps.kv, st.linkUserId);
+      if (user === null) return redirect("/?auth_error=state_expired");
+      // Google proved an address; linking verifies the account.
+      await updateUser(deps.kv, user.id, (u) => ({ ...u, emailVerified: true }), deps.ids);
+    } else {
+      if (await atCapacity(deps, tokens.claims.email, tokens.claims.sub)) {
+        return redirect("/?auth_error=capacity");
+      }
+      user = await findUserByGoogleSub(deps.kv, tokens.claims.sub);
+      if (user === null) {
+        const existed = await findUserByEmail(deps.kv, tokens.claims.email);
+        if (existed !== null && !existed.emailVerified) {
+          // Account-takeover guard: a password-signup account with this
+          // address was never verified — require an explicit GUI link.
+          return redirect("/?auth_error=email_taken");
+        }
+        user = existed ?? await getOrCreateUserByEmail(deps.kv, tokens.claims.email, deps.ids);
+        if (existed === null) await warnIfAboveDesign(deps);
+      }
     }
     await linkGoogle(deps.kv, user.id, {
       sub: tokens.claims.sub,
@@ -312,8 +368,80 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
       googleError: user.google?.error ?? null,
       icsPath: `/calendar/${user.icsSecret}.ics`,
       hasApiToken: user.apiToken !== null,
+      displayName: user.displayName,
+      uid: user.uid,
+      altEmail: user.altEmail,
+      hasPassword: user.passwordHash !== null,
+      emailVerified: user.emailVerified,
       ...adminExtras,
     });
+  }
+
+  // Email + password signup (メール所有は未確認のまま作成; owner 2026-07-23).
+  if (path === "/auth/register" && req.method === "POST") {
+    const parsed = credentialsSchema.safeParse(await readJson(req));
+    if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+    const email = normalizeEmail(parsed.data.email);
+    if (await findUserByEmail(deps.kv, email) !== null) {
+      return json({ error: "email_taken" }, 409);
+    }
+    if (await atCapacity(deps, email)) return json({ error: "capacity" }, 403);
+    const user = await getOrCreateUserByEmail(deps.kv, email, deps.ids, {
+      emailVerified: false,
+      passwordHash: await hashPassword(parsed.data.password),
+    });
+    await warnIfAboveDesign(deps);
+    return await sessionResponse(deps, req, user.id, "/");
+  }
+
+  if (path === "/auth/login" && req.method === "POST") {
+    const parsed = credentialsSchema.safeParse(await readJson(req));
+    if (!parsed.success) return json({ error: "invalid" }, 400);
+    if (!await pwAttemptAllowed(deps.kv, parsed.data.email)) {
+      return json({ error: "rate limited" }, 429);
+    }
+    const user = await findUserByEmail(deps.kv, parsed.data.email);
+    if (user === null || user.passwordHash === null) {
+      return json({ error: "bad_credentials" }, 401);
+    }
+    if (!await verifyPassword(parsed.data.password, user.passwordHash)) {
+      return json({ error: "bad_credentials" }, 401);
+    }
+    return await sessionResponse(deps, req, user.id, "/");
+  }
+
+  // Set / change own password (enables password login for Google accounts).
+  if (path === "/auth/password" && req.method === "POST") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    const parsed = passwordSchema.safeParse(await readJson(req));
+    if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+    const passwordHash = await hashPassword(parsed.data.password);
+    await updateUser(deps.kv, user.id, (u) => ({ ...u, passwordHash }), deps.ids);
+    return json({ ok: true });
+  }
+
+  // Profile: display name (non-unique) / unique uid / additional login email.
+  if (path === "/auth/profile" && req.method === "POST") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    const parsed = profileSchema.safeParse(await readJson(req));
+    if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+    if (parsed.data.displayName !== undefined) {
+      const displayName = parsed.data.displayName;
+      await updateUser(deps.kv, user.id, (u) => ({ ...u, displayName }), deps.ids);
+    }
+    if (parsed.data.uid !== undefined) {
+      if (!await setUid(deps.kv, user.id, parsed.data.uid, deps.ids)) {
+        return json({ error: "uid_taken" }, 409);
+      }
+    }
+    if (parsed.data.altEmail !== undefined) {
+      if (!await setAltEmail(deps.kv, user.id, parsed.data.altEmail, deps.ids)) {
+        return json({ error: "email_taken" }, 409);
+      }
+    }
+    return json({ ok: true });
   }
 
   // Personal API token for MCP: POST issues/rotates, DELETE revokes.
