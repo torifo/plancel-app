@@ -1445,6 +1445,15 @@
       }
       ME = await res.json();
       q("#loginOverlay").classList.remove("on");
+      // 管理者ログイン時のみ: 利用者数が100人に達したら運用見直しの警告を出す
+      if (ME.capacityWarning) {
+        const w = document.createElement("div");
+        w.style.cssText =
+          "border:1px solid #c53030;background:#fff5f5;color:#742a2a;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px";
+        w.textContent =
+          `⚠ 管理者向け警告: 利用者が ${ME.userCount} 人に達しました（設計70人・無料枠の検証済み上限は約100人）。上限や保証リストの見直しを検討してください。`;
+        q("#dataBar").before(w);
+      }
       // one-time: carry the pre-login browser-token ledger into this account
       const legacy = localStorage.getItem("plancel.token");
       if (legacy && !localStorage.getItem("plancel.adopted")) {

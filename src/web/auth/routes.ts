@@ -56,6 +56,30 @@ import {
   sessionClearCookie,
   sessionSetCookie,
 } from "./session.ts";
+import { logger } from "../../lib/log.ts";
+
+const log = logger("web.auth");
+
+/**
+ * Capacity design (owner 2026-07-23): 50 open-signup slots + ~20 allowlisted
+ * 知り合い = 70 planned in total. Growth past that is tolerated but logged
+ * (the free tier is validated to ~100); at 100 the ADMIN sees a UI warning
+ * via /auth/me so the pools get revisited before quota trouble.
+ */
+const DESIGN_TOTAL_USERS = 70;
+const ADMIN_WARN_USERS = 100;
+
+/** Called after creating a user: leaves a developer-facing log past design. */
+async function warnIfAboveDesign(deps: AuthDeps): Promise<void> {
+  const count = await countUsers(deps.kv);
+  if (count > DESIGN_TOTAL_USERS) {
+    log.warn("user count above design capacity", {
+      count,
+      designTotal: DESIGN_TOTAL_USERS,
+      adminWarnAt: ADMIN_WARN_USERS,
+    });
+  }
+}
 
 export interface AuthDeps {
   kv: Deno.Kv;
@@ -83,6 +107,8 @@ export interface AuthDeps {
    * cap is already filled by strangers. 家族を確実に入れるための保険。
    */
   allowedEmails?: Set<string>;
+  /** Admin addresses: /auth/me gives them userCount + the 100-user warning. */
+  adminEmails?: Set<string>;
 }
 
 /** True when signing in this identity would create a user past the cap. */
@@ -216,8 +242,12 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     if (await atCapacity(deps, tokens.claims.email, tokens.claims.sub)) {
       return redirect("/?auth_error=capacity");
     }
-    const user = await findUserByGoogleSub(deps.kv, tokens.claims.sub) ??
-      await getOrCreateUserByEmail(deps.kv, tokens.claims.email, deps.ids);
+    let user = await findUserByGoogleSub(deps.kv, tokens.claims.sub);
+    if (user === null) {
+      const existed = await findUserByEmail(deps.kv, tokens.claims.email);
+      user = existed ?? await getOrCreateUserByEmail(deps.kv, tokens.claims.email, deps.ids);
+      if (existed === null) await warnIfAboveDesign(deps);
+    }
     await linkGoogle(deps.kv, user.id, {
       sub: tokens.claims.sub,
       refreshTokenSealed: await seal(tokens.refreshToken ?? "", deps.kek),
@@ -251,18 +281,29 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     if (email === null) return redirect("/?auth_error=link_expired");
     // Re-check at redeem time: the cap may have filled since the link was sent.
     if (await atCapacity(deps, email)) return redirect("/?auth_error=capacity");
-    const user = await getOrCreateUserByEmail(deps.kv, email, deps.ids);
+    const existed = await findUserByEmail(deps.kv, email);
+    const user = existed ?? await getOrCreateUserByEmail(deps.kv, email, deps.ids);
+    if (existed === null) await warnIfAboveDesign(deps);
     return await sessionResponse(deps, req, user.id, "/");
   }
 
   if (path === "/auth/me" && req.method === "GET") {
     const user = await requestUser(req, deps);
     if (user === null) return json({ error: "not logged in" }, 401);
+    // Admins additionally see the user count and the 100-user warning flag.
+    const isAdmin = deps.adminEmails?.has(user.email) ?? false;
+    const adminExtras = isAdmin
+      ? await (async () => {
+        const userCount = await countUsers(deps.kv);
+        return { admin: true, userCount, capacityWarning: userCount >= ADMIN_WARN_USERS };
+      })()
+      : {};
     return json({
       email: user.email,
       google: user.google !== null && user.google.error === null,
       googleError: user.google?.error ?? null,
       icsPath: `/calendar/${user.icsSecret}.ics`,
+      ...adminExtras,
     });
   }
 

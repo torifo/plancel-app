@@ -25,8 +25,9 @@
  *   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (Google login + calendar push)
  *   PLANCEL_KEK (base64 32B, seals refresh tokens) · PLANCEL_BASE_URL
  *   PLANCEL_DEV_USER (local auto-login) · PLANCEL_ADMIN_TOKEN (smoke tests)
- *   PLANCEL_MAX_USERS (signup cap, default 20; 0 = unlimited)
+ *   PLANCEL_MAX_USERS (open-signup cap, default 50; 0 = unlimited)
  *   PLANCEL_ALLOWED_EMAILS (comma-separated; always allowed past the cap)
+ *   PLANCEL_ADMIN_EMAILS (comma-separated; /auth/me carries the 100-user warning)
  *   (RESEND_API_KEY + PLANCEL_EMAIL_FROM also power magic-link login)
  */
 import { SystemClock } from "../core/clock/mod.ts";
@@ -153,12 +154,20 @@ if (import.meta.main) {
     ...(env.get("PLANCEL_ADMIN_TOKEN") !== undefined
       ? { adminToken: env.get("PLANCEL_ADMIN_TOKEN") as string }
       : {}),
-    // Signup cap: Google-side stays open, the app limits how many accounts
-    // may exist (default 20; set PLANCEL_MAX_USERS=0 to disable). Addresses
-    // in PLANCEL_ALLOWED_EMAILS (comma-separated) always get in regardless.
-    maxUsers: Number(env.get("PLANCEL_MAX_USERS") ?? "20"),
+    // Signup policy (owner 2026-07-23): the Google side stays fully open and
+    // the app enforces capacity — an open-signup pool of 50 (this default),
+    // plus 身近な知り合い (~20 expected) guaranteed past the cap via
+    // PLANCEL_ALLOWED_EMAILS. The free-tier math supports ~100 users; 50
+    // deliberately leaves half the request quota as headroom (opulse shares
+    // the org quota, and overage pauses BOTH apps). PLANCEL_MAX_USERS=0
+    // disables the cap.
+    maxUsers: Number(env.get("PLANCEL_MAX_USERS") ?? "50"),
     allowedEmails: new Set(
       (env.get("PLANCEL_ALLOWED_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+    adminEmails: new Set(
+      (env.get("PLANCEL_ADMIN_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
         .filter(Boolean),
     ),
   };

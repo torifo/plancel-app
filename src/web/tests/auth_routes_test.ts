@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../auth/routes.ts";
-import { findUserByEmail } from "../users.ts";
+import { findUserByEmail, getOrCreateUserByEmail } from "../users.ts";
 import { createReservation } from "../store.ts";
 import { makeAuthIds } from "./users_test.ts";
 
@@ -250,6 +250,31 @@ Deno.test("adopt takes over a pre-login token ledger once, while empty", async (
     // second adopt attempt: ledger no longer empty -> refused
     const again = await handleAuthApi(req("POST", "/auth/adopt", { token: "other" }), deps);
     assertEquals((await again.json()).adopted, false);
+  });
+});
+
+Deno.test("admin /auth/me carries userCount and warns at 100 users", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    for (let i = 0; i < 99; i++) {
+      await getOrCreateUserByEmail(kv, `u${i}@example.com`, ids);
+    }
+    const deps = makeDeps(kv, {
+      ids,
+      maxUsers: 0,
+      devUserEmail: "admin@example.com", // becomes the 100th user
+      adminEmails: new Set(["admin@example.com"]),
+    });
+    const body = await (await handleAuthApi(req("GET", "/auth/me"), deps)).json();
+    assertEquals(body.admin, true);
+    assertEquals(body.userCount, 100);
+    assertEquals(body.capacityWarning, true);
+
+    // non-admin users never see the counters
+    const plain = makeDeps(kv, { ids, maxUsers: 0, devUserEmail: "u1@example.com" });
+    const p = await (await handleAuthApi(req("GET", "/auth/me"), plain)).json();
+    assertEquals("userCount" in p, false);
+    assertEquals("capacityWarning" in p, false);
   });
 });
 
