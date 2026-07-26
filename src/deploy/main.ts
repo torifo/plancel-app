@@ -47,6 +47,7 @@ import type { AuthIds } from "../web/users.ts";
 import { handleCalendarFeed, isCalendarFeedPath } from "../web/calendar/ics.ts";
 import { requestSync, sweepDirtySync, type SyncDeps } from "../web/calendar/sync.ts";
 import { sweepDeadlineNotifications } from "../web/notify.ts";
+import { loadPwaAssets, servePwaAsset } from "../web/pwa.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 
@@ -87,6 +88,7 @@ if (import.meta.main) {
 
   // Web UI served at `/` (read once at startup; the repo file ships with the deploy).
   const INDEX_HTML = await Deno.readTextFile(new URL("../../web/index.html", import.meta.url));
+  const pwaAssets = await loadPwaAssets();
   const htmlHeaders = { "content-type": "text/html; charset=utf-8" };
 
   // Web API (per-user reservation CRUD in the shared KV, keyed by ledger id).
@@ -268,6 +270,10 @@ if (import.meta.main) {
     const url = new URL(req.url);
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return new Response(INDEX_HTML, { headers: htmlHeaders });
+    }
+    if (req.method === "GET") {
+      const asset = servePwaAsset(url.pathname, pwaAssets);
+      if (asset !== null) return asset;
     }
     if (isAuthPath(url.pathname)) {
       return await handleAuthApi(req, authDeps);
