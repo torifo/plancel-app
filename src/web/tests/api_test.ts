@@ -99,6 +99,131 @@ Deno.test("web api: confirm settles siblings in the same plan -> to_cancel", asy
   });
 });
 
+Deno.test("web api: confirm rejects cancelled and to_cancel transitions", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const mk = async (service: string) =>
+      (await (await handleWebApi(
+        kv,
+        reqOf("POST", BASE, "t", {
+          plan: "排他的な候補",
+          service,
+          startsAt: "2026-08-20T15:00:00+09:00",
+          policy: "unknown",
+        }),
+        ids,
+      )).json()).reservation;
+    const a = await mk("宿A");
+    const b = await mk("宿B");
+
+    assertEquals(
+      (await handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/confirm`, "t"), ids)).status,
+      200,
+    );
+    const toCancel = await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${b.id}/confirm`, "t"),
+      ids,
+    );
+    assertEquals(toCancel.status, 409);
+    assertEquals((await toCancel.json()).error, "invalid_transition");
+
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/cancel`, "t"), ids);
+    const cancelled = await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${a.id}/confirm`, "t"),
+      ids,
+    );
+    assertEquals(cancelled.status, 409);
+    assertEquals((await cancelled.json()).error, "invalid_transition");
+  });
+});
+
+Deno.test("web api: concurrent confirms leave exactly one plan winner", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const mk = async (service: string) =>
+      (await (await handleWebApi(
+        kv,
+        reqOf("POST", BASE, "t", {
+          plan: "同時確定プラン",
+          service,
+          startsAt: "2026-08-20T15:00:00+09:00",
+          policy: "unknown",
+        }),
+        ids,
+      )).json()).reservation;
+    const a = await mk("宿A");
+    const b = await mk("宿B");
+
+    const results = await Promise.all([
+      handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/confirm`, "t"), ids),
+      handleWebApi(kv, reqOf("POST", `${BASE}/${b.id}/confirm`, "t"), ids),
+    ]);
+    assertEquals(results.map((r) => r.status).sort(), [200, 409]);
+
+    const list = (await (await handleWebApi(kv, reqOf("GET", BASE, "t"), ids)).json()).reservations;
+    assertEquals(list.filter((r: { status: string }) => r.status === "confirmed").length, 1);
+    assertEquals(list.filter((r: { status: string }) => r.status === "to_cancel").length, 1);
+  });
+});
+
+Deno.test("web api: concurrent create-with-confirmed also leaves one winner", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const createConfirmed = (service: string) =>
+      handleWebApi(
+        kv,
+        reqOf("POST", BASE, "t", {
+          plan: "作成時確定プラン",
+          service,
+          startsAt: "2026-08-20T15:00:00+09:00",
+          policy: "unknown",
+          confirmed: true,
+        }),
+        ids,
+      );
+
+    const results = await Promise.all([createConfirmed("宿A"), createConfirmed("宿B")]);
+    assertEquals(results.map((r) => r.status).sort(), [201, 409]);
+
+    const list = (await (await handleWebApi(kv, reqOf("GET", BASE, "t"), ids)).json()).reservations;
+    assertEquals(list.length, 1);
+    assertEquals(list[0].status, "confirmed");
+  });
+});
+
+Deno.test("web api: stale plan guard does not block a restored candidate", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const mk = async (service: string) =>
+      (await (await handleWebApi(
+        kv,
+        reqOf("POST", BASE, "t", {
+          plan: "再選択プラン",
+          service,
+          startsAt: "2026-08-20T15:00:00+09:00",
+          policy: "unknown",
+        }),
+        ids,
+      )).json()).reservation;
+    const a = await mk("宿A");
+    const b = await mk("宿B");
+
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/confirm`, "t"), ids);
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/cancel`, "t"), ids);
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${b.id}/restore`, "t"), ids);
+    assertEquals(
+      (await handleWebApi(kv, reqOf("POST", `${BASE}/${b.id}/confirm`, "t"), ids)).status,
+      200,
+    );
+
+    const list = (await (await handleWebApi(kv, reqOf("GET", BASE, "t"), ids)).json()).reservations;
+    assertEquals(list.find((r: { id: string }) => r.id === a.id).status, "cancelled");
+    assertEquals(list.find((r: { id: string }) => r.id === b.id).status, "confirmed");
+  });
+});
+
 Deno.test("web api: patch edits fields; delete removes", async () => {
   await withKv(async (kv) => {
     const ids = makeIds();
@@ -149,6 +274,38 @@ Deno.test("web api: location is optional, stored, and editable", async () => {
       ids,
     )).json()).reservation;
     assertEquals(edited.location, "諏訪湖畔");
+  });
+});
+
+Deno.test("web api: confirmed reservation cannot move to another plan", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const created = (await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        plan: "元のプラン",
+        service: "確定済みの宿",
+        startsAt: "2026-09-01T15:00:00+09:00",
+        policy: "unknown",
+        confirmed: true,
+      }),
+      ids,
+    )).json()).reservation;
+
+    const moved = await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${created.id}`, "t", { plan: "別のプラン" }),
+      ids,
+    );
+    assertEquals(moved.status, 409);
+    assertEquals((await moved.json()).error, "invalid_transition");
+
+    const unchanged = (await (await handleWebApi(
+      kv,
+      reqOf("GET", BASE, "t"),
+      ids,
+    )).json()).reservations[0];
+    assertEquals(unchanged.plan, "元のプラン");
   });
 });
 

@@ -63,6 +63,25 @@ const NS = "web";
 const RESV = "resv";
 const key = (token: string, id: string) => [NS, token, RESV, id];
 const prefix = (token: string) => [NS, token, RESV];
+const PLAN_CONFIRMED = "plan_confirmed";
+const planConfirmedKey = (token: string, plan: string) => [
+  NS,
+  token,
+  PLAN_CONFIRMED,
+  plan,
+];
+
+/** An attempted web-ledger state transition is not legal. */
+export class WebTransitionError extends Error {
+  constructor(
+    readonly command: "confirm" | "patch_plan",
+    readonly from: WebStatus,
+    message = `cannot ${command} reservation from ${from}`,
+  ) {
+    super(message);
+    this.name = "WebTransitionError";
+  }
+}
 
 export async function listReservations(kv: Deno.Kv, token: string): Promise<WebReservation[]> {
   const out: WebReservation[] = [];
@@ -87,22 +106,6 @@ async function put(kv: Deno.Kv, token: string, r: WebReservation): Promise<void>
   await kv.set(key(token, r.id), r);
 }
 
-/** Settles a plan: every other candidate in the same plan becomes to_cancel. */
-async function settleSiblings(
-  kv: Deno.Kv,
-  token: string,
-  confirmed: WebReservation,
-  ids: WebIds,
-): Promise<void> {
-  if (confirmed.plan === null) return;
-  const all = await listReservations(kv, token);
-  for (const r of all) {
-    if (r.id !== confirmed.id && r.plan === confirmed.plan && r.status === "candidate") {
-      await put(kv, token, { ...r, status: "to_cancel", updated_at: ids.nowIso() });
-    }
-  }
-}
-
 export async function createReservation(
   kv: Deno.Kv,
   token: string,
@@ -118,13 +121,22 @@ export async function createReservation(
     amount: input.amount,
     location: input.location,
     policy: input.policy,
-    status: input.confirmed ? "confirmed" : "candidate",
+    // Confirm through confirmReservation below so create-with-confirmed uses
+    // exactly the same transition validation and atomic plan settlement.
+    status: "candidate",
     created_at: now,
     updated_at: now,
   };
   await put(kv, token, r);
-  if (r.status === "confirmed") await settleSiblings(kv, token, r, ids);
-  return r;
+  if (!input.confirmed) return r;
+  try {
+    return (await confirmReservation(kv, token, r.id, ids))!;
+  } catch (error) {
+    // The generated id has not been returned to a caller yet, so failed
+    // create-with-confirmed must not leave a surprise candidate behind.
+    await kv.delete(key(token, r.id));
+    throw error;
+  }
 }
 
 export async function patchReservation(
@@ -136,6 +148,17 @@ export async function patchReservation(
 ): Promise<WebReservation | null> {
   const cur = await getReservation(kv, token, id);
   if (cur === null) return null;
+  if (
+    cur.status === "confirmed" &&
+    patch.plan !== undefined &&
+    patch.plan !== cur.plan
+  ) {
+    throw new WebTransitionError(
+      "patch_plan",
+      cur.status,
+      "cannot move a confirmed reservation to another plan",
+    );
+  }
   // Explicit per-field merge: under exactOptionalPropertyTypes a blanket
   // `...patch` spread could assign `undefined` to required fields.
   const next: WebReservation = {
@@ -158,12 +181,77 @@ export async function confirmReservation(
   id: string,
   ids: WebIds,
 ): Promise<WebReservation | null> {
-  const cur = await getReservation(kv, token, id);
-  if (cur === null) return null;
-  const next: WebReservation = { ...cur, status: "confirmed", updated_at: ids.nowIso() };
-  await put(kv, token, next);
-  await settleSiblings(kv, token, next, ids);
-  return next;
+  // Retry optimistic conflicts. A competing confirmation is observed on the
+  // next read as either a non-candidate target or a claimed plan guard.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const targetEntry = await kv.get<WebReservation>(key(token, id));
+    if (targetEntry.value === null) return null;
+    const cur = webReservationSchema.parse(targetEntry.value);
+    if (cur.status !== "candidate") {
+      throw new WebTransitionError("confirm", cur.status);
+    }
+
+    const now = ids.nowIso();
+    const next: WebReservation = { ...cur, status: "confirmed", updated_at: now };
+    let tx = kv.atomic().check(targetEntry);
+
+    if (cur.plan !== null) {
+      const guard = await kv.get<string>(planConfirmedKey(token, cur.plan));
+      if (guard.value !== null) {
+        // Cancellation and plan edits intentionally remain separate existing
+        // API operations, so an old guard can outlive its winner. Only a guard
+        // that still points at a confirmed reservation in this plan blocks.
+        const guarded = await kv.get<WebReservation>(key(token, guard.value));
+        const parsedGuarded = webReservationSchema.safeParse(guarded.value);
+        if (
+          parsedGuarded.success &&
+          parsedGuarded.data.plan === cur.plan &&
+          parsedGuarded.data.status === "confirmed"
+        ) {
+          throw new WebTransitionError(
+            "confirm",
+            cur.status,
+            `plan "${cur.plan}" already has a confirmed reservation`,
+          );
+        }
+      }
+
+      // Version-check and update all candidate siblings in the same commit as
+      // the winner. There can be neither two winners nor partial settlement.
+      const siblings: Deno.KvEntry<WebReservation>[] = [];
+      for await (const entry of kv.list<WebReservation>({ prefix: prefix(token) })) {
+        const parsed = webReservationSchema.safeParse(entry.value);
+        if (!parsed.success || parsed.data.id === id || parsed.data.plan !== cur.plan) continue;
+        if (parsed.data.status === "confirmed") {
+          throw new WebTransitionError(
+            "confirm",
+            cur.status,
+            `plan "${cur.plan}" already has a confirmed reservation`,
+          );
+        }
+        if (parsed.data.status === "candidate") siblings.push(entry);
+      }
+
+      tx = tx.check(guard);
+      for (const sibling of siblings) {
+        tx = tx.check(sibling).set(key(token, sibling.value.id), {
+          ...sibling.value,
+          status: "to_cancel",
+          updated_at: now,
+        });
+      }
+      tx = tx.set(planConfirmedKey(token, cur.plan), id);
+    }
+
+    const committed = await tx.set(key(token, id), next).commit();
+    if (committed.ok) return next;
+  }
+
+  throw new WebTransitionError(
+    "confirm",
+    "candidate",
+    "reservation changed while it was being confirmed",
+  );
 }
 
 /**

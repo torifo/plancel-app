@@ -28,6 +28,7 @@ import {
   type WebIds,
   type WebPolicy,
   type WebReservation,
+  WebTransitionError,
 } from "../web/store.ts";
 import type { CancellationPolicyOrUnknown } from "../core/schema/mod.ts";
 import { findUserByEmail, type WebUser } from "../web/users.ts";
@@ -177,7 +178,8 @@ export async function buildCheckReply(deps: LineWebDeps): Promise<LineTextMessag
   return items.length > 0 ? { ...message, quickReply: { items } } : message;
 }
 
-const STALE = "この予約は見つかりませんでした。すでに処理済みかもしれません。「確認」で最新の一覧を出せます。";
+const STALE =
+  "この予約は見つかりませんでした。すでに処理済みかもしれません。「確認」で最新の一覧を出せます。";
 
 /**
  * Applies a Quick Reply action to the owner's web ledger through the SAME
@@ -206,7 +208,15 @@ export async function applyWebAction(
   const siblings = before.plan === null ? 0 : (await listReservations(deps.kv, ledger)).filter(
     (r) => r.id !== id && r.plan === before.plan && r.status === "candidate",
   ).length;
-  const r = await confirmReservation(deps.kv, ledger, id, deps.ids);
+  let r;
+  try {
+    r = await confirmReservation(deps.kv, ledger, id, deps.ids);
+  } catch (error) {
+    if (error instanceof WebTransitionError) {
+      return text("この予約は現在の状態から確定できません。「確認」で最新の一覧を出せます。");
+    }
+    throw error;
+  }
   if (r === null) return text(STALE);
   deps.onMutate?.(owner, id);
   const note = siblings > 0 ? ` — 同プランの残り${siblings}件を要キャンセルにしました。` : "";

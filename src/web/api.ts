@@ -42,6 +42,7 @@ import {
   webCreateSchema,
   type WebIds,
   webPatchSchema,
+  WebTransitionError,
 } from "./store.ts";
 import { getUser, type WebUser } from "./users.ts";
 import {
@@ -149,7 +150,15 @@ export async function handleWebApi(
     if (req.method === "POST") {
       const parsed = webCreateSchema.safeParse(await readJson(req));
       if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
-      const r = await createReservation(kv, token, parsed.data, ids);
+      let r;
+      try {
+        r = await createReservation(kv, token, parsed.data, ids);
+      } catch (error) {
+        if (error instanceof WebTransitionError) {
+          return json({ error: "invalid_transition", message: error.message }, 409);
+        }
+        throw error;
+      }
       mutated(r.id);
       return json({ reservation: r }, 201);
     }
@@ -209,7 +218,15 @@ export async function handleWebApi(
   // Item action: /api/reservations/:id/(confirm|cancel|restore) — members of a
   // shared reservation may NOT mutate it (403 rather than a misleading 404).
   if (action === "confirm" && req.method === "POST") {
-    const r = await confirmReservation(kv, token, id, ids);
+    let r;
+    try {
+      r = await confirmReservation(kv, token, id, ids);
+    } catch (error) {
+      if (error instanceof WebTransitionError) {
+        return json({ error: "invalid_transition", message: error.message }, 409);
+      }
+      throw error;
+    }
     if (r) {
       mutated(r.id);
       return json({ reservation: r });
@@ -244,7 +261,15 @@ export async function handleWebApi(
     if (req.method === "PATCH") {
       const parsed = webPatchSchema.safeParse(await readJson(req));
       if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
-      const r = await patchReservation(kv, token, id, parsed.data, ids);
+      let r;
+      try {
+        r = await patchReservation(kv, token, id, parsed.data, ids);
+      } catch (error) {
+        if (error instanceof WebTransitionError) {
+          return json({ error: "invalid_transition", message: error.message }, 409);
+        }
+        throw error;
+      }
       if (r) {
         mutated(r.id);
         return json({ reservation: r });
