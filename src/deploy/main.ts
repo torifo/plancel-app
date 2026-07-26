@@ -28,6 +28,8 @@
  *   PLANCEL_MAX_USERS (open-signup cap, default 50; 0 = unlimited)
  *   PLANCEL_ALLOWED_EMAILS (comma-separated; always allowed past the cap)
  *   PLANCEL_ADMIN_EMAILS (comma-separated; /auth/me carries the 100-user warning)
+ *   PLANCEL_LINE_OWNER_EMAIL (web account whose deadline reminders go to LINE
+ *     push; defaults to the first PLANCEL_ADMIN_EMAILS entry)
  *   (RESEND_API_KEY + PLANCEL_EMAIL_FROM also power magic-link login)
  */
 import { SystemClock } from "../core/clock/mod.ts";
@@ -69,18 +71,15 @@ if (import.meta.main) {
   // Webhook deps only when LINE is configured; healthz always serves.
   const channelSecret = env.get("LINE_CHANNEL_SECRET");
   const lineToken = env.get("LINE_CHANNEL_ACCESS_TOKEN");
+  // One client for both the webhook replies and the owner's deadline pushes.
+  const lineClient = lineToken !== undefined
+    ? createLineClient({ channelAccessToken: lineToken })
+    : null;
   const allowedUserIds = new Set(
     (env.get("LINE_ALLOWED_USER_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   );
-  const webhookDeps: LineWebhookDeps | null = channelSecret !== undefined && lineToken !== undefined
-    ? {
-      channelSecret,
-      allowedUserIds,
-      ctx,
-      parsers,
-      chainConfig,
-      client: createLineClient({ channelAccessToken: lineToken }),
-    }
+  const webhookDeps: LineWebhookDeps | null = channelSecret !== undefined && lineClient !== null
+    ? { channelSecret, allowedUserIds, ctx, parsers, chainConfig, client: lineClient }
     : null;
   log.info("webhook configured", { enabled: webhookDeps !== null });
 
@@ -199,6 +198,20 @@ if (import.meta.main) {
       return Promise.resolve();
     };
   const webNotifyBaseUrl = env.get("PLANCEL_BASE_URL") ?? "https://plancel-app.torifo.deno.net";
+  // LINE v2 #1: the owner reads deadline reminders in LINE, not mail. Needs a
+  // channel token, a push target, and the owner's web-account email; any one
+  // missing → the email/console route is unchanged for everybody.
+  const ownerUserId = env.get("PLANCEL_OWNER_USER_ID") ?? [...allowedUserIds][0];
+  const lineOwnerEmail = env.get("PLANCEL_LINE_OWNER_EMAIL") ??
+    (env.get("PLANCEL_ADMIN_EMAILS") ?? "").split(",").map((s) => s.trim()).filter(Boolean)[0];
+  const webNotifyLine = lineClient !== null && ownerUserId !== undefined &&
+      lineOwnerEmail !== undefined
+    ? {
+      ownerEmail: lineOwnerEmail,
+      push: (text: string) => lineClient.push(ownerUserId, [{ type: "text" as const, text }]),
+    }
+    : null;
+  log.info("web deadline notify channel", { line: webNotifyLine !== null });
   log.info("auth configured", {
     google: googleApp !== null,
     emailLogin: sendMagicLink !== null,
@@ -216,6 +229,7 @@ if (import.meta.main) {
       nowMs: clock.now().epochMilliseconds,
       baseUrl: webNotifyBaseUrl,
       send: webNotifySend,
+      ...(webNotifyLine !== null ? { line: webNotifyLine } : {}),
     });
     if (notified > 0) log.info("web deadline notifications sent", { notified });
   });

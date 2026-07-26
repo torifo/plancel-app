@@ -87,6 +87,7 @@ TOKEN/SECRET/KEY を含む名前は Deploy が自動で secret 扱いにする�
 | `PLANCEL_MAX_USERS` | 任意 | 開放サインアップ上限（既定 50、`0` で無制限） |
 | `PLANCEL_ALLOWED_EMAILS` | 任意 | 定員を無視して作成できる保証アドレス（カンマ区切り） |
 | `PLANCEL_ADMIN_EMAILS` | 任意 | 管理者アドレス。`/auth/me` に userCount と 100人警告が付く。予約語 uid を取れるのもこのアカウントのみ |
+| `PLANCEL_LINE_OWNER_EMAIL` | 任意 | Web台帳の期限リマインドを LINE push で受ける web アカウントの email。省略時は `PLANCEL_ADMIN_EMAILS` の先頭 |
 | `PLANCEL_DEV_USER` | ローカルのみ | OAuth を踏まず、全リクエストをこの email のユーザーとして扱う（本番では設定しない） |
 | `PLANCEL_ADMIN_TOKEN` | 任意 | 本番スモーク用。`x-plancel-admin` ヘッダと一致すれば `x-plancel-token` を台帳として直接使える |
 | `RESEND_API_KEY` / `PLANCEL_EMAIL_FROM` | 任意 | **メールログイン（マジックリンク）**の前提。両方揃うと `/auth/email` が有効化。未設定ならマジックリンクは休眠（コードは残るが送信されない） |

@@ -45,7 +45,7 @@ remaining work, in priority order:
 
 | # | Item | Status |
 | - | ---- | ------ |
-| 1 | Web-ledger deadline reminders via LINE push — `src/web/notify.ts` still emails (Resend unset → console); route it through `selectNotifier` so the ledger people actually use reminds over LINE | **TODO (top gap)** |
+| 1 | Web-ledger deadline reminders via LINE push — `src/web/notify.ts` routes the owner ledger (`PLANCEL_LINE_OWNER_EMAIL`, default = first `PLANCEL_ADMIN_EMAILS`) to LINE push; email/console stays for everyone else | done (prod-pending redeploy) |
 | 2 | "Check" commands from LINE (today / upcoming / next deadline summary) | TODO |
 | 3 | Narrow "update" commands (confirm / cancelled-it / set policy via Quick Reply) | TODO |
 | 4 | Ledger unification — LINE-added reservations go to the core event-sourced ledger and never appear in the web UI; either bind the webhook to the owner's web ledger or retire one ledger | TODO (decide) |
