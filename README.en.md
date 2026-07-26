@@ -17,7 +17,7 @@ notified **right before each fee boundary** with the concrete amount at stake. p
 ```sh
 deno task seed        # load demo data
 deno task scenario    # one-command E2E: confirm → advance 3 days → list notifications
-deno task test        # 436 tests — completes with zero external connections
+deno task test        # 440 tests — completes with zero external connections
 deno task verify      # fmt + check + lint + test + replay in one go
 ```
 
@@ -48,8 +48,9 @@ core is deterministically testable offline.
 | `src/parse/`  | Validation-driven fallback parser chain (Groq / Gemini + Mock), PII masking, replay regression harness                                     |
 | `src/line/`   | LINE Bot webhook (signature check, userId allowlist, one-tap Quick Reply review) + LINE notifier                                           |
 | `src/cron/`   | Thin 15-minute boundary check (Deno Deploy `Deno.cron` / VPS systemd timer)                                                                |
-| `src/web/`    | Web ledger, authentication, sharing, iCal / Google Calendar sync, and Web API                                                              |
+| `src/web/`    | Web ledger, authentication, sharing, iCal / Google Calendar sync, Web API, and PWA asset serving                                           |
 | `src/deploy/` | Unified Deno Deploy wiring for Web, LINE, and cron                                                                                         |
+| `web/`        | Web UI, PWA manifest, service worker, and 192/512px app icons                                                                              |
 
 Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/SDD.md) ・ Roadmap:
 [`ROADMAP.md`](./ROADMAP.md)
@@ -62,7 +63,7 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
   interface)
 - **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (live in production
   since 2026-07-26; signature path device-verified)
-- **Tests**: 436 via `deno test`, shared contract suite across both Store implementations,
+- **Tests**: 440 via `deno test`, shared contract suite across both Store implementations,
   one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)
@@ -78,18 +79,20 @@ with ◯◯".
 
 **MVP-1 (L0–L3), the parser foundation (L4), and L5 (real LLM / LINE / Email) are implemented. The
 Deno Deploy service runs the web UI, authentication, sharing, Google Calendar integration, the Web
-API used by remote MCP, and the LINE webhook.** LINE support includes core- and web-ledger deadline
-notifications plus web-ledger "check" (`確認`/`予定`/`一覧`), narrow "update" (Quick Reply confirm /
-report-cancelled), and "add" (register parsed text/image input as a candidate). Web-ledger actions
-use the same functions as the Web API, including atomic plan confirmation, sibling auto-`to_cancel`,
-invalid reconfirmation rejection, and calendar sync. The event-sourced core ledger remains available
-to standalone/local LINE and MCP modes.
+API used by remote MCP, and the LINE webhook.** The web UI is PWA-enabled: My Page offers explicit
+installation, manual update checks, and one-tap application of a waiting version. LINE support
+includes core- and web-ledger deadline notifications plus web-ledger "check" (`確認`/`予定`/`一覧`),
+narrow "update" (Quick Reply confirm / report-cancelled), and "add" (register parsed text/image
+input as a candidate). Web-ledger actions use the same functions as the Web API, including atomic
+plan confirmation, sibling auto-`to_cancel`, invalid reconfirmation rejection, and calendar sync.
+The event-sourced core ledger remains available to standalone/local LINE and MCP modes.
 
 Production verification currently covers the deployed LINE environment, unsigned-webhook 401
 response, and successful LINE Console webhook verification. End-to-end device checks for LINE
 text/image registration and Quick Reply, Resend delivery, Google login and calendar sync, UID login,
 remote MCP operations, and sustained cron execution remain open in
-[`docs/VERIFICATION.md`](./docs/VERIFICATION.md).
+[`docs/VERIFICATION.md`](./docs/VERIFICATION.md), together with production-device PWA install and
+update acceptance.
 
 External-connection env vars: `GROQ_API_KEY` / `GEMINI_API_KEY` (parsers), `LINE_CHANNEL_SECRET` /
 `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS` (`deno task line`), `RESEND_API_KEY`

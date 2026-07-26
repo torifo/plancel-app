@@ -17,7 +17,7 @@
 ```sh
 deno task seed        # デモデータ投入
 deno task scenario    # E2E: 確定 → 3日進める → 通知列挙 を1コマンドで体験
-deno task test        # 436 tests — 外部サービス接続ゼロで完結
+deno task test        # 440 tests — 外部サービス接続ゼロで完結
 deno task verify      # fmt + check + lint + test + replay を一括実行
 ```
 
@@ -48,8 +48,9 @@ MCPから利用する。非決定性の源（**時刻・外部送信・LLM**）�
 | `src/parse/`  | バリデーション駆動フォールバックのパーサーチェーン（Groq / Gemini + Mock）・PII マスク・リプレイ回帰基盤           |
 | `src/line/`   | LINE Bot webhook（署名検証・userId 許可リスト・Quick Reply ワンタップ差し戻し）＋ LINENotifier                     |
 | `src/cron/`   | 15分毎の境界チェック（Deno Deploy `Deno.cron` / VPS systemd timer 両対応の薄い層）                                 |
-| `src/web/`    | Web台帳・認証・共有・iCal / Google Calendar同期・Web API                                                           |
+| `src/web/`    | Web台帳・認証・共有・iCal / Google Calendar同期・Web API・PWAアセット配信                                          |
 | `src/deploy/` | Web / LINE / cron を1つのDeno Deployプロジェクトへ配線する統合エントリポイント                                     |
+| `web/`        | Web UI・PWA manifest・Service Worker・192/512pxアプリアイコン                                                      |
 
 仕様: [`specs/`](./specs/) ・ 設計判断（ADR）: [`docs/SDD.md`](./docs/SDD.md) ・ ロードマップ:
 [`ROADMAP.md`](./ROADMAP.md)
@@ -61,7 +62,7 @@ MCPから利用する。非決定性の源（**時刻・外部送信・LLM**）�
 - **ストア**: Deno KV（追記型イベントログ + 導出キャッシュ。Store 抽象で SQLite に差し替え可）
 - **入口**: Claude MCP（`@modelcontextprotocol/sdk`）＋ LINE Bot webhook（2026-07-26
   本番開通・署名検証まで実機確認済み）
-- **テスト**: `deno test` 436件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
+- **テスト**: `deno test` 440件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
 
 ## 使い方（Claude MCP）
 
@@ -74,7 +75,8 @@ claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unst
 ## ステータス
 
 **MVP-1（L0〜L3）＋パーサー基盤（L4）＋ L5（実 LLM / LINE / Email）を実装済み。Deno Deploy では Web
-UI・認証・共有・Google Calendar・remote MCP用Web API・LINE webhook のコードが稼働中**です。 LINE
+UI・認証・共有・Google Calendar・remote MCP用Web API・LINE webhook のコードが稼働中**です。Web
+UIはPWA対応済みで、マイページから明示的にインストールでき、更新確認・新バージョン適用も画面から行えます。LINE
 は、コア台帳と Web 台帳の期限通知、Web台帳の「確認」（`確認`/`予定`/`一覧`）・「限定更新」（Quick
 Replyで確定／キャンセル済み）・「追加」（テキスト/画像の解析結果を候補登録）まで実装済みです。Web台帳の操作はWeb
 APIと同じ関数を通るため、同一Plan候補の原子的な確定・自動`to_cancel`とカレンダー同期も同じ挙動になります。不正な再確定は拒否します。コア台帳（イベントソース）はstandalone/ローカル（`src/line/main.ts`単体・MCP
@@ -83,7 +85,8 @@ local）モードで引き続き使用します。
 本番で確認済みなのはLINE環境変数の反映、署名なしwebhookの401応答、LINE
 ConsoleのWebhook検証成功までです。LINE実機のテキスト/画像登録・Quick
 Reply、Resend実送信、Googleログインからのカレンダー同期、UIDログイン、remote MCP操作、cron継続稼働は
-[`docs/VERIFICATION.md`](./docs/VERIFICATION.md) のdone-whenとして未完了です。
+PWAの本番端末インストール／更新確認とあわせて [`docs/VERIFICATION.md`](./docs/VERIFICATION.md)
+のdone-whenとして未完了です。
 
 外部接続の環境変数: `GROQ_API_KEY` / `GEMINI_API_KEY`（パーサー）、`LINE_CHANNEL_SECRET` /
 `LINE_CHANNEL_ACCESS_TOKEN` /

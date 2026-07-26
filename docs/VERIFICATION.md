@@ -19,14 +19,15 @@
 ```sh
 deno task check     # 型 + Date直呼び禁止lint → "no_direct_date_check: OK"
 deno lint           # 0 problems
-deno task test      # 436 passed | 0 failed
+deno task test      # 440 passed | 0 failed
 deno task verify    # fmt check + 上記検査 + replayを一括実行
 ```
 
 テストが検証している主なもの: 状態遷移・quota 一括遷移（VirtualClock）/ policy 境界計算 / Outbox
 冪等・リトライ / MCP ツール入出力 / パーサーチェーン 3 経路（フォールバック・食い違い・全段失敗）/
 Groq・Gemini パーサー（stub fetch）/ LINE webhook（署名・許可リスト・Quick Reply 解決・画像）/
-Email(Resend) Notifier / **年推論プロンプト（JST 日付注入）と 2 年先警告**。
+Email(Resend) Notifier / **年推論プロンプト（JST 日付注入）と 2 年先警告**。 PWA manifest / Service
+Worker / アイコン配信、API/Authをキャッシュしないこと、明示更新メッセージ。
 
 ### 1.2 パース回帰リプレイ（必須）
 
@@ -134,7 +135,7 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 ## 2. ドキュメント整合チェック（既存ドキュメントの検証）
 
 ドキュメントの「実装状態を主張する記述」と実体の照合表。**コード・テスト数・タスク状態を変えたら該当行を更新すること**。
-2026-07-26 監査時の結果: README・tasks・本ガイドのテスト数を436へ統一し、コード実装済みと
+2026-07-26 監査時の結果: README・tasks・本ガイドのテスト数を440へ統一し、コード実装済みと
 本番実機acceptance未完了を分けて記載。
 
 | ドキュメント         | 照合する主張                                         | 実体（確認コマンド）                                                                      |
@@ -151,13 +152,14 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 2026-07-21〜25 の大規模変更（ログイン一本化・カレンダー連携・容量設計・MCP remote）で追加した
 照合ポイント:
 
-| ドキュメント          | 照合する主張                          | 実体（確認コマンド）                                                                          |
-| --------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------- |
-| DEPLOY.md §3 env 表   | 認証・容量系の変数名                  | `src/deploy/main.ts` ヘッダコメント / `env.get(...)` 呼び出し                                 |
-| DEPLOY.md §2 容量設計 | 開放50 / 設計70 / 警告100             | `src/web/auth/routes.ts` の `DESIGN_TOTAL_USERS` `ADMIN_WARN_USERS`、`PLANCEL_MAX_USERS` 既定 |
-| DEPLOY.md §4 uid 規約 | 英小文字・6〜20・予約語               | `src/web/users.ts` の `uidSchema` `MIN_PUBLIC_UID_LEN` `RESERVED_UIDS`                        |
-| DEPLOY.md §5 同期方式 | キュー不使用（inline + dirty + cron） | `src/web/calendar/sync.ts` ヘッダと `requestSync`/`sweepDirtySync`                            |
-| DEPLOY.md §6 MCP      | remote 7 ツールと GUI 専用の例外      | `src/mcp/web_api_tools.ts`、`src/mcp/main.ts` の mode 分岐                                    |
+| ドキュメント          | 照合する主張                             | 実体（確認コマンド）                                                                          |
+| --------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| DEPLOY.md §3 env 表   | 認証・容量系の変数名                     | `src/deploy/main.ts` ヘッダコメント / `env.get(...)` 呼び出し                                 |
+| DEPLOY.md §2 容量設計 | 開放50 / 設計70 / 警告100                | `src/web/auth/routes.ts` の `DESIGN_TOTAL_USERS` `ADMIN_WARN_USERS`、`PLANCEL_MAX_USERS` 既定 |
+| DEPLOY.md §4 uid 規約 | 英小文字・6〜20・予約語                  | `src/web/users.ts` の `uidSchema` `MIN_PUBLIC_UID_LEN` `RESERVED_UIDS`                        |
+| DEPLOY.md §5 同期方式 | キュー不使用（inline + dirty + cron）    | `src/web/calendar/sync.ts` ヘッダと `requestSync`/`sweepDirtySync`                            |
+| DEPLOY.md §6 MCP      | remote 7 ツールと GUI 専用の例外         | `src/mcp/web_api_tools.ts`、`src/mcp/main.ts` の mode 分岐                                    |
+| DEPLOY.md PWA routes  | manifest / SW / icons の配信とキャッシュ | `src/web/pwa.ts`、`web/manifest.webmanifest`、`web/sw.js`                                     |
 
 ## 3. 本番実機トラック（デプロイ後の done-when）
 
@@ -175,6 +177,18 @@ curl -s "$BASE/api/reservations" \
   -H "x-plancel-admin: $PLANCEL_ADMIN_TOKEN" \
   -H "x-plancel-token: <任意の台帳ID>"                    # → その台帳の予約 JSON
 ```
+
+### 3.0.1 PWA実機: インストール → standalone起動 → 明示更新
+
+1. Android Chromeで本番URLへログインし、マイページの「アプリをインストール」から追加する。
+   iPhone/iPadは同ボタンの案内どおりSafariの共有メニュー→「ホーム画面に追加」を使う。
+2. ホーム画面のplancelアイコンから、ブラウザUIなしのstandalone表示で起動できることを確認する。
+3. マイページの「更新を確認」で「最新版です。」になることを確認する。
+4. `web/sw.js` の `CACHE_VERSION` を上げた版をデプロイ後、再び「更新を確認」し、更新トーストの
+   「今すぐ更新」で再読み込みされ新しい版になることを確認する。
+
+> ローカルChromiumではmanifest認識・Service Worker登録・手動更新確認まで検証済み。OSホーム画面への
+> インストールとデプロイ差分の更新適用は、本番実機でのみ完了扱いにする。
 
 ### 3.1 トラック1: Google 実ログイン → カレンダー反映 → 削除同期
 

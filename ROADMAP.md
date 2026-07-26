@@ -27,7 +27,7 @@ apply here).
 
 Already delivered after MVP-2: Web UI and per-user Web ledger, Google/password/UID authentication,
 sharing, iCal subscription, Google Calendar push sync, generic update/delete, production Web API,
-and remote MCP mode.
+remote MCP mode, and installable PWA delivery with an explicit update flow.
 
 Remaining product candidates: email-forward parsing, bookmarklet entry point, and weather-aware
 deadline notices. Production acceptance checks are tracked in `docs/VERIFICATION.md`, not as new

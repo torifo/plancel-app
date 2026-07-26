@@ -137,15 +137,29 @@
   - Acceptance pending: Resend送信元ドメイン検証後に本番実送信を確認
   - Depends on: Task 4.1
 
+### Wave 8 — PWA配信・明示インストール／更新
+
+- [x] **Task 8.1**: Web台帳のPWA化（2026-07-26）
+  - What: installable manifest・192/512px/maskableアイコン・Service Workerを同一originで配信。
+    マイページに明示インストールと手動更新確認を置き、待機中Service Workerを利用者操作で適用する
+  - Files: `web/manifest.webmanifest`, `web/sw.js`, `web/icons/`, `src/web/pwa.ts`, `web/index.html`
+  - Done when: manifest/SW/アイコンの配信テスト、API/Authをキャッシュしない回帰テスト、
+    実ブラウザでService Worker登録と「更新を確認」→「最新版です。」を確認
+  - Acceptance pending: 本番Android/iOS端末でホーム画面追加・standalone起動・更新適用を確認
+
 ## Progress
 
-- **実装タスク: 19/19 完了**（Wave 1〜7。Task 6.2/6.3 はコード完了として集計）
-- **自動検証（2026-07-26）**: 436 tests green / scenario OK / replay 9/9 identical
+- **実装タスク: 20/20 完了**（Wave 1〜8。Task 6.2/6.3 はコード完了として集計）
+- **自動検証（2026-07-26）**: 440 tests green / scenario OK / replay 9/9 identical
 - **本番で確認済み**: Deno Deploy稼働、LINE env反映、署名なしwebhookの401、LINE
   ConsoleのWebhook検証成功
 - **未完了の外部acceptance**: LINE実機のテキスト/画像登録とQuick
   Reply、Resendドメイン検証と実送信、Googleログイン→Calendar同期、UIDログイン、remote
   MCP→本番台帳、cron継続稼働。`docs/VERIFICATION.md` §3を正とする
+- **PWA（2026-07-26）**: installable manifest / Service Worker /
+  アプリアイコンを配信し、マイページに
+  明示インストール・更新確認・待機中バージョン適用を追加。ローカル実ブラウザで登録と最新版確認まで検証済み。
+  本番Android/iOS端末のインストール・standalone起動・更新適用は外部acceptance
 - **Web台帳堅牢化（2026-07-26）**: 確定可能状態をcandidateに限定し、同一Planの確定とsiblingsの
   `to_cancel`をKV atomic transaction化。競合時の二重winnerを防ぐ回帰テストを追加
 - **Task 6.1 完了（2026-07-11）**: API キー投入 → `parse:live --record` で実データ 3

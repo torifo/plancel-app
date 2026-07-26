@@ -46,6 +46,9 @@ plancel と opulse（現 opulse-monitor）は **1 つの org に軽量2アプリ
   | パス                         | 用途                                                           |
   | ---------------------------- | -------------------------------------------------------------- |
   | `GET /`, `GET /index.html`   | Web UI（`web/index.html`、MVP の主サーフェス）                 |
+  | `GET /manifest.webmanifest`  | PWA manifest（インストール名・テーマ・アイコン）               |
+  | `GET /sw.js`                 | Service Worker（no-cache、明示更新・オフラインshell）          |
+  | `GET /icons/*`               | PWAアイコン（192/512px・maskable、ブラウザキャッシュ1日）      |
   | `/auth/*`                    | ログイン・マイページ・API トークン・カレンダー連携（§4）       |
   | `GET /calendar/<secret>.ics` | 全員向け iCal 購読フィード（§5）                               |
   | `POST /api/parse`            | 貼り付けメール／画像の取り込み（**ログイン必須**・401 で拒否） |
@@ -209,7 +212,8 @@ Claude Desktop の設定例（`claude_desktop_config.json`）:
 5. **環境変数を設定**: §3 の表のとおり。少なくとも `GROQ_API_KEY` / `GEMINI_API_KEY` /
    `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `PLANCEL_KEK`、必要に応じ容量・管理者・LINE 系。
 6. **デプロイ**: `main` に push（または「Deploy」実行）。`GET .../healthz` が `ok`
-   を返すことを確認。
+   を返すことを確認。PWAを更新した場合、`sw.js` の `CACHE_VERSION` も上げる。利用者はマイページの
+   「更新を確認」から新しいService Workerを取得し、「今すぐ更新」で待機版を適用できる。
 7. **LINE webhook URL 設定**（LINE を使う場合）: Messaging API の Webhook URL を
    `https://plancel-app.torifo.deno.net/webhook` にし、「Webhookの利用」をオン、検証を通す。
    **2026-07-26 設定・検証成功済み**（チャネル: プロバイダー plancel / channel 2010848177 / Bot
