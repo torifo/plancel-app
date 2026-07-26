@@ -46,9 +46,9 @@ remaining work, in priority order:
 | # | Item | Status |
 | - | ---- | ------ |
 | 1 | Web-ledger deadline reminders via LINE push — `src/web/notify.ts` routes the owner ledger (`PLANCEL_LINE_OWNER_EMAIL`, default = first `PLANCEL_ADMIN_EMAILS`) to LINE push; email/console stays for everyone else | done (prod-pending redeploy) |
-| 2 | "Check" commands from LINE (today / upcoming / next deadline summary) | TODO |
-| 3 | Narrow "update" commands (confirm / cancelled-it / set policy via Quick Reply) | TODO |
-| 4 | Ledger unification — LINE-added reservations go to the core event-sourced ledger and never appear in the web UI; either bind the webhook to the owner's web ledger or retire one ledger | TODO (decide) |
+| 2 | "Check" commands from LINE — `確認`/`予定`/`一覧` reply with the WEB ledger's active reservations (status label, free-cancel deadline) plus next-deadline / 放置損失 footer (`src/line/web-commands.ts`) | done |
+| 3 | Narrow "update" commands — Quick Reply `確定:…` / `済:…` postbacks (`webact\|confirm\|<id>`) call the SAME `confirmReservation` / `cancelReservation` + calendar-sync hook as the web API, so plan-sibling auto to_cancel is identical. `set policy` deferred (needs a second Quick Reply round) | done |
+| 4 | Ledger unification — check (#2) and narrow update (#3) now read/write the WEB ledger, but LINE **add** still goes to the core event-sourced ledger and never appears in the web UI. Remaining decision: route the parse pipeline's output into the web ledger too, or retire one ledger | TODO (decide) |
 | ✓ | Webhook live: signature check, allowlist, text/image parse → Quick Reply one-tap review → register | done (prod, 2026-07-26) |
 | ✓ | Core-ledger cron notifications push to LINE (`selectNotifier` → LineNotifier, owner userId) | done (env-gated) |
 

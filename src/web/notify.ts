@@ -92,6 +92,18 @@ export function freeDeadlineMs(policy: string, startsAt: string): number | null 
   return startMs - lastFree.h * HOUR_MS;
 }
 
+/**
+ * Worst-case cancellation fee (放置損失) for a reservation, mirroring the
+ * client's `maxLoss`: amount × the highest fee-% in the policy's stages.
+ * `unknown` policy / missing amount → 0.
+ */
+export function maxLossYen(policy: string, amount: number | null): number {
+  if (amount === null || amount === 0) return 0;
+  const stages = STAGES[policy];
+  if (stages === undefined) return 0; // unknown
+  return Math.round(amount * Math.max(...stages.map((s) => s.pct)) / 100);
+}
+
 /** Formats an epoch-ms instant as `YYYY/MM/DD(曜) HH:MM JST`. */
 function fmtJst(ms: number): string {
   const z = Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(TOKYO_OFFSET);

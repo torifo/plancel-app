@@ -81,6 +81,8 @@ if (import.meta.main) {
   const webhookDeps: LineWebhookDeps | null = channelSecret !== undefined && lineClient !== null
     ? { channelSecret, allowedUserIds, ctx, parsers, chainConfig, client: lineClient }
     : null;
+  // `web` (the owner's WEB ledger surface) is attached further down, once the
+  // ledger/sync/owner-email wiring below exists.
   log.info("webhook configured", { enabled: webhookDeps !== null });
 
   // Web UI served at `/` (read once at startup; the repo file ships with the deploy).
@@ -212,6 +214,25 @@ if (import.meta.main) {
     }
     : null;
   log.info("web deadline notify channel", { line: webNotifyLine !== null });
+  // LINE v2 #2/#3: 「確認」and the confirm / cancelled-it Quick Replies operate
+  // on the owner's WEB ledger, through the same store functions + calendar-sync
+  // hook the HTTP API uses. Needs the owner email; otherwise LINE stays
+  // intake-only (「確認」falls through to the parse pipeline).
+  if (webhookDeps !== null && lineOwnerEmail !== undefined) {
+    webhookDeps.web = {
+      kv: store.kv,
+      ownerEmail: lineOwnerEmail,
+      ids: webIds,
+      nowMs: () => clock.now().epochMilliseconds,
+      onMutate: (user, resvId) => {
+        if (user.google === null) return;
+        requestSync(syncDeps, user.id, resvId).catch((err) =>
+          log.error("requestSync failed", { err: String(err) })
+        );
+      },
+    };
+  }
+  log.info("line web-ledger commands", { enabled: webhookDeps?.web !== undefined });
   log.info("auth configured", {
     google: googleApp !== null,
     emailLogin: sendMagicLink !== null,

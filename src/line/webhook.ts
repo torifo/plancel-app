@@ -5,6 +5,8 @@
  * Flow per event:
  *   - signature invalid            -> 401, nothing processed
  *   - sender not in allowlist      -> ignored (200; personal service, SDD §7)
+ *   - text 「確認」/「予定」/「一覧」 -> WEB-ledger summary + action Quick Reply
+ *                        (only when `deps.web` is wired — see web-commands.ts)
  *   - text/image message           -> common parse pipeline (runParseChain)
  *       parsed        -> reservation registered via the domain layer, reply summary
  *       needs_review  -> FieldConflict: Quick Reply buttons (one tap, never retype —
@@ -30,6 +32,13 @@ import { missingFieldQuestions, runParseChain, validateParsedOutput } from "../p
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
 import { logger, newCorrelationId } from "../lib/log.ts";
 import { verifyLineSignature } from "./signature.ts";
+import {
+  applyWebAction,
+  buildCheckReply,
+  isCheckCommand,
+  type LineWebDeps,
+  parseWebPostback,
+} from "./web-commands.ts";
 import type {
   LineMessagingClient,
   LineQuickReplyItem,
@@ -46,6 +55,12 @@ export interface LineWebhookDeps {
   parsers: Parser[];
   chainConfig: ParserChainConfig;
   client: LineMessagingClient;
+  /**
+   * Access to the owner's WEB ledger (LINE v2 #2/#3). Optional: without it
+   * 「確認」falls through to the parse pipeline exactly as before, and
+   * `webact|` postbacks are ignored (src/line/main.ts standalone).
+   */
+  web?: LineWebDeps;
   /** Sink for structured logs; defaults to console.log via logger(). */
   logWrite?: (line: string) => void;
 }
@@ -192,6 +207,16 @@ async function handleMessage(
   const message = event.message;
   const correlation_id = newCorrelationId();
 
+  // Web-ledger check command takes precedence over the parse pipeline.
+  const web = deps.web;
+  if (
+    web !== undefined && message?.type === "text" && message.text !== undefined &&
+    isCheckCommand(message.text)
+  ) {
+    await deps.client.reply(replyToken, [await buildCheckReply(web)]);
+    return "web:check";
+  }
+
   let input: ParseInput;
   if (message?.type === "text" && message.text !== undefined) {
     input = { type: "text", content: message.text, correlation_id };
@@ -244,7 +269,19 @@ async function handlePostback(
   deps: LineWebhookDeps,
 ): Promise<string> {
   const replyToken = event.replyToken as string;
-  const parts = (event.postback?.data ?? "").split("|");
+  const data = event.postback?.data ?? "";
+
+  // Web-ledger action (LINE v2 #3) — a separate namespace from `resolve|`.
+  const webAct = parseWebPostback(data);
+  if (webAct !== null) {
+    const web = deps.web;
+    if (web === undefined) return "ignored:postback";
+    const reply = await applyWebAction(web, webAct.action, webAct.id);
+    await deps.client.reply(replyToken, [reply]);
+    return `web:${webAct.action}`;
+  }
+
+  const parts = data.split("|");
   const [prefix, jobId, field, idxStr] = parts;
   if (prefix !== POSTBACK_PREFIX || jobId === undefined || field === undefined) {
     return "ignored:postback";

@@ -7,6 +7,15 @@ import type { ToolContext } from "../../mcp/context.ts";
 import { signLineBody } from "../signature.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../webhook.ts";
 import type { LineMessagingClient, LineTextMessage } from "../types.ts";
+import type { LineWebDeps } from "../web-commands.ts";
+import {
+  cancelReservation,
+  createReservation,
+  getReservation,
+  type WebIds,
+} from "../../web/store.ts";
+import { getOrCreateUserByEmail } from "../../web/users.ts";
+import { makeAuthIds } from "../../web/tests/users_test.ts";
 
 const SECRET = "channel-secret";
 const OWNER = "U-owner";
@@ -217,4 +226,200 @@ Deno.test("webhook: image message -> content downloaded and parsed via image cha
   assertEquals(jobs[0]?.input_type, "image");
   assertStringIncludes(jobs[0]?.raw_input ?? "", "data:image/png;base64,AAAA");
   assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "登録しました: 宿");
+});
+
+// ---- WEB-ledger check / narrow update (LINE v2 #2 + #3) ----
+
+const OWNER_EMAIL = "owner@example.com";
+const NOW_MS = Temporal.Instant.from("2026-08-01T00:00:00+09:00").epochMilliseconds;
+
+/** Seeds the owner's web ledger and returns the matching `deps.web` bundle. */
+async function makeWebDeps(kv: Deno.Kv) {
+  const authIds = makeAuthIds();
+  const owner = await getOrCreateUserByEmail(kv, OWNER_EMAIL, authIds);
+  const webIds: WebIds = { newId: () => `R${++seq}`, nowIso: () => "2026-08-01T00:00:00.000Z" };
+  const mutated: string[] = [];
+  const web: LineWebDeps = {
+    kv,
+    ownerEmail: OWNER_EMAIL,
+    ids: webIds,
+    nowMs: () => NOW_MS,
+    onMutate: (_user, resvId) => mutated.push(resvId),
+  };
+  return { web, owner, webIds, mutated };
+}
+let seq = 0;
+
+async function withKv(fn: (kv: Deno.Kv) => Promise<void>) {
+  const kv = await Deno.openKv(":memory:");
+  try {
+    await fn(kv);
+  } finally {
+    kv.close();
+  }
+}
+
+Deno.test("webhook: 「確認」 -> web-ledger summary + action Quick Reply", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds } = await makeWebDeps(kv);
+    const a = await createReservation(kv, owner.ledgerId, {
+      plan: "夏旅",
+      service: "湖畔の湯宿 蛍",
+      startsAt: "2026-08-22T15:00:00+09:00",
+      amount: 40000,
+      location: null,
+      policy: "staged",
+      confirmed: false,
+    }, webIds);
+    const b = await createReservation(kv, owner.ledgerId, {
+      plan: "夏旅",
+      service: "翠嶺館",
+      startsAt: "2026-08-23T15:00:00+09:00",
+      amount: null,
+      location: null,
+      policy: "unknown",
+      confirmed: false,
+    }, webIds);
+    await cancelReservation(kv, owner.ledgerId, b.id, webIds);
+
+    const { deps, replies } = makeDeps({ web });
+    const result = await post(deps, [textEvent("確認")]);
+
+    assertEquals(result.handled, ["web:check"]);
+    const msg = replies[0]?.messages[0];
+    const body = msg?.text ?? "";
+    assertStringIncludes(body, "Web台帳の予約 1件");
+    // 8/22 start, staged policy -> free until 168h before = 8/15.
+    assertStringIncludes(body, "8/22(土) 湖畔の湯宿 蛍 [候補] ◆8/15(土)まで¥0");
+    assertStringIncludes(body, "◆次の締切 8/15(土)");
+    assertStringIncludes(body, "放置損失 ¥40,000");
+    // Cancelled reservations are out of the summary entirely.
+    assertEquals(body.includes("翠嶺館"), false);
+    const items = msg?.quickReply?.items ?? [];
+    assertEquals(items.length, 1);
+    assertEquals(items[0]?.action.data, `webact|confirm|${a.id}`);
+    assertStringIncludes(items[0]?.action.label ?? "", "確定:");
+  });
+});
+
+Deno.test("webhook: empty web ledger -> friendly one-liner, no Quick Reply", async () => {
+  await withKv(async (kv) => {
+    const { web } = await makeWebDeps(kv);
+    const { deps, replies } = makeDeps({ web });
+    const result = await post(deps, [textEvent("一覧")]);
+    assertEquals(result.handled, ["web:check"]);
+    assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "予約はまだありません");
+    assertEquals(replies[0]?.messages[0]?.quickReply, undefined);
+  });
+});
+
+Deno.test("webhook: webact confirm -> siblings to_cancel + calendar sync requested", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds, mutated } = await makeWebDeps(kv);
+    const base = {
+      plan: "夏旅",
+      startsAt: "2026-08-22T15:00:00+09:00",
+      amount: null,
+      location: null,
+      policy: "free24" as const,
+      confirmed: false,
+    };
+    const a = await createReservation(kv, owner.ledgerId, { ...base, service: "宿A" }, webIds);
+    const b = await createReservation(kv, owner.ledgerId, { ...base, service: "宿B" }, webIds);
+    const c = await createReservation(kv, owner.ledgerId, { ...base, service: "宿C" }, webIds);
+
+    const { deps, replies } = makeDeps({ web });
+    const result = await post(deps, [{
+      type: "postback",
+      replyToken: "reply-2",
+      source: { type: "user", userId: OWNER },
+      postback: { data: `webact|confirm|${a.id}` },
+    }]);
+
+    assertEquals(result.handled, ["web:confirm"]);
+    assertEquals((await getReservation(kv, owner.ledgerId, a.id))?.status, "confirmed");
+    assertEquals((await getReservation(kv, owner.ledgerId, b.id))?.status, "to_cancel");
+    assertEquals((await getReservation(kv, owner.ledgerId, c.id))?.status, "to_cancel");
+    // Same as the web API: the acted reservation is the one handed to the sync.
+    assertEquals(mutated, [a.id]);
+    const text = replies[0]?.messages[0]?.text ?? "";
+    assertStringIncludes(text, "確定しました: 宿A");
+    assertStringIncludes(text, "同プランの残り2件を要キャンセルにしました。");
+  });
+});
+
+Deno.test("webhook: webact cancel -> reservation cancelled; stale id -> polite reply", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds, mutated } = await makeWebDeps(kv);
+    const r = await createReservation(kv, owner.ledgerId, {
+      plan: null,
+      service: "翠嶺館",
+      startsAt: "2026-08-22T15:00:00+09:00",
+      amount: null,
+      location: null,
+      policy: "free24",
+      confirmed: true,
+    }, webIds);
+
+    const { deps, replies } = makeDeps({ web });
+    const postback = (data: string, token: string) => ({
+      type: "postback",
+      replyToken: token,
+      source: { type: "user", userId: OWNER },
+      postback: { data },
+    });
+
+    const ok = await post(deps, [postback(`webact|cancel|${r.id}`, "reply-2")]);
+    assertEquals(ok.handled, ["web:cancel"]);
+    assertEquals((await getReservation(kv, owner.ledgerId, r.id))?.status, "cancelled");
+    assertEquals(mutated, [r.id]);
+    assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "キャンセル済みにしました: 翠嶺館");
+
+    const stale = await post(deps, [postback("webact|cancel|R-gone", "reply-3")]);
+    assertEquals(stale.handled, ["web:cancel"]);
+    assertStringIncludes(replies[1]?.messages[0]?.text ?? "", "すでに処理済み");
+  });
+});
+
+Deno.test("webhook: non-command text still goes to the parse pipeline when web is wired", async () => {
+  await withKv(async (kv) => {
+    const { web } = await makeWebDeps(kv);
+    const text = "8/1 19時に〇〇を予約";
+    const parser = MockParser(
+      "p1",
+      new Map([[text, {
+        raw_response: '{"service_name":"〇〇","starts_at":"2026-08-01T19:00:00+09:00"}',
+        output: { service_name: "〇〇", starts_at: "2026-08-01T19:00:00+09:00" },
+      }]]),
+    );
+    const { deps, ctx } = makeDeps({ web });
+    deps.parsers = [parser];
+    const result = await post(deps, [textEvent(text)]);
+    assertEquals(result.handled, ["registered"]);
+    assertEquals((await ctx.store.listReservations()).length, 1);
+  });
+});
+
+Deno.test("webhook: without deps.web, 「確認」 is parsed as before (no crash)", async () => {
+  const { deps, replies } = makeDeps();
+  deps.parsers = [MockParser("p1", new Map())];
+  const result = await post(deps, [textEvent("確認")]);
+  assertEquals(result.handled, ["failed"]);
+  assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "読み取れませんでした");
+});
+
+Deno.test("webhook: webact postback from a non-owner sender is ignored", async () => {
+  await withKv(async (kv) => {
+    const { web, mutated } = await makeWebDeps(kv);
+    const { deps, replies } = makeDeps({ web });
+    const result = await post(deps, [{
+      type: "postback",
+      replyToken: "reply-2",
+      source: { type: "user", userId: "U-stranger" },
+      postback: { data: "webact|confirm|R1" },
+    }]);
+    assertEquals(result.handled, ["ignored:not-allowed"]);
+    assertEquals(replies.length, 0);
+    assertEquals(mutated, []);
+  });
 });
