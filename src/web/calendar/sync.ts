@@ -20,12 +20,12 @@ import { logger } from "../../lib/log.ts";
 import { unseal } from "../../lib/seal.ts";
 import { getReservation } from "../store.ts";
 import {
+  type AuthIds,
   deleteGcalEvent,
   getGcalEvent,
   getUser,
   setGcalEvent,
   updateUser,
-  type AuthIds,
 } from "../users.ts";
 import { GoogleAuthError, type GoogleOauthApp, refreshAccessToken } from "../auth/google.ts";
 import { deleteEvent, ensureCalendar, upsertEvent } from "./gcal.ts";

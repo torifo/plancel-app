@@ -368,7 +368,9 @@ export async function deleteAccount(
   }
 
   // 2. per-user prefixes (a prefix no code writes lists as empty — safe).
-  for (const prefix of [[GCAL, userId], [DIRTY, userId], [SHARED_IN, userId], [RESV_MEMBERS, userId]]) {
+  for (
+    const prefix of [[GCAL, userId], [DIRTY, userId], [SHARED_IN, userId], [RESV_MEMBERS, userId]]
+  ) {
     for await (const e of kv.list({ prefix })) {
       await kv.delete(e.key);
     }

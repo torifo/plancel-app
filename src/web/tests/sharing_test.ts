@@ -138,8 +138,11 @@ Deno.test("invite: self / duplicate are no-op successes; unknown q -> 404 user_n
     const rid = await createConfirmed(kv, ids, owner, "鮨");
 
     // Self-invite: succeeds but adds nobody.
-    assertEquals((await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "o@x.jp" }))
-      .status, 200);
+    assertEquals(
+      (await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "o@x.jp" }))
+        .status,
+      200,
+    );
     // Duplicate: idempotent success.
     await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "m@x.jp" });
     await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "m@x.jp" });
@@ -184,12 +187,14 @@ Deno.test("members cannot edit / confirm / cancel / delete a shared reservation 
     const rid = await createConfirmed(kv, ids, owner, "宿");
     await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "m@x.jp" });
 
-    for (const [method, path] of [
-      ["PATCH", `${BASE}/${rid}`],
-      ["POST", `${BASE}/${rid}/confirm`],
-      ["POST", `${BASE}/${rid}/cancel`],
-      ["DELETE", `${BASE}/${rid}`],
-    ] as const) {
+    for (
+      const [method, path] of [
+        ["PATCH", `${BASE}/${rid}`],
+        ["POST", `${BASE}/${rid}/confirm`],
+        ["POST", `${BASE}/${rid}/cancel`],
+        ["DELETE", `${BASE}/${rid}`],
+      ] as const
+    ) {
       const body = method === "PATCH" ? { service: "改ざん" } : undefined;
       const res = await asUser(kv, ids, member, method, path, body);
       assertEquals(res.status, 403, `${method} ${path} should be 403`);

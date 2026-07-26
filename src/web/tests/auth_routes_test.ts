@@ -133,7 +133,10 @@ Deno.test("magic link: send -> verify -> me -> logout", async () => {
         return Promise.resolve();
       },
     });
-    const send = await handleAuthApi(req("POST", "/auth/email", { email: "fam@example.com" }), deps);
+    const send = await handleAuthApi(
+      req("POST", "/auth/email", { email: "fam@example.com" }),
+      deps,
+    );
     assertEquals(send.status, 200);
     const token = new URL(sent[0] ?? "").searchParams.get("token") ?? "";
     assertEquals(token.length > 0, true);

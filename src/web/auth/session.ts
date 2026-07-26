@@ -25,5 +25,6 @@ export function sessionSetCookie(sid: string, maxAgeSec: number, secure: boolean
 }
 
 export function sessionClearCookie(secure: boolean): string {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0` + (secure ? "; Secure" : "");
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0` +
+    (secure ? "; Secure" : "");
 }

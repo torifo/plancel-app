@@ -23,8 +23,8 @@ import { z } from "zod";
 import { listReservations } from "../store.ts";
 import {
   adoptLedger,
-  type AuthIds,
   allowMagicSend,
+  type AuthIds,
   consumeMagicLink,
   countUsers,
   createMagicLink,
@@ -58,8 +58,8 @@ import { seal, unseal } from "../../lib/seal.ts";
 import { hashPassword, verifyPassword } from "../../lib/password.ts";
 import {
   exchangeCode,
-  type GoogleOauthApp,
   googleAuthUrl,
+  type GoogleOauthApp,
   makePkce,
   refreshAccessToken,
 } from "./google.ts";
@@ -436,9 +436,7 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     }
     const user = identifier.includes("@")
       ? await findUserByEmail(deps.kv, identifier)
-      : (uidSchema.safeParse(identifier).success
-        ? await findUserByUid(deps.kv, identifier)
-        : null);
+      : (uidSchema.safeParse(identifier).success ? await findUserByUid(deps.kv, identifier) : null);
     if (user === null || user.passwordHash === null) {
       return json({ error: "bad_credentials" }, 401);
     }

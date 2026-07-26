@@ -35,7 +35,9 @@ export async function hashPassword(
 
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, iterStr, saltB64, hashB64] = stored.split("$");
-  if (scheme !== "pbkdf2" || iterStr === undefined || saltB64 === undefined || hashB64 === undefined) {
+  if (
+    scheme !== "pbkdf2" || iterStr === undefined || saltB64 === undefined || hashB64 === undefined
+  ) {
     return false;
   }
   const expected = b64decode(hashB64);

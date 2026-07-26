@@ -4,6 +4,7 @@
     "test": "deno test --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv",
     "lint": "deno lint",
     "fmt": "deno fmt",
+    "fmt:check": "deno fmt --check",
     "check:no-date": "deno run --allow-read scripts/no_direct_date_check.ts src",
     "check": "deno check src && deno task check:no-date",
     "cron": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv --unstable-cron src/cron/main.ts",
@@ -15,7 +16,7 @@
     "line": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/line/main.ts",
     "deploy:serve": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv --unstable-cron src/deploy/main.ts",
     "kv:spike": "deno run --allow-env --allow-net --unstable-kv src/cli/kv_spike.ts",
-    "verify": "deno task check && deno lint && deno task test && deno task replay"
+    "verify": "deno task fmt:check && deno task check && deno lint && deno task test && deno task replay"
   },
   "compilerOptions": {
     "strict": true,

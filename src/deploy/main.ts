@@ -1,13 +1,13 @@
 /**
- * Unified Deno Deploy entrypoint (deploy wiring — separate org per ADR-2).
+ * Unified Deno Deploy entrypoint.
  *
  * One deployment serves ALL surfaces off a single managed-KV Store:
  *   - `Deno.serve` — the web UI (GET /), LINE webhook (POST /webhook), GET /healthz
  *   - `Deno.cron`  — the 15-minute boundary check (SDD §6 スケジューラ)
  *
- * The web UI (web/index.html, MVP per owner 2026-07-16) is the primary
- * surface; it is a self-contained client-side app (localStorage) served at
- * `/`. Wiring it to the core KV over an HTTP API is the next step.
+ * The web UI (web/index.html) is the primary surface. Authentication, the
+ * per-user web ledger, sharing, parsing, calendar feeds/sync, and remote MCP
+ * all use the HTTP APIs backed by the managed KV.
  *
  * Deno Deploy runs `Deno.cron` and `Deno.serve` from the same entrypoint, so
  * plancel needs no second deployment. The cron and the webhook share one
