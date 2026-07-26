@@ -25,8 +25,13 @@ apply here).
 
 ## v1.x and beyond
 
-Email-forward parsing, `.ics` calendar integration, bookmarklet entry point, generic `update`,
-physical `delete`.
+Already delivered after MVP-2: Web UI and per-user Web ledger, Google/password/UID authentication,
+sharing, iCal subscription, Google Calendar push sync, generic update/delete, production Web API,
+and remote MCP mode.
+
+Remaining product candidates: email-forward parsing, bookmarklet entry point, and weather-aware
+deadline notices. Production acceptance checks are tracked in `docs/VERIFICATION.md`, not as new
+implementation layers.
 
 Weather integration (ADR-8): JMA public JSON (key-free, effectively rate-limit-free) behind a
 `WeatherProvider` interface (+ Mock/replay, same discipline as Parser/Notifier). Weather enriches
@@ -39,18 +44,18 @@ decision, not a weather report.
 
 ## LINE v2 (after webhook went live 2026-07-26)
 
-Purpose of the LINE channel: **(1) push deadline reminders / notices to the owner's LINE** (primary),
-**(2) let the owner check, update, and narrowly add reservations from LINE** (secondary). Status and
-remaining work, in priority order:
+Purpose of the LINE channel: **(1) push deadline reminders / notices to the owner's LINE**
+(primary), **(2) let the owner check, update, and narrowly add reservations from LINE** (secondary).
+Status and remaining work, in priority order:
 
-| # | Item | Status |
-| - | ---- | ------ |
-| 1 | Web-ledger deadline reminders via LINE push — `src/web/notify.ts` routes the owner ledger (`PLANCEL_LINE_OWNER_EMAIL`, default = first `PLANCEL_ADMIN_EMAILS`) to LINE push; email/console stays for everyone else | done (prod-pending redeploy) |
-| 2 | "Check" commands from LINE — `確認`/`予定`/`一覧` reply with the WEB ledger's active reservations (status label, free-cancel deadline) plus next-deadline / 放置損失 footer (`src/line/web-commands.ts`) | done |
-| 3 | Narrow "update" commands — Quick Reply `確定:…` / `済:…` postbacks (`webact\|confirm\|<id>`) call the SAME `confirmReservation` / `cancelReservation` + calendar-sync hook as the web API, so plan-sibling auto to_cancel is identical. `set policy` deferred (needs a second Quick Reply round) | done |
-| 4 | Ledger unification — LINE **add** now writes the owner's WEB ledger: a parsed reservation (text or screenshot, incl. the Quick Reply conflict-resolution path) is created as a web-ledger **candidate** via the same `createReservation` + `onMutate` the HTTP API uses, so it shows up in the web UI. Parsed cancellation policies map to the web enum only on an EXACT preset match (`none`/`free24`/`staged`); anything else stays `unknown` rather than being coerced. The core event-sourced ledger remains the sink for standalone/MCP-local mode (`src/line/main.ts` without the `web` dep) | done |
-| ✓ | Webhook live: signature check, allowlist, text/image parse → Quick Reply one-tap review → register | done (prod, 2026-07-26) |
-| ✓ | Core-ledger cron notifications push to LINE (`selectNotifier` → LineNotifier, owner userId) | done (env-gated) |
+| # | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Status                                   |
+| - | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| 1 | Web-ledger deadline reminders via LINE push — `src/web/notify.ts` routes the owner ledger (`PLANCEL_LINE_OWNER_EMAIL`, default = first `PLANCEL_ADMIN_EMAILS`) to LINE push; email/console stays for everyone else                                                                                                                                                                                                                                                                                                                                                                                 | code done; production E2E pending        |
+| 2 | "Check" commands from LINE — `確認`/`予定`/`一覧` reply with the WEB ledger's active reservations (status label, free-cancel deadline) plus next-deadline / 放置損失 footer (`src/line/web-commands.ts`)                                                                                                                                                                                                                                                                                                                                                                                           | code done; device check pending          |
+| 3 | Narrow "update" commands — Quick Reply `確定:…` / `済:…` postbacks (`webact\|confirm\|<id>`) call the SAME `confirmReservation` / `cancelReservation` + calendar-sync hook as the web API, so plan-sibling auto to_cancel is identical. `set policy` deferred (needs a second Quick Reply round)                                                                                                                                                                                                                                                                                                   | code done; device check pending          |
+| 4 | Ledger unification — LINE **add** now writes the owner's WEB ledger: a parsed reservation (text or screenshot, incl. the Quick Reply conflict-resolution path) is created as a web-ledger **candidate** via the same `createReservation` + `onMutate` the HTTP API uses, so it shows up in the web UI. Parsed cancellation policies map to the web enum only on an EXACT preset match (`none`/`free24`/`staged`); anything else stays `unknown` rather than being coerced. The core event-sourced ledger remains the sink for standalone/MCP-local mode (`src/line/main.ts` without the `web` dep) | code done; device check pending          |
+| ✓ | Webhook live: deployed env, unsigned-request 401, and LINE Console webhook verification                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | verified 2026-07-26; message E2E pending |
+| ✓ | Core-ledger cron notifications push to LINE (`selectNotifier` → LineNotifier, owner userId)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | done (env-gated)                         |
 
 ## Phase 2
 

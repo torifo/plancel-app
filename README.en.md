@@ -9,46 +9,61 @@
 </p>
 <!-- tech-stack:end -->
 
-For the common pattern of **holding multiple candidate bookings → confirming one at the last minute → cancelling the rest**, plancel prevents forgotten cancellations and avoidable cancellation fees. **Confirming one reservation automatically flips its siblings to "needs cancellation"**, and you get notified **right before each fee boundary** with the concrete amount at stake. plan + cancel.
+For the common pattern of **holding multiple candidate bookings → confirming one at the last minute
+→ cancelling the rest**, plancel prevents forgotten cancellations and avoidable cancellation fees.
+**Confirming one reservation automatically flips its siblings to "needs cancellation"**, and you get
+notified **right before each fee boundary** with the concrete amount at stake. plan + cancel.
 
 ```sh
 deno task seed        # load demo data
 deno task scenario    # one-command E2E: confirm → advance 3 days → list notifications
-deno task test        # 303 tests — completes with zero external connections
-deno task verify      # check + lint + test + replay in one go
+deno task test        # 436 tests — completes with zero external connections
+deno task verify      # fmt + check + lint + test + replay in one go
 ```
 
 ## Why plancel (vs. calendars / booking apps)
 
 Existing tools manage confirmed bookings. plancel covers the window **while candidates coexist**:
 
-- 🔀 **Exclusive candidate groups (Plans)** — the moment one is confirmed, the rest auto-transition to `to_cancel`. This transition is the core of the product.
-- 💸 **Staged cancellation fees as data** — "free until 7 days out → 30% → 50% → 100%" stored as an array; 24h before each boundary you get "free if you cancel now / ¥5,400 from tomorrow".
-- 🤷 **Register with unknown policies** — minimal insert friction; a daily digest nudges you to fill them in later.
-- 🔍 **Every state is explainable** — append-only event log with caused_by chains. No physical deletes.
+- 🔀 **Exclusive candidate groups (Plans)** — the moment one is confirmed, the rest auto-transition
+  to `to_cancel`. This transition is the core of the product.
+- 💸 **Staged cancellation fees as data** — "free until 7 days out → 30% → 50% → 100%" stored as an
+  array; 24h before each boundary you get "free if you cancel now / ¥5,400 from tomorrow".
+- 🤷 **Register with unknown policies** — minimal insert friction; a daily digest nudges you to fill
+  them in later.
+- 🔍 **Every core-ledger state is explainable** — append-only event log with caused_by chains and no
+  physical deletes. The authenticated Web ledger is a separate model for sharing and calendar sync.
 
 ## Architecture
 
-Three layers (core / adapter / MCP). All sources of nondeterminism (**clock, outbound sends, LLMs**) are isolated behind injectable abstractions, so the core is deterministically testable offline.
+The core and adapters are separated and consumed by Web, LINE, and MCP entry points. All sources of
+nondeterminism (**clock, outbound sends, LLMs**) are isolated behind injectable abstractions, so the
+core is deterministically testable offline.
 
-| Directory | Role |
-|---|---|
-| `src/core/` | Zod schemas (single source), Clock abstraction, Store abstraction (Deno KV / InMemory), pure-function state transitions, event-log folding |
-| `src/notify/` | Pure fire-decision + idempotent Outbox + Notifier (Console / LINE / Email=Resend) |
-| `src/mcp/` | Entry point for Claude (stdio, 11 tools + flag-gated debug tools). No parsing intelligence |
-| `src/parse/` | Validation-driven fallback parser chain (Groq / Gemini + Mock), PII masking, replay regression harness |
-| `src/line/` | LINE Bot webhook (signature check, userId allowlist, one-tap Quick Reply review) + LINE notifier |
-| `src/cron/` | Thin 15-minute boundary check (Deno Deploy `Deno.cron` / VPS systemd timer) |
+| Directory     | Role                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/core/`   | Zod schemas (single source), Clock abstraction, Store abstraction (Deno KV / InMemory), pure-function state transitions, event-log folding |
+| `src/notify/` | Pure fire-decision + idempotent Outbox + Notifier (Console / LINE / Email=Resend)                                                          |
+| `src/mcp/`    | Entry point for Claude (stdio, 11 tools + flag-gated debug tools). No parsing intelligence                                                 |
+| `src/parse/`  | Validation-driven fallback parser chain (Groq / Gemini + Mock), PII masking, replay regression harness                                     |
+| `src/line/`   | LINE Bot webhook (signature check, userId allowlist, one-tap Quick Reply review) + LINE notifier                                           |
+| `src/cron/`   | Thin 15-minute boundary check (Deno Deploy `Deno.cron` / VPS systemd timer)                                                                |
+| `src/web/`    | Web ledger, authentication, sharing, iCal / Google Calendar sync, and Web API                                                              |
+| `src/deploy/` | Unified Deno Deploy wiring for Web, LINE, and cron                                                                                         |
 
-Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/SDD.md) ・ Roadmap: [`ROADMAP.md`](./ROADMAP.md)
+Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/SDD.md) ・ Roadmap:
+[`ROADMAP.md`](./ROADMAP.md)
 
 ## Stack
 
 - **Runtime**: Deno 2.9 (TypeScript, `unstable-temporal` / `unstable-kv`)
 - **Validation**: Zod — one schema source validates MCP inputs, parser outputs, and Store boundaries
-- **Store**: Deno KV (append-only event log + derived cache; swappable to SQLite via the Store interface)
-- **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (live in production since 2026-07-26; signature path device-verified)
-- **Tests**: 303 via `deno test`, shared contract suite across both Store implementations, one-command E2E, parse replay regression
+- **Store**: Deno KV (append-only event log + derived cache; swappable to SQLite via the Store
+  interface)
+- **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (live in production
+  since 2026-07-26; signature path device-verified)
+- **Tests**: 436 via `deno test`, shared contract suite across both Store implementations,
+  one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)
 
@@ -56,12 +71,28 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
 claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv /path/to/plancel/src/mcp/main.ts
 ```
 
-Then just talk: "hold a table at ◯◯ for 7pm Sat, free cancellation until the day before", "going with ◯◯".
+Then just talk: "hold a table at ◯◯ for 7pm Sat, free cancellation until the day before", "going
+with ◯◯".
 
 ## Status
 
-**MVP-1 (L0–L3) + parser foundation (L4) + L5 (real LLM / LINE / Email) implemented and live on Deno Deploy** (web UI, Google login, calendar sync, sharing, LINE webhook all in production). LINE's purpose: (1) push deadline reminders and notices to LINE, (2) let the owner check / update / narrowly add reservations from LINE. (1) covers the core-ledger cron notifications plus the web-ledger deadline reminders (LINE push for the owner's ledger, Email/console for everyone else). (2) covers "check" (`確認`/`予定`/`一覧` → the web ledger's upcoming reservations with deadlines and worst-case loss), narrow "update" (Quick Reply confirm / report-cancelled), and "add" (a parsed text/screenshot reservation registered as a candidate) — **in production all three operate on the web ledger**, the same one the web UI shows, through the same functions the web API calls (so plan-sibling auto to_cancel and calendar sync are identical). The core event-sourced ledger remains the sink for standalone/local mode (`src/line/main.ts` alone, MCP-local). Remaining: weather (typhoon) integration and the items above. Local verification runbook: [`docs/VERIFICATION.md`](./docs/VERIFICATION.md).
+**MVP-1 (L0–L3), the parser foundation (L4), and L5 (real LLM / LINE / Email) are implemented. The
+Deno Deploy service runs the web UI, authentication, sharing, Google Calendar integration, the Web
+API used by remote MCP, and the LINE webhook.** LINE support includes core- and web-ledger deadline
+notifications plus web-ledger "check" (`確認`/`予定`/`一覧`), narrow "update" (Quick Reply confirm /
+report-cancelled), and "add" (register parsed text/image input as a candidate). Web-ledger actions
+use the same functions as the Web API, including atomic plan confirmation, sibling auto-`to_cancel`,
+invalid reconfirmation rejection, and calendar sync. The event-sourced core ledger remains available
+to standalone/local LINE and MCP modes.
 
-External-connection env vars: `GROQ_API_KEY` / `GEMINI_API_KEY` (parsers), `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS` (`deno task line`), `RESEND_API_KEY` (EmailNotifier; from/to are constructor-injected).
+Production verification currently covers the deployed LINE environment, unsigned-webhook 401
+response, and successful LINE Console webhook verification. End-to-end device checks for LINE
+text/image registration and Quick Reply, Resend delivery, Google login and calendar sync, UID login,
+remote MCP operations, and sustained cron execution remain open in
+[`docs/VERIFICATION.md`](./docs/VERIFICATION.md).
+
+External-connection env vars: `GROQ_API_KEY` / `GEMINI_API_KEY` (parsers), `LINE_CHANNEL_SECRET` /
+`LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS` (`deno task line`), `RESEND_API_KEY`
+(EmailNotifier; from/to are constructor-injected).
 
 Phase 1 is personal + family use on a **¥0 budget** (free tiers only). Public release is Phase 2.
