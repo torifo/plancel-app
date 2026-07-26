@@ -114,7 +114,8 @@ Claude から `create_reservation` → `confirm_reservation` して副作用一�
 - [ ] `.env` / `local/` がコミットされていない（`git check-ignore .env local/` で確認）
 - [ ] 無料枠の現行条件を再確認（ADR-5 / ADR-10: Groq・Gemini・LINE 月200通・Resend）
 - [ ] デプロイ初手は ADR-2 のスパイク: ローカル MCP → Deploy KV リモート接続の実測
-- [ ] デプロイ後: LINE webhook URL 設定 → 実機でテキスト/画像登録と Quick Reply ワンタップ（Task 6.2 done-when）
+- [x] デプロイ後: LINE webhook URL 設定（2026-07-26 完了: env 設定→再デプロイで 503→401、LINE console「検証」成功。プロバイダー plancel / channel 2010848177 / Bot @791wbdma）
+- [ ] デプロイ後: LINE 実機でテキスト/画像登録と Quick Reply ワンタップ（Task 6.2 done-when — 友だち追加してトークから送信。※現状の登録先はコア台帳で Web UI には出ない点に注意、ROADMAP「LINE v2」#4）
 - [ ] デプロイ後: Resend ドメイン検証 → 実送信 1 通（Task 6.3 done-when）
 
 ## 2. ドキュメント整合チェック（既存ドキュメントの検証）

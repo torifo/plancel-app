@@ -97,9 +97,9 @@ TOKEN/SECRET/KEY を含む名前は Deploy が自動で secret 扱いにする�
 | --- | --- | --- |
 | `GROQ_API_KEY` | ◯ | テキスト一次パーサー（Groq） |
 | `GEMINI_API_KEY` | ◯ | 二次パーサー + 画像（Gemini） |
-| `LINE_CHANNEL_SECRET` | 任意 | webhook 署名検証（未設定なら webhook は 503） |
-| `LINE_CHANNEL_ACCESS_TOKEN` | 任意 | 返信・push・画像取得 |
-| `LINE_ALLOWED_USER_IDS` | 任意 | 許可 userId（カンマ区切り） |
+| `LINE_CHANNEL_SECRET` | 任意 | webhook 署名検証（未設定なら webhook は 503）。**設定済み（2026-07-26 開通）** |
+| `LINE_CHANNEL_ACCESS_TOKEN` | 任意 | 返信・push・画像取得。長期トークン（Messaging API タブで発行）。**設定済み** |
+| `LINE_ALLOWED_USER_IDS` | 任意 | 許可 userId（カンマ区切り）。オーナーの userId はチャネル基本設定タブ最下部「あなたのユーザーID」。**設定済み** |
 | `PLANCEL_OWNER_USER_ID` | 任意 | cron 通知の push 先。省略時は許可リストの先頭 |
 | `PLANCEL_EMAIL_TO` | 任意 | LINE 未設定時の Email 通知先（`RESEND_API_KEY` + `PLANCEL_EMAIL_FROM` と合わせて cron 通知の Email フォールバック） |
 
@@ -202,7 +202,12 @@ Claude Desktop の設定例（`claude_desktop_config.json`）:
    `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `PLANCEL_KEK`、必要に応じ容量・管理者・LINE 系。
 6. **デプロイ**: `main` に push（または「Deploy」実行）。`GET .../healthz` が `ok` を返すことを確認。
 7. **LINE webhook URL 設定**（LINE を使う場合）: Messaging API の Webhook URL を
-   `https://plancel-app.torifo.deno.net/webhook` にし、検証を通す。
+   `https://plancel-app.torifo.deno.net/webhook` にし、「Webhookの利用」をオン、検証を通す。
+   **2026-07-26 設定・検証成功済み**（チャネル: プロバイダー plancel / channel 2010848177 / Bot @791wbdma）。
+   注意: Deploy の env 変更は **再デプロイ（Deploy Default Branch）まで反映されない**。
+   curl での素の POST /webhook は 401（署名なし）が正常。未設定サインは 503。
+   現状の LINE 通知はコア台帳の cron 通知のみで、Web 台帳の期限通知（src/web/notify.ts）は
+   Email/console のまま — LINE 化は ROADMAP「LINE v2」#1。
 
 ## 8. オーナー側の外部作業（一度きり）
 

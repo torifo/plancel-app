@@ -37,6 +37,21 @@ key. Key insight: the value is highest when the free-cancel deadline falls outsi
 forecast window (~5-7 days) — the UI/notification should present the loss curve as an insurance
 decision, not a weather report.
 
+## LINE v2 (after webhook went live 2026-07-26)
+
+Purpose of the LINE channel: **(1) push deadline reminders / notices to the owner's LINE** (primary),
+**(2) let the owner check, update, and narrowly add reservations from LINE** (secondary). Status and
+remaining work, in priority order:
+
+| # | Item | Status |
+| - | ---- | ------ |
+| 1 | Web-ledger deadline reminders via LINE push — `src/web/notify.ts` still emails (Resend unset → console); route it through `selectNotifier` so the ledger people actually use reminds over LINE | **TODO (top gap)** |
+| 2 | "Check" commands from LINE (today / upcoming / next deadline summary) | TODO |
+| 3 | Narrow "update" commands (confirm / cancelled-it / set policy via Quick Reply) | TODO |
+| 4 | Ledger unification — LINE-added reservations go to the core event-sourced ledger and never appear in the web UI; either bind the webhook to the owner's web ledger or retire one ledger | TODO (decide) |
+| ✓ | Webhook live: signature check, allowlist, text/image parse → Quick Reply one-tap review → register | done (prod, 2026-07-26) |
+| ✓ | Core-ledger cron notifications push to LINE (`selectNotifier` → LineNotifier, owner userId) | done (env-gated) |
+
 ## Phase 2
 
 Browser extension, direct Gmail reading, paid LLM tiers, public release.

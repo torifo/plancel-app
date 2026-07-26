@@ -47,7 +47,7 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
 - **Runtime**: Deno 2.9 (TypeScript, `unstable-temporal` / `unstable-kv`)
 - **Validation**: Zod — one schema source validates MCP inputs, parser outputs, and Store boundaries
 - **Store**: Deno KV (append-only event log + derived cache; swappable to SQLite via the Store interface)
-- **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (device verification after deploy)
+- **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (live in production since 2026-07-26; signature path device-verified)
 - **Tests**: 303 via `deno test`, shared contract suite across both Store implementations, one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)
@@ -60,7 +60,7 @@ Then just talk: "hold a table at ◯◯ for 7pm Sat, free cancellation until the
 
 ## Status
 
-**MVP-1 (L0–L3) + parser foundation (L4) + L5 code (real LLM / LINE / Email) implemented**, verifiable with zero external connections. Deploy target: Deno Deploy (VPS fallback). Remaining: deploy (first step: the ADR-2 remote-KV spike) + LINE/email device verification, weather (typhoon) integration. The real-chain cutover and real-data regression are done (replay 9/9). Local verification runbook: [`docs/VERIFICATION.md`](./docs/VERIFICATION.md).
+**MVP-1 (L0–L3) + parser foundation (L4) + L5 (real LLM / LINE / Email) implemented and live on Deno Deploy** (web UI, Google login, calendar sync, sharing, LINE webhook all in production). LINE's purpose: (1) push deadline reminders and notices to LINE, (2) let the owner check / update / narrowly add reservations from LINE. Today (1) covers only the core-ledger cron notifications — **the web ledger's deadline notices still go to Email/console (LINE-ifying them is the next task)** — and (2) only "add" exists (text/image → AI parse → Quick Reply review → register); check/update commands are unimplemented, and LINE-added reservations land in the core ledger, not the web UI's (see ROADMAP for unification). Remaining: weather (typhoon) integration and the items above. Local verification runbook: [`docs/VERIFICATION.md`](./docs/VERIFICATION.md).
 
 External-connection env vars: `GROQ_API_KEY` / `GEMINI_API_KEY` (parsers), `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS` (`deno task line`), `RESEND_API_KEY` (EmailNotifier; from/to are constructor-injected).
 

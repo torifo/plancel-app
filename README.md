@@ -49,7 +49,7 @@ deno task verify      # check + lint + test + replay を一括実行
 - **ランタイム**: Deno 2.9（TypeScript・`unstable-temporal` / `unstable-kv`）
 - **検証**: Zod（全エンティティ単一ソース、MCP 入力・パーサー出力・Store 境界を同一スキーマで検証）
 - **ストア**: Deno KV（追記型イベントログ + 導出キャッシュ。Store 抽象で SQLite に差し替え可）
-- **入口**: Claude MCP（`@modelcontextprotocol/sdk`）＋ LINE Bot webhook（実機確認はデプロイ後）
+- **入口**: Claude MCP（`@modelcontextprotocol/sdk`）＋ LINE Bot webhook（2026-07-26 本番開通・署名検証まで実機確認済み）
 - **テスト**: `deno test` 303件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
 
 ## 使い方（Claude MCP）
@@ -62,8 +62,8 @@ claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unst
 
 ## ステータス
 
-**MVP-1（L0〜L3）＋パーサー基盤（L4）＋ L5 コード（実 LLM / LINE / Email）実装済み**・外部接続ゼロで動作検証可能。デプロイ先は Deno Deploy（VPS 退避可）。
-残り: デプロイ（初手は ADR-2 の KV リモート接続スパイク）+ LINE/メールの実機確認、天気（台風）連携。実チェーン切替・実データ回帰は完了済み（replay 9/9）。ローカル検証手順は [`docs/VERIFICATION.md`](./docs/VERIFICATION.md)。
+**MVP-1（L0〜L3）＋パーサー基盤（L4）＋ L5（実 LLM / LINE / Email）実装済み・Deno Deploy 本番稼働中**（Web UI・Google ログイン・カレンダー連携・共有・LINE webhook 開通済み）。
+LINE の目的は「①期限リマインド等の通知を LINE へ / ②LINE から予定の確認・更新・限定的な追加」。現状①はコア台帳の cron 通知のみ LINE push で、**Web 台帳の期限通知は Email/console のまま（LINE 化が次の課題）**。②は「追加」（テキスト/画像→AI 読み取り→Quick Reply 確認→登録）のみ実装済みで、確認・更新コマンドは未実装。登録先もコア台帳のため Web UI の台帳には出ない（統合は ROADMAP 参照）。残り: 天気（台風）連携ほか。ローカル検証手順は [`docs/VERIFICATION.md`](./docs/VERIFICATION.md)。
 
 外部接続の環境変数: `GROQ_API_KEY` / `GEMINI_API_KEY`（パーサー）、`LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS`（`deno task line`）、`RESEND_API_KEY`（EmailNotifier、送信元/宛先はコンストラクタ注入）。
 
