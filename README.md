@@ -63,7 +63,7 @@ claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unst
 ## ステータス
 
 **MVP-1（L0〜L3）＋パーサー基盤（L4）＋ L5（実 LLM / LINE / Email）実装済み・Deno Deploy 本番稼働中**（Web UI・Google ログイン・カレンダー連携・共有・LINE webhook 開通済み）。
-LINE の目的は「①期限リマインド等の通知を LINE へ / ②LINE から予定の確認・更新・限定的な追加」。①はコア台帳の cron 通知と Web 台帳の期限リマインド（オーナー分は LINE push・他は Email/console）を実装済み。②は「確認」（`確認`/`予定`/`一覧` → Web 台帳の一覧＋期限・放置損失）と「限定更新」（Quick Reply で確定／キャンセル済み — Web API と同じロジックで同プラン候補の自動要キャンセル・カレンダー同期まで反映）を実装済み。**「追加」だけはコア台帳行き**で Web UI の台帳には出ない（統合は ROADMAP 参照）。残り: 天気（台風）連携ほか。ローカル検証手順は [`docs/VERIFICATION.md`](./docs/VERIFICATION.md)。
+LINE の目的は「①期限リマインド等の通知を LINE へ / ②LINE から予定の確認・更新・限定的な追加」。①はコア台帳の cron 通知と Web 台帳の期限リマインド（オーナー分は LINE push・他は Email/console）を実装済み。②は「確認」（`確認`/`予定`/`一覧` → Web 台帳の一覧＋期限・放置損失）・「限定更新」（Quick Reply で確定／キャンセル済み）・「追加」（テキスト/スクショのパース結果を候補として登録）のすべてを実装済みで、**本番ではこの①②③すべてが Web 台帳（Web UI と同じ台帳）に対して動く**。Web API と同じ関数を通すので同プラン候補の自動要キャンセル・カレンダー同期も同一挙動。コア台帳（イベントソース）は standalone/ローカル（`src/line/main.ts` 単体・MCP ローカル）モードの登録先として残置。残り: 天気（台風）連携ほか。ローカル検証手順は [`docs/VERIFICATION.md`](./docs/VERIFICATION.md)。
 
 外部接続の環境変数: `GROQ_API_KEY` / `GEMINI_API_KEY`（パーサー）、`LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS`（`deno task line`）、`RESEND_API_KEY`（EmailNotifier、送信元/宛先はコンストラクタ注入）。
 

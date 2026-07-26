@@ -8,7 +8,9 @@
  *   - text 「確認」/「予定」/「一覧」 -> WEB-ledger summary + action Quick Reply
  *                        (only when `deps.web` is wired — see web-commands.ts)
  *   - text/image message           -> common parse pipeline (runParseChain)
- *       parsed        -> reservation registered via the domain layer, reply summary
+ *       parsed        -> reservation registered (WEB ledger when `deps.web` is
+ *                        wired — LINE v2 #4 — else the core domain layer),
+ *                        reply summary
  *       needs_review  -> FieldConflict: Quick Reply buttons (one tap, never retype —
  *                        SDD §5); missing fields: reply listing ONLY what is missing
  *       failed        -> reply "読み取れませんでした"
@@ -37,7 +39,9 @@ import {
   buildCheckReply,
   isCheckCommand,
   type LineWebDeps,
+  NO_WEB_OWNER_TEXT,
   parseWebPostback,
+  registerWebReservation,
 } from "./web-commands.ts";
 import type {
   LineMessagingClient,
@@ -145,20 +149,47 @@ function summaryText(reservation: Reservation): string {
   return `登録しました: ${reservation.service_name} / ${reservation.starts_at}${policyNote}`;
 }
 
-/** Registers a validated parse output as a reservation (source: line). */
+/**
+ * Outcome of registering a parse output: the reply summary on success, or why
+ * it could not be registered (`invalid` = schema/missing fields, `no-owner` =
+ * the web ledger the owner would be written to does not exist yet).
+ */
+type Registration =
+  | { ok: true; summary: string }
+  | { ok: false; reason: "invalid" | "no-owner" };
+
+/**
+ * Registers a validated parse output as a reservation (source: line).
+ *
+ * Sink selection (LINE v2 #4): when `deps.web` is wired the reservation lands
+ * in the OWNER'S WEB LEDGER as a candidate, so it shows up in the web UI the
+ * owner actually uses. Without it (standalone src/line/main.ts, MCP-local mode)
+ * the core event-sourced ledger stays the sink, unchanged. Validation is the
+ * same `reservationInputSchema` in both cases, so a parse output that is too
+ * thin is rejected identically either way.
+ */
 async function registerOutput(
-  ctx: ToolContext,
+  deps: LineWebhookDeps,
   output: Record<string, unknown>,
   jobId: string,
-): Promise<Reservation | null> {
+): Promise<Registration> {
   const parsed = reservationInputSchema.safeParse({
     ...output,
     source: "line",
     raw_input_ref: jobId,
   });
-  if (!parsed.success) return null;
-  const reservation = buildReservation(ctx, parsed.data);
-  return await persistNewReservation(ctx, reservation);
+  if (!parsed.success) return { ok: false, reason: "invalid" };
+
+  const web = deps.web;
+  if (web !== undefined) {
+    const registered = await registerWebReservation(web, parsed.data);
+    if (registered === null) return { ok: false, reason: "no-owner" };
+    return { ok: true, summary: registered.summaryText };
+  }
+
+  const reservation = buildReservation(deps.ctx, parsed.data);
+  const created = await persistNewReservation(deps.ctx, reservation);
+  return { ok: true, summary: summaryText(created) };
 }
 
 export async function handleLineWebhook(
@@ -242,10 +273,14 @@ async function handleMessage(
   log.info("parse job created", { job_id: job.id, status: job.status, correlation_id });
 
   if (job.status === "parsed") {
-    const reservation = await registerOutput(deps.ctx, resolvedOutput(job), job.id);
-    if (reservation !== null) {
-      await deps.client.reply(replyToken, [{ type: "text", text: summaryText(reservation) }]);
+    const registered = await registerOutput(deps, resolvedOutput(job), job.id);
+    if (registered.ok) {
+      await deps.client.reply(replyToken, [{ type: "text", text: registered.summary }]);
       return "registered";
+    }
+    if (registered.reason === "no-owner") {
+      await deps.client.reply(replyToken, [{ type: "text", text: NO_WEB_OWNER_TEXT }]);
+      return "web:no-owner";
     }
     await deps.client.reply(replyToken, [missingMessage(job)]);
     return "needs_review";
@@ -319,14 +354,18 @@ async function handlePostback(
     return "postback:still-missing";
   }
 
-  const reservation = await registerOutput(deps.ctx, output, updated.id);
-  if (reservation === null) {
+  const registered = await registerOutput(deps, output, updated.id);
+  if (!registered.ok) {
     await deps.ctx.store.putParseJob(updated);
+    if (registered.reason === "no-owner") {
+      await deps.client.reply(replyToken, [{ type: "text", text: NO_WEB_OWNER_TEXT }]);
+      return "postback:no-owner";
+    }
     await deps.client.reply(replyToken, [missingMessage(updated)]);
     return "postback:invalid-output";
   }
   updated = { ...updated, status: "resolved" };
   await deps.ctx.store.putParseJob(updated);
-  await deps.client.reply(replyToken, [{ type: "text", text: summaryText(reservation) }]);
+  await deps.client.reply(replyToken, [{ type: "text", text: registered.summary }]);
   return "postback:registered";
 }

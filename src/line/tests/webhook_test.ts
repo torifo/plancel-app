@@ -8,10 +8,12 @@ import { signLineBody } from "../signature.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../webhook.ts";
 import type { LineMessagingClient, LineTextMessage } from "../types.ts";
 import type { LineWebDeps } from "../web-commands.ts";
+import type { CancellationPolicyOrUnknown } from "../../core/schema/mod.ts";
 import {
   cancelReservation,
   createReservation,
   getReservation,
+  listReservations,
   type WebIds,
 } from "../../web/store.ts";
 import { getOrCreateUserByEmail } from "../../web/users.ts";
@@ -381,22 +383,198 @@ Deno.test("webhook: webact cancel -> reservation cancelled; stale id -> polite r
   });
 });
 
-Deno.test("webhook: non-command text still goes to the parse pipeline when web is wired", async () => {
+// ---- Registration into the web ledger (LINE v2 #4) ----
+
+/** The three web policy presets expressed as core `cancellation_policy` values. */
+const CORE_POLICY = {
+  none: { stages: [{ until_offset_hours: 0, fee_percent: 0, fee_fixed_jpy: null }] },
+  free24: {
+    stages: [
+      { until_offset_hours: 24, fee_percent: 0, fee_fixed_jpy: null },
+      { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null },
+    ],
+  },
+  staged: {
+    stages: [
+      { until_offset_hours: 168, fee_percent: 0, fee_fixed_jpy: null },
+      { until_offset_hours: 72, fee_percent: 30, fee_fixed_jpy: null },
+      { until_offset_hours: 24, fee_percent: 50, fee_fixed_jpy: null },
+      { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null },
+    ],
+  },
+  /** Nonstandard: real stages, but no preset matches -> must NOT be coerced. */
+  weird: {
+    stages: [
+      { until_offset_hours: 48, fee_percent: 20, fee_fixed_jpy: null },
+      { until_offset_hours: 12, fee_percent: 80, fee_fixed_jpy: null },
+    ],
+  },
+} satisfies Record<string, CancellationPolicyOrUnknown>;
+
+Deno.test("webhook: parsed text with web wired -> web-ledger candidate, NOT the core ledger", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, mutated } = await makeWebDeps(kv);
+    const text = "8/1 19時に〇〇を予約";
+    const parser = MockParser(
+      "p1",
+      new Map([[text, {
+        raw_response: '{"service_name":"〇〇","starts_at":"2026-08-01T19:00:00+09:00"}',
+        output: {
+          service_name: "〇〇",
+          starts_at: "2026-08-01T19:00:00+09:00",
+          amount_jpy: 12000,
+          location: "港区",
+          cancellation_policy: CORE_POLICY.staged,
+        },
+      }]]),
+    );
+    const { deps, ctx, replies } = makeDeps({ web });
+    deps.parsers = [parser];
+
+    const result = await post(deps, [textEvent(text)]);
+    assertEquals(result.handled, ["registered"]);
+
+    // The core event-sourced ledger stays untouched when web is the sink.
+    assertEquals(await ctx.store.listReservations(), []);
+    const own = await listReservations(kv, owner.ledgerId);
+    assertEquals(own.length, 1);
+    const r = own[0];
+    assertEquals(r?.service, "〇〇");
+    assertEquals(r?.startsAt, "2026-08-01T10:00:00.000Z");
+    assertEquals(r?.amount, 12000);
+    assertEquals(r?.location, "港区");
+    assertEquals(r?.policy, "staged");
+    assertEquals(r?.plan, null);
+    assertEquals(r?.status, "candidate");
+    // Same post-write hook the HTTP API fires on create.
+    assertEquals(mutated, [r?.id]);
+    // ParseJob lifecycle is unchanged.
+    assertEquals((await ctx.store.listParseJobs())[0]?.status, "parsed");
+    const body = replies[0]?.messages[0]?.text ?? "";
+    assertStringIncludes(body, "登録しました: 〇〇 / 8/1(土) 19:00");
+    assertStringIncludes(body, "Web台帳に候補として入りました");
+    assertEquals(body.includes("規定は不明"), false);
+  });
+});
+
+Deno.test("webhook: nonstandard / absent parsed policy -> web policy unknown (never coerced)", async () => {
+  await withKv(async (kv) => {
+    for (const [label, policy] of [["weird", CORE_POLICY.weird], ["absent", undefined]] as const) {
+      const { web, owner } = await makeWebDeps(kv);
+      const text = `${label} 8/1 19時に〇〇を予約`;
+      const parser = MockParser(
+        "p1",
+        new Map([[text, {
+          raw_response: "{}",
+          output: {
+            service_name: `宿-${label}`,
+            starts_at: "2026-08-01T19:00:00+09:00",
+            ...(policy === undefined ? {} : { cancellation_policy: policy }),
+          },
+        }]]),
+      );
+      const { deps, replies } = makeDeps({ web });
+      deps.parsers = [parser];
+
+      const result = await post(deps, [textEvent(text)]);
+      assertEquals(result.handled, ["registered"]);
+      const r = (await listReservations(kv, owner.ledgerId)).find(
+        (x) => x.service === `宿-${label}`,
+      );
+      assertEquals(r?.policy, "unknown", label);
+      assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "キャンセル規定は不明");
+    }
+  });
+});
+
+Deno.test("webhook: preset policies map exactly (none/free24)", async () => {
+  await withKv(async (kv) => {
+    for (const name of ["none", "free24"] as const) {
+      const { web, owner } = await makeWebDeps(kv);
+      const text = `${name} を予約`;
+      const parser = MockParser(
+        "p1",
+        new Map([[text, {
+          raw_response: "{}",
+          output: {
+            service_name: `宿-${name}`,
+            starts_at: "2026-08-01T19:00:00+09:00",
+            cancellation_policy: CORE_POLICY[name],
+          },
+        }]]),
+      );
+      const { deps } = makeDeps({ web });
+      deps.parsers = [parser];
+      assertEquals((await post(deps, [textEvent(text)])).handled, ["registered"]);
+      const r = (await listReservations(kv, owner.ledgerId)).find(
+        (x) => x.service === `宿-${name}`,
+      );
+      assertEquals(r?.policy, name);
+    }
+  });
+});
+
+Deno.test("webhook: postback-resolved registration lands in the web ledger too", async () => {
+  await withKv(async (kv) => {
+    const { web, owner } = await makeWebDeps(kv);
+    const text = "土曜19時に〇〇を仮予約";
+    const p1 = MockParser(
+      "p1",
+      new Map([[text, {
+        raw_response: '{"starts_at":"2026-08-01T19:00:00+09:00"}',
+        output: { starts_at: "2026-08-01T19:00:00+09:00" },
+      }]]),
+    );
+    const p2 = MockParser(
+      "p2",
+      new Map([[text, {
+        raw_response: '{"service_name":"〇〇","starts_at":"2026-08-01T19:30:00+09:00"}',
+        output: { service_name: "〇〇", starts_at: "2026-08-01T19:30:00+09:00" },
+      }]]),
+    );
+    const { deps, ctx, replies } = makeDeps({ web });
+    deps.parsers = [p1, p2];
+
+    await post(deps, [textEvent(text)]);
+    const data = replies[0]?.messages[0]?.quickReply?.items[1]?.action.data ?? "";
+    const second = await post(deps, [{
+      type: "postback",
+      replyToken: "reply-2",
+      source: { type: "user", userId: OWNER },
+      postback: { data },
+    }]);
+
+    assertEquals(second.handled, ["postback:registered"]);
+    assertEquals(await ctx.store.listReservations(), []);
+    const own = await listReservations(kv, owner.ledgerId);
+    assertEquals(own.length, 1);
+    assertEquals(own[0]?.startsAt, "2026-08-01T10:30:00.000Z");
+    // ParseJob lifecycle is identical to the core-ledger path.
+    assertEquals((await ctx.store.listParseJobs())[0]?.status, "resolved");
+    assertStringIncludes(replies[1]?.messages[0]?.text ?? "", "Web台帳に候補として入りました");
+  });
+});
+
+Deno.test("webhook: web wired but no web account -> nothing registered, login hint", async () => {
   await withKv(async (kv) => {
     const { web } = await makeWebDeps(kv);
     const text = "8/1 19時に〇〇を予約";
     const parser = MockParser(
       "p1",
       new Map([[text, {
-        raw_response: '{"service_name":"〇〇","starts_at":"2026-08-01T19:00:00+09:00"}',
+        raw_response: "{}",
         output: { service_name: "〇〇", starts_at: "2026-08-01T19:00:00+09:00" },
       }]]),
     );
-    const { deps, ctx } = makeDeps({ web });
+    const { deps, ctx, replies } = makeDeps({
+      web: { ...web, ownerEmail: "nobody@example.com" },
+    });
     deps.parsers = [parser];
+
     const result = await post(deps, [textEvent(text)]);
-    assertEquals(result.handled, ["registered"]);
-    assertEquals((await ctx.store.listReservations()).length, 1);
+    assertEquals(result.handled, ["web:no-owner"]);
+    assertEquals(await ctx.store.listReservations(), []);
+    assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "先にWebでログイン");
   });
 });
 
