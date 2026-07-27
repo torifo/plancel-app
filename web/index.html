@@ -361,6 +361,93 @@
       max-width: 620px;
       box-shadow: var(--shadow);
     }
+    /* ═══ 使い方（ヘルプ）═══
+       マイページと同じページビューに乗せる（オーナー 2026-07-28）。8節あって縦に長く、
+       モーダルだと .modal の内側スクロールに閉じ込められてスマホで読みにくいうえ、
+       #help のディープリンクから開いたとき「戻る」先が曖昧になるため。 */
+    .help-lead {
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.85;
+      color: var(--ink);
+    }
+    .help-p {
+      margin-top: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.85;
+      color: var(--ink-2);
+    }
+    .help-p b,
+    .help-steps b,
+    .help-ways b {
+      color: var(--ink);
+    }
+    .help-steps {
+      margin: 6px 0 0 1.3em;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.85;
+      color: var(--ink-2);
+    }
+    .help-steps li {
+      margin-bottom: 5px;
+    }
+    .help-ways {
+      list-style: none;
+      margin: 4px 0 0;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.85;
+      color: var(--ink-2);
+    }
+    .help-ways li {
+      padding: 8px 0;
+      border-bottom: 1px dashed var(--line);
+    }
+    .help-ways li:last-child {
+      border-bottom: none;
+    }
+    /* 帯の色の凡例は、実際の期限バーと同じトークンで塗る（説明と現物をズラさない） */
+    .help-legend {
+      list-style: none;
+      margin: 8px 0 0;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.75;
+      color: var(--ink-2);
+    }
+    .help-legend li {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 5px;
+    }
+    .help-legend .lg {
+      flex: 0 0 auto;
+      width: 28px;
+      height: 9px;
+      border-radius: 999px;
+    }
+    .help-legend .lg.safe {
+      background: var(--safe);
+    }
+    .help-legend .lg.lamp {
+      background: var(--lamp);
+    }
+    .help-legend .lg.danger {
+      background: var(--danger);
+    }
+    .help-legend .lg.unknown {
+      background: repeating-linear-gradient(45deg,var(--card2) 0 5px,var(--line) 5px 7px);
+      border: 1px solid var(--line);
+    }
+    .help-acts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
     /* ═══ スタンプ（要処理 / 確定） ═══ */
     .stamp {
       display: inline-block;
@@ -961,7 +1048,8 @@
       white-space: nowrap;
       cursor: pointer;
     }
-    .tpl-save {
+    .tpl-save,
+    .inv-perm {
       display: flex;
       align-items: flex-start;
       gap: 7px;
@@ -969,7 +1057,8 @@
       font-size: 13px;
       font-weight: 600;
     }
-    .tpl-save input {
+    .tpl-save input,
+    .inv-perm input {
       width: auto;
       flex: 0 0 auto;
       margin-top: 3px;
@@ -1094,13 +1183,37 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 10px;
+      /* 名前＋バッジ＋2ボタンは 320px で1行に入らないので折り返す */
+      flex-wrap: wrap;
+      gap: 8px 10px;
       padding: 9px 0;
       border-bottom: 1px solid var(--line);
       font-size: 14px;
     }
     .inv-row:last-child {
       border-bottom: none;
+    }
+    .inv-acts {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-left: auto;
+    }
+    /* 共有の権限バッジ。編集可だけ safe 系で目立たせ、閲覧のみは中立色にする。 */
+    .role-badge {
+      display: inline-block;
+      font-size: 11.5px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 2px 9px;
+      background: var(--card2);
+      color: var(--soft);
+      white-space: nowrap;
+    }
+    .role-badge.editor {
+      background: var(--safe-soft);
+      color: var(--safe-ink);
     }
     .modal-foot {
       margin-top: 20px;
@@ -1579,11 +1692,23 @@
       .tpl-note,
       .tpl-row .pl,
       .line-howto,
-      .line-count {
+      .line-count,
+      .role-badge {
         font-size: 13px;
       }
-      .tpl-save {
+      .tpl-save,
+      .inv-perm {
         font-size: 14px;
+      }
+      /* 使い方は読み物なので、モバイルでは本文と同じ 13.5px まで上げる */
+      .help-p,
+      .help-steps,
+      .help-ways,
+      .help-legend {
+        font-size: 13.5px;
+      }
+      .help-lead {
+        font-size: 14.5px;
       }
       .line-step-h {
         font-size: 14px;
@@ -1769,6 +1894,103 @@
           </div>
         </div>
       </section>
+
+      <!-- 使い方: マイページと同じページビュー。LINE の /#help からも開く。 -->
+      <section id="helpPage" style="display:none">
+        <div class="page-head">
+          <a class="back-link" id="helpBack">‹ 台帳へ戻る</a>
+          <h2>使い方</h2>
+        </div>
+        <div class="pagecard">
+          <p class="help-lead">plancelは、まだ決めていない予約と「無料で戻れる最終日」をまとめて見張るための台帳です。</p>
+
+          <div class="sec">
+            <div class="sec-h">1. 何のためのアプリか</div>
+            <p class="help-p">旅行や食事の予定は、とりあえず何軒か押さえておくことがよくあります。plancelはその候補をまとめて置いておき、<b>お金がかからないうちに要らない予約を落とす</b>ところまで見届けます。</p>
+            <p class="help-p">例：8月の宿を2軒キープ→片方に決める→もう片方を7/31までにキャンセル。この「7/31までに」を忘れないためのアプリです。</p>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">2. 束ねる→1つ確定→残りを期限内にキャンセル</div>
+            <ol class="help-steps">
+              <li><b>束ねる</b>：予約を追加するとき、同じ「プラン名」（例：8月の宿）を付けると候補がひとまとまりになります。</li>
+              <li><b>確定する</b>：決まった1件で「これで確定」を押します。</li>
+              <li><b>落とす</b>：同じプランの残りが自動で「要キャンセル」になり、「今日やること」に並びます。宿や店に連絡したら「✓キャンセルした」を押して記録します。</li>
+            </ol>
+            <p class="help-p">plancelが代わりに解約の連絡をすることはありません。連絡はご自身で、その結果をここに記録する、という分担です。</p>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">3. 帯（タイムライン）の読み方</div>
+            <p class="help-p">予約ごとの細い帯は、左端が今日・右端が予約日です。色は、その時点でキャンセルしたら何％かかるかを表します。</p>
+            <ul class="help-legend">
+              <li><span class="lg safe"></span>緑：0％。まだ無料で戻れます。</li>
+              <li><span class="lg lamp"></span>琥珀：一部かかります（30％・50％など）。</li>
+              <li><span class="lg danger"></span>赤：全額。もう戻せません。</li>
+              <li><span class="lg unknown"></span>斜線：規定が不明。期限を見張れないので、入れてください。</li>
+            </ul>
+            <p class="help-p"><b>◆</b>は無料で戻れる最終日の位置です。左に寄っているほど締切が近いという合図で、帯の下の真ん中の文字（例：◆7/31(木) ¥0で戻れる最終日）が、それを日付で書いたものです。両端の文字は「今日」と予約日です。</p>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">4. 予約の入れ方は4通り</div>
+            <ul class="help-ways">
+              <li><b>📧 予約確認メールを貼り付け</b>：予約サイトのメール本文をそのまま貼るだけ。店名・日時・場所・金額・キャンセル規定まで読み取れるので、いちばん確実です。</li>
+              <li><b>📷 スクショ・写真から読み取り</b>：予約画面やカレンダー画面の写真からも読み取れます。<b>TimeTreeはスクショが唯一の道です</b>（アプリから.icsを書き出せないため）。iPhoneのカレンダーも同じくスクショが確実です。</li>
+              <li><b>📅 .icsファイル</b>：Googleカレンダーなどから書き出した.icsを選ぶと、今後の予定をまとめて登録します。書き出せるのはパソコンのブラウザだけです。</li>
+              <li><b>✎ 手動で追加</b>：「＋手動で追加」から1件ずつ。読み取りが難しいときの最後の手段です。</li>
+            </ul>
+            <p class="help-p">どの方法でも登録の前に確認画面が出ます。読み取りが外れていたら、その場で直してから登録してください。</p>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">5. キャンセル規定の入れ方</div>
+            <p class="help-p">予約の追加・編集画面の「キャンセル料」で選びます。ここが空だと、期限を見張れません。</p>
+            <ul class="help-ways">
+              <li><b>不明（あとで）</b>：わからないうちはこれ。帯が斜線になり、「今日やること」に補完のお願いが並びます。</li>
+              <li><b>いつでも無料</b>・<b>前日まで無料</b>：よくある2つはボタン1つで入ります。</li>
+              <li><b>期限つき（日数で指定）</b>：「無料でキャンセルできるのは〇日前まで」を入れ、途中で料率が変わるなら「＋段階を足す」で足します。例：7日前まで無料→3日前まで30％→当日100％。入力の下に、できあがった規定が文章で出ます。</li>
+            </ul>
+            <p class="help-p">同じ宿・同じ店をまた予約するなら、登録のときに「この規定を『◯◯』の既定として保存する」にチェックを入れてください。次に同じ施設名を入れた時点で規定が自動で入ります。保存した既定は、マイページの「施設ごとのキャンセル規定（既定）」で確認・削除できます。</p>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">6. LINEでのお知らせと連携</div>
+            <p class="help-p">無料キャンセルの期限が近づくと、plancelの公式アカウントからLINEでお知らせが届きます。受け取るまでは2手順です。</p>
+            <ol class="help-steps">
+              <li>LINEでplancelを友だち追加する（LINE ID：@791wbdma）。</li>
+              <li>「連携と通知」でコードを発行し、そのコードをplancelとのトークに送る。</li>
+            </ol>
+            <p class="help-p">連携は人ごとです。予約を共有している方も、それぞれご自分のLINEでお知らせを受け取れます。トークに届く案内からは、取り込み画面やこの使い方をそのまま開けます。</p>
+            <div class="help-acts"><button class="btn-ghost" id="helpOpenLink">連携と通知をひらく</button></div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">7. 共有と編集の権限</div>
+            <p class="help-p">予約行の「招待」から、メールアドレスかユーザーID（完全一致）で相手を追加します。相手の台帳にもその予約が並び、期限のお知らせもそれぞれのLINEに届きます。</p>
+            <p class="help-p">招待するときに<b>「編集を許可する」</b>にチェックを入れると、相手も日時・金額・場所などを直せます。チェックしなければ閲覧のみです。あとから変えたくなったら、招待画面の一覧で「編集を許可」・「閲覧のみにする」を切り替えられます。</p>
+            <p class="help-p"><b>確定・キャンセル・削除・招待はオーナーだけ</b>です。プラン全体が動いてしまう操作なので、共有された側には開いていません。</p>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">8. カレンダーへの反映</div>
+            <p class="help-p">確定した予約だけを、お使いのカレンダーに出せます。「連携と通知」から2通りです。</p>
+            <ul class="help-ways">
+              <li><b>購読URL</b>：iPhone・Google・TimeTreeなど、どのカレンダーでも使えます。反映の速さはカレンダー側の巡回しだいです（iCloudは15分ほど、Googleは数時間）。</li>
+              <li><b>Googleカレンダー連携</b>：Googleアカウントをつなぐと、専用の「plancel」カレンダーに即時反映されます。</li>
+            </ul>
+            <p class="help-p">これは出す方向（plancel→カレンダー）の設定です。カレンダーから取り込む.icsとは逆向きなので、混同しないでください。</p>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">はじめかた</div>
+            <div class="help-acts">
+              <button class="btn-primary" id="helpStartImport">予約を取り込む</button>
+              <button class="btn-ghost" id="helpStartAdd">手動で1件追加する</button>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <nav class="bottomnav">
@@ -1797,6 +2019,7 @@
         <input id="f_service" placeholder="例: 湖畔の湯宿 蛍">
         <label>場所（任意）</label>
         <input id="f_location" placeholder="店名・住所など。入れると地図リンクになります">
+        <div class="hint" style="margin:4px 0 0">Googleマップの共有リンク（https://maps.app.goo.gl/… など）を貼ると、その1点をそのまま開けます。地名だけのときは店名と組み合わせて検索します。</div>
         <div class="two">
           <div><label>予約日 <span class="req">*</span></label><input id="f_date" type="date"></div>
           <div><label>時刻</label><input id="f_time" type="time" value="18:00"></div>
@@ -1965,7 +2188,7 @@
       <div class="modal">
         <div class="modal-head"><h3>連携と通知</h3><button class="x" data-close>×</button></div>
 
-        <div class="sec" style="margin-top:0;padding-top:0;border-top:none">
+        <div class="sec" id="calLineSec" style="margin-top:0;padding-top:0;border-top:none">
           <div class="sec-h">① 締切のお知らせを LINE で受け取る</div>
           <p class="hint" style="margin:0 0 10px">無料キャンセルの期限が近づくと、plancel の公式アカウントから LINE でお知らせが届きます。連携すると<b>あなたあてのお知らせは、あなたの LINE に届きます</b>。台帳を共有している方も、それぞれご自分の LINE で受け取れます。</p>
           <div class="line-step" style="margin-top:0">
@@ -2033,12 +2256,14 @@
     <div class="overlay" id="inviteOverlay">
       <div class="modal" style="max-width:440px">
         <div class="modal-head"><h3>予約に招待</h3><button class="x" data-close>×</button></div>
-        <p class="hint" style="margin-bottom:8px">メールアドレスまたはユーザーID（完全一致）で検索して追加します。追加された相手の台帳にこの予約が共有表示されます（相手は閲覧のみ）。</p>
+        <p class="hint" style="margin-bottom:8px">メールアドレスまたはユーザーID（完全一致）で検索して追加します。追加された相手の台帳にこの予約が共有表示され、期限のお知らせもその方のLINEに届きます。</p>
         <label>メールアドレスまたはユーザーID</label>
         <div style="display:flex;gap:8px">
           <input id="inv_q" placeholder="you@example.com ／ planceluser" style="flex:1" autocomplete="off">
           <button class="btn-primary" id="inv_add" style="flex:0 0 auto;white-space:nowrap">検索して追加</button>
         </div>
+        <label class="inv-perm"><input type="checkbox" id="inv_role"><span>編集を許可する（日時・金額・場所などの修正）</span></label>
+        <div class="hint" style="margin:4px 0 0">確定・キャンセル・削除・招待はオーナーだけが行えます。</div>
         <div class="hint" id="inv_msg" style="margin-top:6px;min-height:16px"></div>
         <label style="margin-top:12px">共有中の相手</label>
         <div id="inv_members"></div>
@@ -2074,11 +2299,16 @@
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
       if (!res.ok) {
-        let m;
+        let body = null;
         try {
-          m = (await res.json()).error;
+          body = await res.json();
         } catch (e) {}
-        throw new Error(m || ("HTTP " + res.status));
+        // 共有予約の権限エラーは 403 + {reason:"role", role:"viewer"} で返る。error 名
+        // （"forbidden"）だけでは理由がわからないので、status と本文も添えて投げる。
+        const err = new Error((body && body.error) || ("HTTP " + res.status));
+        err.status = res.status;
+        err.body = body || {};
+        throw err;
       }
       // DELETE /api/policy-templates/<facility> は 204（本文なし）を返すので、
       // json() に渡すと落ちる。本文がない成功は null を返す。
@@ -2087,6 +2317,14 @@
     }
     let data = [];
     let editingId = null;
+    // 失敗を人の言葉にする。権限不足（403 reason:"role"）はそれ自体が説明になっている
+    // ので、汎用の前置き（「失敗しました: 」など）は付けずにそのまま出す。
+    function apiErrorText(e, prefix) {
+      if (e && e.status === 403 && e.body && e.body.reason === "role") {
+        return "この共有予約を編集する権限がありません（閲覧のみ）。";
+      }
+      return prefix + ((e && e.message) || "不明なエラー");
+    }
 
     // ---- キャンセル規定モデル: src/web/policy.ts の写し。ロックステップ必須 ----
     // 規定は プリセット名（unknown / none / free24 / staged）か、任意の段階表
@@ -2401,10 +2639,69 @@
       }
       const todo = active.filter((r) => r.status === "to_cancel").length;
       q("#todoCount").textContent = todo + "件";
-      q("#rail").innerHTML = (items.length
-        ? items.join("")
-        : `<div class="rail-item soft"><div class="ds">今やることはありません。よくできました。</div></div>`) +
+      q("#rail").innerHTML = (items.length ? items.join("") : railIdleHtml(active, now)) +
         `<div class="rail-done">処理済み ${doneCount}件</div>`;
+    }
+    // 日付の境目で数える残り日数（時刻差ではないので「あと0日」が出ない）
+    const dayStart = (ms) => new Date(ms).setHours(0, 0, 0, 0);
+    const daysUntil = (target, now) => Math.round((dayStart(target) - dayStart(now)) / DAY);
+    // やることが空のときの1枚。ほめずに「次にいつ何が来るか」を出す（オーナー 2026-07-28）。
+    // ①先にある無料期限 → ②次の予約 → ③どちらも無いときの中立の一言、の順に選ぶ。
+    // now は render() から渡ってくる同じ値を使うので、追加のタイマーは要らない。
+    function railIdleHtml(active, now) {
+      const mine = active.filter((r) => !r.shared);
+      const ahead = mine.map((r) => ({ r, dl: freeDeadline(r) }))
+        .filter((x) => x.dl && x.dl > now).sort((a, b) => a.dl - b.dl);
+      if (ahead.length) {
+        const r = ahead[0].r, dl = ahead[0].dl, d = daysUntil(dl, now);
+        const lb = d <= 0
+          ? "◆無料期限は今日まで"
+          : (d === 1 ? "◆無料期限は明日まで" : `◆無料期限まであと${d}日`);
+        const pen = penaltyAfterFree(r);
+        return `<div class="rail-item soft"><div class="lb lamp">${lb}</div><div class="tt"><b>${
+          esc(r.service)
+        }</b>を¥0で戻せるのは${fmtDate(dl)}まで</div><div class="ds">${
+          pen ? `過ぎると最低 ${yen(pen)} かかります。` : "過ぎるとキャンセル料がかかります。"
+        }それまでは何もしなくて大丈夫です。</div></div>`;
+      }
+      const next = mine.filter((r) => startMs(r) > now)
+        .sort((a, b) => startMs(a) - startMs(b))[0];
+      if (next) {
+        const start = startMs(next), d = daysUntil(start, now);
+        const tt = d <= 0
+          ? `次は<b>${esc(next.service)}</b>、今日です（${fmtDate(start)}）`
+          : (d === 1
+            ? `次は<b>${esc(next.service)}</b>、明日です（${fmtDate(start)}）`
+            : `次は<b>${esc(next.service)}</b>まであと${d}日（${fmtDate(start)}）`);
+        // ここに来る時点で「先にある無料期限」は無い（＝いつでも無料か、期限が過ぎたか）。
+        return `<div class="rail-item soft"><div class="lb muted">次の予約</div><div class="tt">${tt}</div><div class="ds">${
+          alwaysFree(next)
+            ? "この予約はいつでも無料でキャンセルできます。"
+            : "無料で戻せる期限は、この予約にはもう残っていません。"
+        }</div></div>`;
+      }
+      return `<div class="rail-item soft"><div class="ds">今やることはありません。予定している予約もまだありません。</div></div>`;
+    }
+    // ---- 場所リンク（オーナー 2026-07-28「白馬ハイランドの場所が『白馬』だと村全体が開く」）----
+    // location が URL（Google マップの共有リンク＝ maps.app.goo.gl / google.com/maps）
+    // なら、貼られた1点をそのまま開く。生の URL は読めないので表示は「地図を開く」に
+    // 置き換える。URL でなければ「店名 場所」で検索して、地名だけでも施設に着地させる
+    // （location に既に店名が入っているときは重ねない）。ICS / Google カレンダー側の
+    // リンクはサーバが作るので、ここでは触らない。
+    const isHttpUrl = (s) => /^https?:\/\//i.test(s);
+    function mapsHref(r) {
+      const loc = String(r.location || "").trim();
+      if (isHttpUrl(loc)) return loc;
+      const service = String(r.service || "").trim();
+      const query = service && !loc.includes(service) ? service + " " + loc : loc;
+      return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(query);
+    }
+    function locationHtml(r) {
+      const loc = String(r.location || "").trim();
+      if (!loc) return "";
+      return `<div class="sub"><a href="${esc(mapsHref(r))}" target="_blank" rel="noopener">📍 ${
+        isHttpUrl(loc) ? "地図を開く" : esc(loc)
+      }</a></div>`;
     }
     function rowHtml(r) {
       const now = Date.now(),
@@ -2437,19 +2734,19 @@
         ? ` ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
         : "";
       const sub = `${fmtDate(start)}${timeS} · ${r.amount ? yen(r.amount) : "金額未定"}`;
-      const locLink = r.location
-        ? `<div class="sub"><a href="https://www.google.com/maps/search/?api=1&query=${
-          encodeURIComponent(r.location)
-        }" target="_blank" rel="noopener">📍 ${esc(r.location)}</a></div>`
-        : "";
+      const locLink = locationHtml(r);
       const off = r.status === "to_cancel" ? " off" : "";
       const cut = r.status === "to_cancel" ? ` <span class="cut">✂ 要キャンセル</span>` : "";
-      // 共有された予約（自分はメンバー）: 操作は「脱退」のみ。オーナー表示名を行内に出す。
+      // 共有された予約（自分はメンバー）: オーナー表示名を行内に出す。編集を許された
+      // メンバー（role==="editor"）だけ「編集」を出す。確定・キャンセル・削除・招待は
+      // オーナー専用なので、editor にも出さない（サーバも 403 で弾く）。
       if (r.shared) {
+        const canEdit = r.shared.role === "editor";
+        const shareTools = canEdit ? `<div class="tools"><a data-edit="${r.id}">編集</a></div>` : "";
         return `<div class="resv${off}">
         <div><div class="name"><b>${esc(r.service)}</b>${cut}</div><div class="sub">${sub}</div>${locLink}<div class="share-tag">共有: ${
           esc(r.shared.ownerDisplayName)
-        }</div></div>
+        }${canEdit ? "・編集可" : ""}</div>${shareTools}</div>
         <div>${track}${cap}</div>
         <div class="ract"><button class="rowbtn" data-leave="${r.id}">脱退</button></div></div>`;
       }
@@ -2480,16 +2777,19 @@
       try {
         await api(method, path, body);
       } catch (e) {
-        alert("失敗しました: " + e.message);
+        alert(apiErrorText(e, "失敗しました: "));
       }
       await refresh();
     }
 
     // ---- invite / share ----
     let inviteResvId = null;
+    const roleLabel = (role) => role === "editor" ? "編集可" : "閲覧のみ";
     function openInvite(id) {
       inviteResvId = id;
       q("#inv_q").value = "";
+      // 既定は閲覧のみ。前の招待のチェックを持ち越して、うっかり編集権を配らない。
+      q("#inv_role").checked = false;
       q("#inv_msg").textContent = "";
       q("#inv_members").innerHTML = "";
       q("#inviteOverlay").classList.add("on");
@@ -2503,17 +2803,42 @@
           el.innerHTML = `<div class="hint" style="padding:6px 0">まだ共有している相手はいません。</div>`;
           return;
         }
-        el.innerHTML = j.members.map((m) =>
-          `<div class="inv-row"><span>${esc(m.displayName || m.uid || "ユーザー")}${
-            m.uid ? ` <span class="hint">@${esc(m.uid)}</span>` : ""
-          }</span><button class="rowbtn danger" data-remove="${m.userId}">外す</button></div>`
-        ).join("");
+        // label はサーバが作った表示名（メールアドレスは絶対に入らない）。
+        el.innerHTML = j.members.map((m) => {
+          const editor = m.role === "editor";
+          const next = editor ? "viewer" : "editor";
+          return `<div class="inv-row"><span>${
+            esc(m.label || "共有ユーザー")
+          }</span><span class="inv-acts"><span class="role-badge${editor ? " editor" : ""}">${
+            roleLabel(m.role)
+          }</span><button class="rowbtn" data-grade="${m.userId}" data-next="${next}">${
+            editor ? "閲覧のみにする" : "編集を許可"
+          }</button><button class="rowbtn danger" data-remove="${m.userId}">外す</button></span></div>`;
+        }).join("");
+        // 権限の変更は再招待では起きない（サーバは既存メンバーの role を書き換えない）
+        // ので、必ずこの PATCH を通す。
+        el.querySelectorAll("[data-grade]").forEach((b) =>
+          b.onclick = async () => {
+            try {
+              await api("PATCH", `/api/reservations/${inviteResvId}/members/${b.dataset.grade}`, {
+                role: b.dataset.next,
+              });
+              q("#inv_msg").textContent = b.dataset.next === "editor"
+                ? "編集を許可しました。"
+                : "閲覧のみに戻しました。";
+            } catch (e) {
+              q("#inv_msg").textContent = apiErrorText(e, "権限を変えられませんでした: ");
+            }
+            await loadMembers();
+            await refresh();
+          }
+        );
         el.querySelectorAll("[data-remove]").forEach((b) =>
           b.onclick = async () => {
             try {
               await api("DELETE", `/api/reservations/${inviteResvId}/members/${b.dataset.remove}`);
             } catch (e) {
-              alert("外せませんでした: " + e.message);
+              alert(apiErrorText(e, "外せませんでした: "));
             }
             await loadMembers();
             await refresh();
@@ -2529,16 +2854,21 @@
         q("#inv_msg").textContent = "メールアドレスかユーザーIDを入力してください。";
         return;
       }
+      const role = q("#inv_role").checked ? "editor" : "viewer";
       try {
-        await api("POST", `/api/reservations/${inviteResvId}/members`, { q: val });
+        const j = await api("POST", `/api/reservations/${inviteResvId}/members`, { q: val, role });
         q("#inv_q").value = "";
-        q("#inv_msg").textContent = "追加しました。";
+        // member が返らないのは「すでにメンバー」か「自分自身」。再招待では権限が
+        // 変わらないので、下の一覧の切替へ誘導する。
+        q("#inv_msg").textContent = (j && j.member)
+          ? `追加しました（${roleLabel(j.member.role)}）。`
+          : "すでに共有ずみです。権限は下の一覧から切り替えられます。";
         await loadMembers();
         await refresh();
       } catch (e) {
         q("#inv_msg").textContent = e.message === "user_not_found"
           ? "そのメールアドレス・ユーザーIDのユーザーは見つかりませんでした（完全一致のみ）。"
-          : ("追加できませんでした: " + e.message);
+          : apiErrorText(e, "追加できませんでした: ");
       }
     };
 
@@ -2841,10 +3171,25 @@
     );
     q("#addBtn").onclick = () => openAdd();
     q("#importBtn").onclick = openImport;
-    q("#helpBtn").onclick = () =>
-      alert(
-        "使い方\n\n1. 候補を複数「予約を追加」でプランに束ねる\n2. 決まったら「これで確定」→ 同プランの残りが自動で要キャンセルに\n3. タイムラインの◆（無料期限）を過ぎる前にキャンセルを実施\n\n取り込み: メール本文の貼り付け・.ics・スクショから自動登録できます。\nデータはあなたのトークンでサーバに保存。別端末は同じトークンで開けます。",
-      );
+    // 使い方はページビュー（#helpPage）。開いている modal は閉じてから切り替える。
+    function openHelp() {
+      closeAll();
+      setView("help");
+    }
+    q("#helpBtn").onclick = openHelp;
+    q("#helpBack").onclick = () => setView("ledger");
+    q("#helpOpenLink").onclick = () => {
+      setView("ledger");
+      if (ME) q("#calBtn").onclick();
+    };
+    q("#helpStartImport").onclick = () => {
+      setView("ledger");
+      openImport();
+    };
+    q("#helpStartAdd").onclick = () => {
+      setView("ledger");
+      openAdd();
+    };
 
     q("#f_submit").onclick = async () => {
       const service = q("#f_service").value.trim(), date = q("#f_date").value;
@@ -2887,7 +3232,9 @@
           });
         }
       } catch (e) {
-        alert("失敗しました: " + e.message);
+        // 共有予約を「閲覧のみ」で編集しようとしたときは 403 が返る（rowHtml は編集を
+        // 出さないが、権限がその場で降格されることはある）。
+        alert(apiErrorText(e, "失敗しました: "));
         return;
       }
       // 既定の保存は予約が通ったあと。ここで失敗しても予約は成立させ、知らせるだけ。
@@ -2900,6 +3247,8 @@
         }
       }
       closeAll();
+      // PATCH の返り値には `shared` が付かない（オーナー台帳のレコードそのもの）ので、
+      // 手元の data に差し込むと共有バッジが消える。必ず一覧を取り直す。
       await refresh();
       if (tplError !== null) {
         alert(
@@ -3442,7 +3791,7 @@
             ? "Google 未連携。紐付けると Google でもログインできます。"
             : "Google 未連携（このアカウントはメール登録のみ）。紐付けるとアカウントの本人確認も完了します。"));
       loadTemplates();
-      setView(true);
+      setView("profile");
     };
     // 表示名・ユーザーID・別ログイン用メールの3つを1回で保存する（ボタンはプロフィール
     // セクションの末尾＝メール欄の上にあるが、押した時点の値を読むので3つとも保存される）。
@@ -3595,21 +3944,23 @@
       applyTheme(theme);
     };
     q("#todayChip").textContent = fmtDate(Date.now());
-    // 台帳 / マイページのページ切替（マイページはモーダルではなくページ）
-    function setView(profile) {
-      q("#ledgerView").style.display = profile ? "none" : "";
+    // 台帳 / マイページ / 使い方 のページ切替（どれもモーダルではなくページ）
+    function setView(view) {
+      const profile = view === "profile", help = view === "help";
+      q("#ledgerView").style.display = (profile || help) ? "none" : "";
       q("#profilePage").style.display = profile ? "" : "none";
-      q("#bnLedger").classList.toggle("active", !profile);
+      q("#helpPage").style.display = help ? "" : "none";
+      q("#bnLedger").classList.toggle("active", !profile && !help);
       q("#bnProfile").classList.toggle("active", profile);
       scrollTo({ top: 0 });
     }
-    q("#profileBack").onclick = () => setView(false);
+    q("#profileBack").onclick = () => setView("ledger");
     q("#bnLedger").onclick = () => {
-      setView(false);
+      setView("ledger");
       scrollTo({ top: 0, behavior: "smooth" });
     };
     q("#bnDone").onclick = () => {
-      setView(false);
+      setView("ledger");
       const el = document.querySelector(".cancelled-sec");
       if (el) el.scrollIntoView({ behavior: "smooth" });
     };
@@ -3755,6 +4106,35 @@
       q("#pwaUpdateBtn").disabled = true;
     }
 
+    // ---- LINE の返信に載るディープリンク（/#import・/#link・/#help）----
+    // 開いたらフラグメントは消す（再読み込みで勝手に開き直さないため）。知らない
+    // フラグメントは何もしない＝通常どおり台帳を出す。ログイン前は消さずに素通りし、
+    // ログイン後の boot() で効かせる。
+    function routeHash() {
+      const h = location.hash;
+      if (h !== "#import" && h !== "#link" && h !== "#help") return;
+      if (!ME) return;
+      history.replaceState(null, "", location.pathname + location.search);
+      if (h === "#help") {
+        openHelp();
+        return;
+      }
+      setView("ledger");
+      if (h === "#import") {
+        closeAll();
+        openImport();
+        return;
+      }
+      closeAll();
+      q("#calBtn").onclick();
+      // ①の LINE の節から読み始められるようにする（前に開いたときのスクロール位置を
+      // 引きずらない）。連携モーダルは .modal の内側がスクロールする。
+      const modal = q("#calOverlay .modal");
+      if (modal) modal.scrollTop = 0;
+      q("#calLineSec").scrollIntoView({ block: "nearest" });
+    }
+    addEventListener("hashchange", routeHash);
+
     // boot: session check -> (adopt legacy token once) -> app, else login
     const AUTH_ERRORS = {
       link_expired: "ログインリンクの有効期限が切れています。もう一度送信してください。",
@@ -3809,6 +4189,7 @@
         }
       }
       await refresh();
+      routeHash();
     }
     boot();
     </script>
