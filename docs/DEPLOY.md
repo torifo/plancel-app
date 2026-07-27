@@ -120,9 +120,24 @@ TOKEN/SECRET/KEY を含む名前は Deploy が自動で secret 扱いにする�
 | `LINE_ALLOWED_USER_IDS`     | **旧** | **レガシー（2026-07-27）。ユーザー毎の LINE 連携（§4）が認可になったので不要 — 本番からは削除する。** 残した場合、**未連携**の送信者だけを絞る追加制限として働き、連携済みユーザーは絶対にブロックしない（`deno task line` 単体モードのみ従来どおり唯一の許可リスト） |
 | `PLANCEL_OWNER_USER_ID`     | 任意 | **コア台帳** cron 通知（`selectNotifier`）の push 先。省略時は許可リストの先頭。Web台帳の期限リマインドは各ユーザー自身の連携済み LINE へ飛ぶので、この変数は関係ない |
 | `PLANCEL_EMAIL_TO`          | 任意 | LINE 未設定時の Email 通知先（`RESEND_API_KEY` + `PLANCEL_EMAIL_FROM` と合わせて cron 通知の Email フォールバック） |
+| `PLANCEL_EMAIL_DAILY_CAP`   | 任意 | 期限リマインドの **1日あたり Email 送信数上限**（既定 **90**）。用途: Resend の日100通上限に当てないための自前ガード。到達分は**翌日に繰り越し**（マーカーを書かないので翌日の sweep で再送）。未設定・0・数値でない値は既定値にフォールバックする（打ち間違いでリマインドが黙って止まらないように） |
 
 > `RESEND_API_KEY` + `PLANCEL_EMAIL_FROM` はマジックリンク送信と cron の Email 通知を兼ねる。
 > `PLANCEL_EMAIL_TO` が加わると cron 通知の宛先になる。
+
+**期限リマインドの送信枠（オーナー 2026-07-27「知人優先で枠を使いたい」）**
+Web台帳の無料キャンセル期限リマインド（`src/web/notify.ts`、15分 cron）は Resend
+無料枠（日100通）の唯一の大口消費者なので、次の2段構えで枠を守る。
+
+- **ユーザーごとに1通へバンドル**: 同じ sweep で期限を跨いだ予約が複数あっても、送るのは1通だけ
+  （件名は「無料キャンセル期限が近い予約が3件あります」、本文は1予約1行 =
+  サービス/開始/◆無料期限/期限後の金額）。冪等マーカーは**予約ごとに**据え置きで、その1通の送信が
+  成功した後にまとめて書く（失敗時は1件も書かないので、次の sweep で束ごと再送される）。
+- **保証リスト優先**: 送信順は `PLANCEL_ALLOWED_EMAILS`（保証リスト = 知人）→ それ以外、各グループ内は
+  ユーザーID順。上限に当たった時点で打ち切られるので、**知人には必ず先に届いている**。
+- 日次カウンタは KV `["email_quota", <Asia/Tokyo の YYYY-MM-DD>]`（`expireIn` 約3日、Email 送信成功
+  時のみ +1）。**LINE 連携済みユーザーは対象外** — LINE push は別クォータで Resend を消費しない。
+  上限到達時は `web.notify` に `warn`（"daily email cap reached; deferring to the next JST day"）。
 
 ## 4. 認証（ログイン一本化）
 

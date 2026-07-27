@@ -15,7 +15,19 @@ interface Sent {
   text: string;
 }
 
-function makeDeps(kv: Deno.Kv, sent: Sent[], nowMs = NOW): NotifyDeps {
+/** Quota / priority knobs — injected, never read from env by notify.ts. */
+interface QuotaOpts {
+  emailDailyCap?: number;
+  allowedEmails?: ReadonlySet<string>;
+  logWrite?: (line: string) => void;
+}
+
+function makeDeps(
+  kv: Deno.Kv,
+  sent: Sent[],
+  nowMs = NOW,
+  opts: QuotaOpts = {},
+): NotifyDeps {
   return {
     kv,
     nowMs,
@@ -24,8 +36,18 @@ function makeDeps(kv: Deno.Kv, sent: Sent[], nowMs = NOW): NotifyDeps {
       sent.push({ email, subject, text });
       return Promise.resolve();
     },
+    ...(opts.emailDailyCap !== undefined ? { emailDailyCap: opts.emailDailyCap } : {}),
+    ...(opts.allowedEmails !== undefined ? { allowedEmails: opts.allowedEmails } : {}),
+    ...(opts.logWrite !== undefined ? { logWrite: opts.logWrite } : {}),
   };
 }
+
+/** True when the `boundary24` idempotency marker exists for this reservation. */
+async function notified(kv: Deno.Kv, userId: string, resvId: string): Promise<boolean> {
+  return (await kv.get(["web_notified", userId, resvId, "boundary24"])).value !== null;
+}
+
+const quotaAt = (kv: Deno.Kv, date: string) => kv.get(["email_quota", date]);
 
 /** Adds the per-user LINE push route to a deps object (LINE v2 #1). */
 function withLine(
@@ -250,5 +272,174 @@ Deno.test("retries on the next sweep when the LINE push fails", async () => {
     assertEquals(await sweepDeadlineNotifications(withLine(base, pushed)), 1);
     assertEquals(pushed.length, 1);
     assertEquals(pushed[0]?.to, "U-owner");
+  });
+});
+
+// ---- bundling + daily email cap (owner 2026-07-27, 「知人優先で枠を使いたい」) ----
+
+// ⑪ three reservations crossing in ONE sweep cost ONE Resend send, and every
+// one of them gets its marker.
+Deno.test("bundles every reservation crossing in one sweep into a single message", async () => {
+  await withKv(async (kv) => {
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
+    // free24 deadline = start − 24h → all three land inside the next 24h.
+    await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
+    await putResv(kv, u.ledgerId, "R2", "free24", "confirmed", NOW + 40 * H);
+    await putResv(kv, u.ledgerId, "R3", "free24", "to_cancel", NOW + 44 * H);
+    const sent: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
+    assertEquals(sent.length, 1);
+    assertEquals(sent[0]?.subject, "[plancel] 無料キャンセル期限が近い予約が3件あります");
+    for (const id of ["R1", "R2", "R3"]) {
+      assertEquals(sent[0]?.text.includes(`svc-${id}`), true);
+      assertEquals(await notified(kv, u.id, id), true);
+    }
+    // One bundle, not three concatenated mails: the link appears exactly once.
+    assertEquals(sent[0]?.text.split("plancel で確認").length, 2);
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 0);
+    assertEquals(sent.length, 1);
+  });
+});
+
+// ⑫ one reservation still reads as a sentence — never 「1件あります」.
+Deno.test("a single crossing reservation keeps the singular phrasing", async () => {
+  await withKv(async (kv) => {
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
+    await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
+    const sent: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
+    assertEquals(sent[0]?.subject, "[plancel] キャンセル無料期限が近づいています");
+    assertEquals(sent[0]?.text.includes("無料キャンセル期限が近い予約があります。"), true);
+    assertEquals(sent[0]?.text.includes("1件"), false);
+    // free24 の最大料率は 100% → amount 10000 の期限後は ¥10,000。
+    assertEquals(sent[0]?.text.includes("期限後 ¥10,000"), true);
+    assertEquals(await notified(kv, u.id, "R1"), true);
+  });
+});
+
+// ⑬ a failed bundle leaves NO marker behind — a partial success must never
+// drop a member of the bundle silently.
+Deno.test("a failed bundled send writes no markers and retries the whole bundle", async () => {
+  await withKv(async (kv) => {
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
+    await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
+    await putResv(kv, u.ledgerId, "R2", "free24", "candidate", NOW + 40 * H);
+    const sent: Sent[] = [];
+    const lines: string[] = [];
+    const failing: NotifyDeps = {
+      ...makeDeps(kv, sent, NOW, { logWrite: (l) => lines.push(l) }),
+      send: () => Promise.reject(new Error("resend 429")),
+    };
+    assertEquals(await sweepDeadlineNotifications(failing), 0);
+    assertEquals(await notified(kv, u.id, "R1"), false);
+    assertEquals(await notified(kv, u.id, "R2"), false);
+    assertEquals(lines.some((l) => l.includes("will retry")), true);
+    // A failed send also spends none of the day's quota.
+    assertEquals((await quotaAt(kv, "2026-08-01")).value, null);
+    // The recovered send takes both in one message next sweep.
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
+    assertEquals(sent.length, 1);
+    assertEquals(sent[0]?.text.includes("svc-R1"), true);
+    assertEquals(sent[0]?.text.includes("svc-R2"), true);
+    assertEquals(await notified(kv, u.id, "R1"), true);
+    assertEquals(await notified(kv, u.id, "R2"), true);
+  });
+});
+
+// ⑭ cap=1, two email users → only the first is served; the second keeps no
+// marker and goes out on the first sweep of the next JST day.
+// 23:00 JST → 01:00 JST の2時間だけ進める（24h 進めると期限が窓の外に出る）。
+const CAP_NOW = Temporal.Instant.from("2026-08-01T14:00:00Z").epochMilliseconds;
+const CAP_NEXT_JST_DAY = Temporal.Instant.from("2026-08-01T16:00:00Z").epochMilliseconds;
+
+Deno.test("the daily email cap serves the first user and defers the rest a day", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const a = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    const b = await getOrCreateUserByEmail(kv, "b@b.jp", ids);
+    await putResv(kv, a.ledgerId, "RA", "free24", "candidate", CAP_NOW + 36 * H);
+    await putResv(kv, b.ledgerId, "RB", "free24", "candidate", CAP_NOW + 36 * H);
+    const sent: Sent[] = [];
+    const lines: string[] = [];
+    const opts: QuotaOpts = { emailDailyCap: 1, logWrite: (l) => lines.push(l) };
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent, CAP_NOW, opts)), 1);
+    assertEquals(sent.length, 1);
+    assertEquals(sent[0]?.email, "a@b.jp");
+    assertEquals(await notified(kv, a.id, "RA"), true);
+    assertEquals(await notified(kv, b.id, "RB"), false);
+    assertEquals(lines.some((l) => l.includes("daily email cap reached")), true);
+    assertEquals((await quotaAt(kv, "2026-08-01")).value, 1);
+    // Same JST day → still capped.
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent, CAP_NOW, opts)), 0);
+    assertEquals(sent.length, 1);
+    // Next JST day → fresh bucket, b goes out.
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent, CAP_NEXT_JST_DAY, opts)), 1);
+    assertEquals(sent.length, 2);
+    assertEquals(sent[1]?.email, "b@b.jp");
+    assertEquals(await notified(kv, b.id, "RB"), true);
+    assertEquals((await quotaAt(kv, "2026-08-02")).value, 1);
+  });
+});
+
+// ⑮ 知人優先: the 保証リスト user sorts AFTER the stranger by id, and still
+// takes the single available send.
+Deno.test("保証リスト users are served first when the daily cap binds", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const stranger = await getOrCreateUserByEmail(kv, "stranger@b.jp", ids);
+    const known = await getOrCreateUserByEmail(kv, "friend@b.jp", ids);
+    assertEquals(stranger.id < known.id, true); // id order would serve the stranger
+    await putResv(kv, stranger.ledgerId, "RS", "free24", "candidate", NOW + 36 * H);
+    await putResv(kv, known.ledgerId, "RK", "free24", "candidate", NOW + 36 * H);
+    const sent: Sent[] = [];
+    const lines: string[] = [];
+    const deps = makeDeps(kv, sent, NOW, {
+      emailDailyCap: 1,
+      allowedEmails: new Set(["friend@b.jp"]),
+      logWrite: (l) => lines.push(l),
+    });
+    assertEquals(await sweepDeadlineNotifications(deps), 1);
+    assertEquals(sent.length, 1);
+    assertEquals(sent[0]?.email, "friend@b.jp");
+    assertEquals(await notified(kv, known.id, "RK"), true);
+    assertEquals(await notified(kv, stranger.id, "RS"), false);
+  });
+});
+
+// ⑯ LINE push has its own quota: it neither consumes the email cap nor is
+// blocked by an exhausted one.
+Deno.test("LINE-linked users bypass the email daily cap", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const a = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    const b = await getOrCreateUserByEmail(kv, "b@b.jp", ids);
+    await linkLineUser(kv, b.id, "U-b", ids);
+    await putResv(kv, a.ledgerId, "RA", "free24", "candidate", NOW + 36 * H);
+    await putResv(kv, b.ledgerId, "RB", "free24", "candidate", NOW + 36 * H);
+    const sent: Sent[] = [];
+    const pushed: { to: string; text: string }[] = [];
+    // cap=1 is spent by a (id-first); b is pushed to anyway.
+    const deps = withLine(makeDeps(kv, sent, NOW, { emailDailyCap: 1 }), pushed);
+    assertEquals(await sweepDeadlineNotifications(deps), 2);
+    assertEquals(sent.length, 1);
+    assertEquals(pushed.length, 1);
+    assertEquals(pushed[0]?.to, "U-b");
+    assertEquals(await notified(kv, b.id, "RB"), true);
+    // Only the mail was counted.
+    assertEquals((await quotaAt(kv, "2026-08-01")).value, 1);
+  });
+});
+
+// ⑰ 15:30Z is already 00:30 the NEXT day in JST — the counter must follow the
+// Asia/Tokyo date, or a late-evening burst would keep spending yesterday's quota.
+Deno.test("the email quota bucket is the Asia/Tokyo date, not the UTC date", async () => {
+  await withKv(async (kv) => {
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
+    const at = Temporal.Instant.from("2026-08-01T15:30:00Z").epochMilliseconds;
+    await putResv(kv, u.ledgerId, "R1", "free24", "candidate", at + 36 * H);
+    const sent: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent, at)), 1);
+    assertEquals((await quotaAt(kv, "2026-08-02")).value, 1);
+    assertEquals((await quotaAt(kv, "2026-08-01")).value, null);
   });
 });

@@ -29,7 +29,9 @@
  *   PLANCEL_KEK (base64 32B, seals refresh tokens) · PLANCEL_BASE_URL
  *   PLANCEL_DEV_USER (local auto-login) · PLANCEL_ADMIN_TOKEN (smoke tests)
  *   PLANCEL_MAX_USERS (open-signup cap, default 50; 0 = unlimited)
- *   PLANCEL_ALLOWED_EMAILS (comma-separated; always allowed past the cap)
+ *   PLANCEL_ALLOWED_EMAILS (comma-separated; always allowed past the cap, and
+ *     served first by the deadline-reminder sweep)
+ *   PLANCEL_EMAIL_DAILY_CAP (reminder e-mails per JST day, default 90)
  *   PLANCEL_ADMIN_EMAILS (comma-separated; /auth/me carries the 100-user warning)
  *   (RESEND_API_KEY + PLANCEL_EMAIL_FROM also power magic-link login)
  */
@@ -47,7 +49,7 @@ import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../we
 import type { AuthIds } from "../web/users.ts";
 import { handleCalendarFeed, isCalendarFeedPath } from "../web/calendar/ics.ts";
 import { requestSync, sweepDirtySync, type SyncDeps } from "../web/calendar/sync.ts";
-import { sweepDeadlineNotifications } from "../web/notify.ts";
+import { EMAIL_DAILY_CAP_DEFAULT, sweepDeadlineNotifications } from "../web/notify.ts";
 import { loadPwaAssets, servePwaAsset } from "../web/pwa.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
@@ -142,6 +144,12 @@ if (import.meta.main) {
       await res.body?.cancel();
     }
     : null;
+  // 保証リスト (身近な知り合い). Read once: it is both the signup-capacity
+  // bypass and the priority order of the deadline-reminder sweep.
+  const allowedEmails = new Set(
+    (env.get("PLANCEL_ALLOWED_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
   const authDeps: AuthDeps = {
     kv: store.kv,
     ids: authIds,
@@ -166,10 +174,7 @@ if (import.meta.main) {
     // the org quota, and overage pauses BOTH apps). PLANCEL_MAX_USERS=0
     // disables the cap.
     maxUsers: Number(env.get("PLANCEL_MAX_USERS") ?? "50"),
-    allowedEmails: new Set(
-      (env.get("PLANCEL_ALLOWED_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
-        .filter(Boolean),
-    ),
+    allowedEmails,
     adminEmails: new Set(
       (env.get("PLANCEL_ADMIN_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
         .filter(Boolean),
@@ -215,7 +220,18 @@ if (import.meta.main) {
         lineClient.push(lineUserId, [{ type: "text" as const, text }]),
     }
     : null;
-  log.info("web deadline notify channel", { line: webNotifyLine !== null });
+  // Daily EMAIL ceiling (owner 2026-07-27, 「知人優先で枠を使いたい」): reminders
+  // are the only bulk consumer of Resend's free 100/day, so the sweep serves
+  // PLANCEL_ALLOWED_EMAILS first and stops mailing once the cap is reached.
+  // An unset / non-positive / unparsable value keeps the default — a mistyped
+  // env must not silence reminders.
+  const capEnv = Number(env.get("PLANCEL_EMAIL_DAILY_CAP") ?? "");
+  const emailDailyCap = Number.isFinite(capEnv) && capEnv > 0 ? capEnv : EMAIL_DAILY_CAP_DEFAULT;
+  log.info("web deadline notify channel", {
+    line: webNotifyLine !== null,
+    emailDailyCap,
+    guaranteed: allowedEmails.size,
+  });
   // LINE v2 #2/#3: 「確認」and the confirm / cancelled-it Quick Replies operate
   // on the SENDER'S OWN WEB ledger (resolved from their LINE link), through the
   // same store functions + calendar-sync hook the HTTP API uses.
@@ -250,6 +266,8 @@ if (import.meta.main) {
       nowMs: clock.now().epochMilliseconds,
       baseUrl: webNotifyBaseUrl,
       send: webNotifySend,
+      emailDailyCap,
+      allowedEmails,
       ...(webNotifyLine !== null ? { line: webNotifyLine } : {}),
     });
     if (notified > 0) log.info("web deadline notifications sent", { notified });
