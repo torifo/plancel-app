@@ -50,9 +50,13 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
       "cancel_reservation",
       "confirm_reservation",
       "create_reservation",
+      "delete_policy_template",
       "delete_reservation",
+      "list_policy_templates",
       "list_reservations",
+      "lookup_policy_template",
       "restore_reservation",
+      "save_policy_template",
       "update_reservation",
     ]);
 
@@ -76,6 +80,45 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
     assertEquals(calls[2]?.url, "https://plancel.test/api/reservations/R1/confirm");
     assertEquals(calls[3]?.method, "PATCH");
     assertEquals((calls[3]?.body as { location: string }).location, "六本木");
+  });
+});
+
+Deno.test("web-api MCP tools drive the policy-template API with encoded facility names", async () => {
+  const { calls, fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    await client.callTool({
+      name: "save_policy_template",
+      arguments: { facility: "湖畔の湯宿 蛍", policy: { stages: [{ h: 120, pct: 0 }] } },
+    });
+    // The h=0 stage is missing, so the tool rejects locally (no API call).
+    assertEquals(calls.length, 0);
+
+    await client.callTool({
+      name: "save_policy_template",
+      arguments: { facility: "湖畔の湯宿 蛍", policy: "free24" },
+    });
+    await client.callTool({ name: "lookup_policy_template", arguments: { facility: "翠嶺館" } });
+    await client.callTool({ name: "list_policy_templates", arguments: {} });
+    await client.callTool({ name: "delete_policy_template", arguments: { facility: "翠嶺館" } });
+
+    const enc = encodeURIComponent("湖畔の湯宿 蛍");
+    assertEquals(calls[0]?.method, "PUT");
+    assertEquals(calls[0]?.url, `https://plancel.test/api/policy-templates/${enc}`);
+    assertEquals(calls[0]?.body, { policy: "free24" }); // facility travels in the path only
+    assertEquals(
+      calls[1]?.url,
+      `https://plancel.test/api/policy-templates/lookup?service=${encodeURIComponent("翠嶺館")}`,
+    );
+    assertEquals(calls[2]?.url, "https://plancel.test/api/policy-templates");
+    assertEquals(calls[3]?.method, "DELETE");
+
+    // "unknown" is not part of the template tool's schema at all.
+    const unknown = await client.callTool({
+      name: "save_policy_template",
+      arguments: { facility: "宿", policy: "unknown" },
+    });
+    assertEquals(unknown.isError, true);
+    assertEquals(calls.length, 4);
   });
 });
 

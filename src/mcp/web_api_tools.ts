@@ -3,7 +3,7 @@
  *
  * When `PLANCEL_API_URL` + `PLANCEL_API_TOKEN` are set, src/mcp/main.ts
  * serves THESE tools instead of the local core-store tools: they call the
- * production `/api/reservations` HTTP API with the user's personal API
+ * production `/api/reservations` + `/api/policy-templates` HTTP API with the user's personal API
  * token (issued from the Web UI's カレンダー連携 modal), so reservations
  * created from Claude land in the same ledger the family sees — and flow
  * to their calendars through the existing sync.
@@ -18,6 +18,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { webPolicyInputSchema } from "../web/policy.ts";
+import { templatePolicyInputSchema } from "../web/policy-template.ts";
 
 export interface WebApiConfig {
   /** e.g. https://plancel-app.torifo.deno.net */
@@ -43,6 +44,20 @@ const createInput = z.object({
 });
 
 const idInput = z.object({ id: z.string().min(1).describe("予約ID") });
+
+const facilityInput = z.object({
+  facility: z.string().min(1).max(100).describe(
+    "お店・宿・サービス名（全角/半角・空白・大小は同一視）",
+  ),
+});
+
+const templateInput = facilityInput.extend({
+  // "unknown" is not offered: a template that states no rate would pre-fill the
+  // form with 不明 and hide that the fee table was never entered.
+  policy: templatePolicyInputSchema.describe(
+    POLICY_DESC.replace('"unknown"/', "") + "（テンプレに unknown は保存できない）",
+  ),
+});
 
 const patchInput = z.object({
   id: z.string().min(1),
@@ -75,8 +90,17 @@ async function callApi(
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const text = await res.text();
-  return { content: [{ type: "text", text }], ...(res.ok ? {} : { isError: true }) };
+  // 204 (template delete) carries no body, and MCP text content must not be empty.
+  const reply = text === "" ? JSON.stringify({ ok: res.ok, status: res.status }) : text;
+  return { content: [{ type: "text", text: reply }], ...(res.ok ? {} : { isError: true }) };
 }
+
+/** Bad tool arguments: reported to the caller instead of hitting the API. */
+const invalidArgs = (issues: unknown): Promise<McpTextResult> =>
+  Promise.resolve({
+    content: [{ type: "text" as const, text: JSON.stringify(issues) }],
+    isError: true,
+  });
 
 /** Builds the remote-mode MCP server (web-ledger tools only). */
 export function buildWebApiServer(cfg: WebApiConfig): McpServer {
@@ -96,12 +120,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {
       const parsed = createInput.safeParse(args ?? {});
-      if (!parsed.success) {
-        return Promise.resolve({
-          content: [{ type: "text" as const, text: JSON.stringify(parsed.error.issues) }],
-          isError: true,
-        });
-      }
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
       return callApi(cfg, "POST", "/api/reservations", parsed.data);
     },
   );
@@ -120,12 +139,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       }, // deno-lint-ignore no-explicit-any
       (args: any) => {
         const parsed = idInput.safeParse(args ?? {});
-        if (!parsed.success) {
-          return Promise.resolve({
-            content: [{ type: "text" as const, text: JSON.stringify(parsed.error.issues) }],
-            isError: true,
-          });
-        }
+        if (!parsed.success) return invalidArgs(parsed.error.issues);
         return callApi(cfg, "POST", `/api/reservations/${parsed.data.id}/${action}`);
       },
     );
@@ -139,12 +153,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {
       const parsed = patchInput.safeParse(args ?? {});
-      if (!parsed.success) {
-        return Promise.resolve({
-          content: [{ type: "text" as const, text: JSON.stringify(parsed.error.issues) }],
-          isError: true,
-        });
-      }
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
       const { id, ...patch } = parsed.data;
       return callApi(cfg, "PATCH", `/api/reservations/${id}`, patch);
     },
@@ -158,13 +167,60 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {
       const parsed = idInput.safeParse(args ?? {});
-      if (!parsed.success) {
-        return Promise.resolve({
-          content: [{ type: "text" as const, text: JSON.stringify(parsed.error.issues) }],
-          isError: true,
-        });
-      }
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
       return callApi(cfg, "DELETE", `/api/reservations/${parsed.data.id}`);
+    },
+  );
+
+  // ---- 施設ごとのキャンセル規定テンプレ (owner 2026-07-27) ----
+  // 「GUI でできることは MCP でもできる」: the same four operations the web
+  // form uses, so Claude can remember a hotel's fee table and reuse it.
+  server.registerTool("list_policy_templates", {
+    description: "登録済みのキャンセル規定テンプレ（施設ごとの規定ベース）を一覧する",
+    inputSchema: z.object({}).passthrough(),
+  }, () => callApi(cfg, "GET", "/api/policy-templates"));
+
+  server.registerTool(
+    "lookup_policy_template",
+    {
+      description:
+        "施設名からキャンセル規定テンプレを引く（完全一致。全角/半角・空白・大小文字は同一視。無ければ template:null）",
+      inputSchema: facilityInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = facilityInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      const q = encodeURIComponent(parsed.data.facility);
+      return callApi(cfg, "GET", `/api/policy-templates/lookup?service=${q}`);
+    },
+  );
+
+  server.registerTool(
+    "save_policy_template",
+    {
+      description:
+        "施設のキャンセル規定テンプレを保存する（同じ施設なら上書き。以後その施設の予約はこの規定を初期値にできる）",
+      inputSchema: templateInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = templateInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      const { facility, ...body } = parsed.data;
+      return callApi(cfg, "PUT", `/api/policy-templates/${encodeURIComponent(facility)}`, body);
+    },
+  );
+
+  server.registerTool(
+    "delete_policy_template",
+    {
+      description: "施設のキャンセル規定テンプレを削除する（予約自体には影響しない）",
+      inputSchema: facilityInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = facilityInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      const path = `/api/policy-templates/${encodeURIComponent(parsed.data.facility)}`;
+      return callApi(cfg, "DELETE", path);
     },
   );
 

@@ -27,9 +27,12 @@ async function withKv(fn: (kv: Deno.Kv) => Promise<void>) {
   }
 }
 
-Deno.test("isApiPath matches the reservation routes only", () => {
+Deno.test("isApiPath matches the routes handleWebApi serves only", () => {
   assertEquals(isApiPath("/api/reservations"), true);
   assertEquals(isApiPath("/api/reservations/R1/confirm"), true);
+  assertEquals(isApiPath("/api/policy-templates"), true);
+  assertEquals(isApiPath("/api/policy-templates/lookup"), true);
+  assertEquals(isApiPath("/api/parse"), false);
   assertEquals(isApiPath("/"), false);
   assertEquals(isApiPath("/healthz"), false);
 });

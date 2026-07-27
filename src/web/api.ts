@@ -28,8 +28,23 @@
  *   DELETE /api/reservations/:id/members/:userId   remove (owner only)
  * Plus the exact-match lookup used by the invite box:
  *   GET    /api/users/lookup?q=<email|uid>         (login required)
+ *
+ * Policy templates (施設ごとの規定ベース, see policy-template.ts) — private to
+ * the acting ledger, no calendar side effects, so no `mutated()` hook:
+ *   GET    /api/policy-templates                       list
+ *   PUT    /api/policy-templates/<facility>   {policy} save/overwrite
+ *   DELETE /api/policy-templates/<facility>            delete (204, idempotent)
+ *   GET    /api/policy-templates/lookup?service=<name> pre-fill lookup
  */
 import { z } from "zod";
+import {
+  deleteTemplate,
+  facilitySchema,
+  getTemplate,
+  listTemplates,
+  policyTemplateBodySchema,
+  saveTemplate,
+} from "./policy-template.ts";
 import {
   cancelReservation,
   confirmReservation,
@@ -62,9 +77,10 @@ const json = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json; charset=utf-8" },
   });
 
-/** True if this request targets the web API (so the entrypoint can route it). */
+/** True if this request targets a route `handleWebApi` serves. */
 export function isApiPath(pathname: string): boolean {
-  return pathname === "/api/reservations" || pathname.startsWith("/api/reservations/");
+  return pathname === "/api/reservations" || pathname.startsWith("/api/reservations/") ||
+    pathname === "/api/policy-templates" || pathname.startsWith("/api/policy-templates/");
 }
 
 /** True if this request targets the exact-match user lookup (invite box). */
@@ -128,6 +144,16 @@ export async function handleWebApi(
 
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean); // ["api","reservations",id?,action?,sub?]
+
+  // Policy templates are keyed by the ACTING ledger, so ownership needs no
+  // extra check: a shared-reservation member calls with their own token and
+  // reaches their own templates, never the owner's.
+  if (parts[1] === "policy-templates") {
+    // A facility has no sub-resources, so a deeper path is not a route.
+    if (parts.length > 3) return json({ error: "not found" }, 404);
+    return await handlePolicyTemplates(kv, req, ids, token, parts[2], url);
+  }
+
   const id = parts[2];
   const action = parts[3];
   const sub = parts[4];
@@ -293,6 +319,62 @@ export async function handleWebApi(
   }
 
   return json({ error: "not found" }, 404);
+}
+
+/**
+ * `/api/policy-templates…` — the per-ledger library of facility base policies.
+ *
+ * Deliberately NOT folded into reservation create/patch as a
+ * `saveAsTemplate` flag: the effective policy of a PATCH is only known after
+ * merging with the stored record, so the flag could only be honoured after the
+ * reservation write had already committed — a rejected template ("unknown")
+ * would then have to either fail a request whose main effect already happened
+ * or be dropped silently. Two explicit calls keep the failure modes honest.
+ */
+async function handlePolicyTemplates(
+  kv: Deno.Kv,
+  req: Request,
+  ids: WebIds,
+  token: string,
+  segment: string | undefined,
+  url: URL,
+): Promise<Response> {
+  if (segment === undefined) {
+    if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+    return json({ templates: await listTemplates(kv, token) });
+  }
+
+  // Pre-fill lookup for the add/edit form. Exact normalized-key match ONLY —
+  // no fuzzy/prefix matching in this slice, because a near miss quietly
+  // pre-filling the wrong fee table is worse than no pre-fill at all.
+  // "lookup" is therefore a reserved GET segment; a facility actually named
+  // "lookup" stays reachable through PUT/DELETE, which never take this path.
+  if (segment === "lookup") {
+    if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+    const service = url.searchParams.get("service") ?? "";
+    if (service.trim() === "") return json({ template: null });
+    return json({ template: await getTemplate(kv, token, service) });
+  }
+
+  let facility: string;
+  try {
+    facility = decodeURIComponent(segment);
+  } catch {
+    return json({ error: "invalid facility name" }, 400);
+  }
+
+  if (req.method === "PUT") {
+    const named = facilitySchema.safeParse(facility);
+    if (!named.success) return json({ error: "invalid", issues: named.error.issues }, 400);
+    const parsed = policyTemplateBodySchema.safeParse(await readJson(req));
+    if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+    return json({ template: await saveTemplate(kv, token, named.data, parsed.data.policy, ids) });
+  }
+  if (req.method === "DELETE") {
+    await deleteTemplate(kv, token, facility);
+    return new Response(null, { status: 204 });
+  }
+  return json({ error: "method not allowed" }, 405);
 }
 
 async function readJson(req: Request): Promise<unknown> {
