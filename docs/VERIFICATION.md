@@ -185,7 +185,7 @@ curl -s "$BASE/api/reservations" \
    iPhone/iPadは同ボタンの案内どおりSafariの共有メニュー→「ホーム画面に追加」を使う。
 2. ホーム画面のplancelアイコンから、ブラウザUIなしのstandalone表示で起動できることを確認する。
 3. マイページの「更新を確認」で「最新版です。」になることを確認する。
-4. `web/sw.js` の `CACHE_VERSION` を上げた版をデプロイ後、再び「更新を確認」し、更新トーストの
+4. `web/sw.js` の `CACHE_VERSION` を上げた版をデプロイ後、再び「更新を確認」し、画面上部の更新バナーの
    「今すぐ更新」で再読み込みされ新しい版になることを確認する。
 
 > ローカルChromiumではmanifest認識・Service Worker登録・手動更新確認まで検証済み。OSホーム画面への

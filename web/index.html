@@ -26,28 +26,48 @@
       --card: #fdfcf7;
       --card2: #f3efe3;
       --ink: #232c40;
-      --soft: #6b7183;
+      /* 2026-07-27 読みやすさ（オーナー「モバイルだと字が薄い」）:
+         旧 --soft #6b7183 は card 4.7:1 でも card2 4.2:1 / paper 4.3:1 で AA 未達だった。
+         二次テキストは --soft、日付・金額・期限キャプションなど読ませる情報は --ink-2、
+         装飾的な三次ラベルだけ --faint に分ける。コントラスト比（card / card2 / paper）:
+           --ink   13.6 / 12.1 / 12.4
+           --ink-2  9.2 /  8.3 /  8.4
+           --soft   6.4 /  5.7 /  5.8
+           --faint  5.6 /  5.0 /  5.1   ← すべて AA(4.5:1) 以上 */
+      --ink-2: #3d4658;
+      --soft: #565d70;
+      --faint: #5f6678;
       --line: #ddd7c8;
       --lamp: #c97a1e;
       --lamp-strong: #d98324;
+      /* 塗り・罫線・グラデーションの --lamp は意匠なので変えない。文字と塗りボタンだけ
+         濃い琥珀にする（#98570e = card 5.5 / card2 4.9 / lamp-soft 4.7:1。
+         旧 #c97a1e は card 3.3:1、白抜きボタン文字は 3.3:1 しかなかった）。 */
+      --lamp-ink: #98570e;
+      --lamp-ink-strong: #7d4708;
       --lamp-soft: #f6e7cd;
       --on-lamp: #fffdf7;
       --danger: #b3402a;
+      /* 文字用の赤・緑。ライトは --danger と同値で足りる（card 5.6 / danger-soft 4.6:1）が、
+         緑は #3e7a54 が safe-soft 上で 4.3:1 だったので少し濃くする（5.0:1）。 */
+      --danger-ink: #b3402a;
       --danger-soft: #f6e3dc;
       --safe: #3e7a54;
+      --safe-ink: #37704c;
       --safe-soft: #e4efe6;
       --barglow: none;
       --markglow: 0 1px 2px rgba(35,44,64,.25);
       --shadow: 0 1px 2px rgba(35,44,64,.05),0 8px 24px rgba(35,44,64,.06);
-      /* 旧トークン名の別名（モーダル等の既存参照との互換用） */
-      --navy: var(--lamp);
+      /* 旧トークン名の別名（モーダル等の既存参照との互換用）。文字色に使われている
+         別名（--navy / --high / --full）は -ink 系へ向ける。 */
+      --navy: var(--lamp-ink);
       --navy-soft: var(--lamp-soft);
       --ink-soft: var(--soft);
-      --free: var(--safe);
+      --free: var(--safe-ink);
       --free-soft: var(--safe-soft);
       --mid: var(--lamp);
-      --high: var(--danger);
-      --full: var(--danger);
+      --high: var(--danger-ink);
+      --full: var(--danger-ink);
       font-family: 'Zen Kaku Gothic New','Hiragino Sans','Hiragino Kaku Gothic ProN',sans-serif;
       background: var(--paper);
       color: var(--ink);
@@ -65,25 +85,38 @@
       --card: #1e2740;
       --card2: #243050;
       --ink: #e8e4d8;
-      --soft: #8b93a8;
+      /* ダークは逆に持ち上げる。比（card / card2 / paper）:
+           --ink   11.6 / 10.2 / 13.4
+           --ink-2 10.0 /  8.8 / 11.5
+           --soft   6.8 /  6.0 /  7.9
+           --faint  5.9 /  5.2 /  6.8   （旧 --soft #8b93a8 は card2 4.2:1 で AA 未達） */
+      --ink-2: #cfd4e2;
+      --soft: #a8b0c6;
+      --faint: #9ba3b9;
       --line: #2c3852;
       --lamp: #f2a54a;
       --lamp-strong: #f2a54a;
+      /* ダークの琥珀は card 7.2:1 あるのでそのまま文字にも使える。 */
+      --lamp-ink: #f2a54a;
+      --lamp-ink-strong: #f7b970;
       --lamp-soft: rgba(242,165,74,.14);
       --on-lamp: #151c2c;
       --danger: #e2604a;
+      /* #e2604a は文字だと card 4.2:1 / card2 3.7:1 なので、文字だけ明るくする（5.4 / 4.7:1）。 */
+      --danger-ink: #ee7a63;
       --danger-soft: rgba(226,96,74,.14);
       --safe: #7fae8e;
+      --safe-ink: #7fae8e;
       --safe-soft: rgba(127,174,142,.12);
       --barglow: 0 0 14px rgba(242,165,74,.28);
       --markglow: 0 0 10px rgba(242,165,74,.85);
       --shadow: 0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
     }
     a {
-      color: var(--lamp);
+      color: var(--lamp-ink);
     }
     a:hover {
-      color: var(--danger);
+      color: var(--danger-ink);
     }
     @keyframes fallAway {
       0% { transform: rotate(0) translateY(0); opacity: 1; }
@@ -125,7 +158,7 @@
     }
     .logo-sub {
       font-size: 10.5px;
-      color: var(--soft);
+      color: var(--faint);
       letter-spacing: .08em;
     }
     .top-right {
@@ -196,7 +229,7 @@
       transition: .12s;
     }
     .btn-primary {
-      background: var(--lamp);
+      background: var(--lamp-ink);
       color: var(--on-lamp);
       border: none;
       border-radius: 999px;
@@ -205,7 +238,25 @@
       padding: 9px 18px;
     }
     .btn-primary:hover {
-      background: var(--lamp-strong);
+      background: var(--lamp-ink-strong);
+    }
+    /* リンク（<a>）を主ボタンに見せる。a / a:hover の色指定に負けないよう明示する。 */
+    .btn-a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: var(--lamp-ink);
+      color: var(--on-lamp);
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 10px 22px;
+      text-decoration: none;
+    }
+    .btn-a:hover {
+      background: var(--lamp-ink-strong);
+      color: var(--on-lamp);
     }
     .btn-ghost {
       background: var(--card);
@@ -217,11 +268,11 @@
     }
     .btn-ghost:hover {
       border-color: var(--lamp);
-      color: var(--lamp);
+      color: var(--lamp-ink);
     }
     .btn-small {
       background: var(--card);
-      color: var(--lamp);
+      color: var(--lamp-ink);
       border: 1px solid var(--lamp);
       border-radius: 999px;
       padding: 5px 14px;
@@ -313,8 +364,8 @@
     /* ═══ スタンプ（要処理 / 確定） ═══ */
     .stamp {
       display: inline-block;
-      border: 1.5px solid var(--danger);
-      color: var(--danger);
+      border: 1.5px solid var(--danger-ink);
+      color: var(--danger-ink);
       border-radius: 3px;
       padding: 0 8px;
       font-size: 10.5px;
@@ -324,8 +375,8 @@
       white-space: nowrap;
     }
     .stamp.safe {
-      border-color: var(--safe);
-      color: var(--safe);
+      border-color: var(--safe-ink);
+      color: var(--safe-ink);
       transform: rotate(2deg);
     }
     /* ═══ 2カラム: 時間の地図 + やることレール ═══ */
@@ -346,13 +397,13 @@
       display: flex;
       justify-content: space-between;
       font-size: 10.5px;
-      color: var(--soft);
+      color: var(--faint);
       padding: 0 2px 6px;
       border-bottom: 1px solid var(--line);
       margin-bottom: 14px;
     }
     .datescale .today {
-      color: var(--danger);
+      color: var(--danger-ink);
       font-weight: 700;
     }
     .rail-head {
@@ -368,7 +419,7 @@
       margin-left: auto;
       font-size: 11px;
       font-weight: 700;
-      color: var(--danger);
+      color: var(--danger-ink);
     }
     .rail-item {
       background: var(--card);
@@ -385,12 +436,12 @@
     }
     .rail-item .lb {
       font-size: 10.5px;
-      color: var(--danger);
+      color: var(--danger-ink);
       font-weight: 700;
       letter-spacing: .08em;
     }
     .rail-item .lb.lamp {
-      color: var(--lamp);
+      color: var(--lamp-ink);
     }
     .rail-item .lb.muted {
       color: var(--soft);
@@ -401,7 +452,7 @@
     }
     .rail-item .ds {
       font-size: 11px;
-      color: var(--soft);
+      color: var(--ink-2);
     }
     .rail-item .btns {
       display: flex;
@@ -413,7 +464,7 @@
       border-radius: 10px;
       padding: 9px 13px;
       font-size: 11.5px;
-      color: var(--soft);
+      color: var(--faint);
       background: var(--card2);
     }
     /* ═══ プランカード ═══ */
@@ -471,11 +522,11 @@
     }
     .resv .cut {
       font-size: 10.5px;
-      color: var(--danger);
+      color: var(--danger-ink);
     }
     .resv .sub {
       font-size: 10.5px;
-      color: var(--soft);
+      color: var(--ink-2);
     }
     .resv .tools {
       font-size: 10.5px;
@@ -498,7 +549,7 @@
     .okmark {
       font-size: 11px;
       font-weight: 700;
-      color: var(--safe);
+      color: var(--safe-ink);
       white-space: nowrap;
     }
     .rowbtn {
@@ -512,25 +563,25 @@
     }
     .rowbtn:hover {
       border-color: var(--lamp);
-      color: var(--lamp);
+      color: var(--lamp-ink);
     }
     .rowbtn.confirm {
       background: transparent;
       border: 1px solid var(--lamp);
-      color: var(--lamp);
+      color: var(--lamp-ink);
       font-weight: 700;
     }
     .rowbtn.confirm:hover {
       background: var(--lamp-soft);
     }
     .rowbtn.act {
-      background: var(--lamp);
+      background: var(--lamp-ink);
       border: none;
       color: var(--on-lamp);
       font-weight: 700;
     }
     .rowbtn.act:hover {
-      background: var(--lamp-strong);
+      background: var(--lamp-ink-strong);
       color: var(--on-lamp);
     }
     .rowbtn.dashed {
@@ -540,11 +591,11 @@
       font-size: 10.5px;
     }
     .rowbtn.danger {
-      color: var(--danger);
+      color: var(--danger-ink);
     }
     .rowbtn.danger:hover {
       border-color: var(--danger);
-      color: var(--danger);
+      color: var(--danger-ink);
     }
     /* ═══ 期限バー（今日 → 予約日） ═══ */
     .bar {
@@ -574,6 +625,11 @@
       color: var(--soft);
       margin-top: 3px;
     }
+    /* 真ん中は「◆〜 ¥0で戻れる最終日」= 読ませる期限キャプション。薄い色にしない。 */
+    .bar-cap .mid {
+      color: var(--ink-2);
+      font-weight: 700;
+    }
     .pill {
       font-size: 11px;
       font-weight: 700;
@@ -587,11 +643,11 @@
     }
     .pill.confirmed {
       background: var(--safe-soft);
-      color: var(--safe);
+      color: var(--safe-ink);
     }
     .pill.to_cancel {
       background: var(--danger-soft);
-      color: var(--danger);
+      color: var(--danger-ink);
     }
     .pill.cancelled {
       background: var(--card2);
@@ -634,7 +690,7 @@
     }
     .startcard .t {
       font-weight: 700;
-      color: var(--lamp);
+      color: var(--lamp-ink);
       margin-bottom: 4px;
     }
     .startcard .d {
@@ -744,7 +800,7 @@
       margin: 12px 0 5px;
     }
     label .req {
-      color: var(--danger);
+      color: var(--danger-ink);
     }
     input,
     select,
@@ -807,7 +863,7 @@
     .pol-mode.on {
       background: var(--lamp-soft);
       border-color: var(--lamp);
-      color: var(--lamp);
+      color: var(--lamp-ink);
       font-weight: 700;
     }
     .pol-body {
@@ -876,7 +932,7 @@
       margin-top: 10px;
       font-size: 13px;
       font-weight: 700;
-      color: var(--lamp);
+      color: var(--lamp-ink);
     }
     .share-tag {
       display: inline-block;
@@ -914,7 +970,7 @@
       border-radius: 8px;
       padding: 8px 12px;
       font-size: 12.5px;
-      color: var(--safe);
+      color: var(--safe-ink);
       margin-bottom: 6px;
     }
     .import-opt {
@@ -931,7 +987,7 @@
     }
     .import-opt .t {
       font-weight: 700;
-      color: var(--lamp);
+      color: var(--lamp-ink);
       margin-bottom: 3px;
     }
     .import-opt .d {
@@ -966,7 +1022,7 @@
     .ics-guide summary {
       cursor: pointer;
       font-weight: 700;
-      color: var(--lamp);
+      color: var(--lamp-ink);
     }
     .ics-guide .g-app {
       margin: 10px 0 4px;
@@ -976,8 +1032,32 @@
       margin: 4px 0 6px 20px;
       color: var(--soft);
     }
+    /* スマホ向けの導入（アプリ別に「何が現実的か」だけ書く） */
+    .ics-lead {
+      margin: 0 0 12px 1.15em;
+      font-size: 13px;
+      color: var(--soft);
+    }
+    .ics-lead li {
+      margin-bottom: 5px;
+      line-height: 1.7;
+    }
+    .ics-acts {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      margin-top: 4px;
+    }
+    .ics-acts button {
+      width: 100%;
+      padding: 12px 18px;
+    }
+    /* タッチ端末はスクショを一番上・主ボタンにする（DOM 順は PC 優先のまま置く）。 */
+    #icsHelpOverlay.phone .ics-acts {
+      flex-direction: column-reverse;
+    }
     .back-link {
-      color: var(--lamp);
+      color: var(--lamp-ink);
       font-size: 14px;
       cursor: pointer;
       margin-right: 6px;
@@ -1006,10 +1086,10 @@
     }
     .ics-item .when {
       font-size: 12px;
-      color: var(--soft);
+      color: var(--ink-2);
     }
     .foot-note {
-      color: var(--soft);
+      color: var(--faint);
       font-size: 12px;
       margin-top: 28px;
       border-top: 1px solid var(--line);
@@ -1052,41 +1132,65 @@
       color: var(--soft);
       font-size: 11.5px;
     }
-    .pwa-update-toast {
-      position: fixed;
-      left: 50%;
-      bottom: calc(86px + env(safe-area-inset-bottom));
-      transform: translate(-50%, 18px);
-      width: min(440px, calc(100% - 28px));
+    /* ═══ 更新のお知らせバナー（オーナー 2026-07-27）═══
+       下部トーストではなくページ最上部（トップバーの上）に出す。× で閉じられるが、
+       閉じるのはこのページ読み込みの間だけ（永続化しない）。待機中の Service Worker
+       があれば次回アクセスでまた出す。z-index はモーダル（50）より下・ボトムナビ
+       （40）より上に置き、モーダルを開いている間は覆われるようにする。
+       id は #pwaUpdateToast のまま（運用ドキュメントの参照先）。 */
+    .pwa-update-bar {
+      position: sticky;
+      top: 0;
+      z-index: 45;
       display: none;
+      color: var(--ink);
+      /* ダークの --lamp-soft は半透明なので、そのまま貼ると sticky の下を本文が
+         透けて通る。不透明な --card の上に琥珀を重ねて必ず塗りつぶす。 */
+      background: linear-gradient(var(--lamp-soft), var(--lamp-soft)), var(--card);
+      border-bottom: 1px solid var(--lamp);
+      box-shadow: var(--shadow);
+    }
+    .pwa-update-bar.on {
+      display: block;
+      animation: slideIn .25s ease-out;
+    }
+    .pwa-update-bar .inner {
+      display: flex;
       align-items: center;
       gap: 12px;
-      padding: 12px 14px;
-      color: var(--ink);
-      background: var(--card);
-      border: 1px solid var(--lamp);
-      border-radius: 14px;
-      box-shadow: var(--shadow);
-      z-index: 70;
-      opacity: 0;
-      transition: opacity .2s, transform .2s;
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 9px 20px;
     }
-    .pwa-update-toast.on {
-      display: flex;
-      opacity: 1;
-      transform: translate(-50%, 0);
-    }
-    .pwa-update-toast .copy {
-      flex: 1;
-      font-size: 12px;
+    .pwa-update-bar .copy {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 13px;
       font-weight: 700;
+      line-height: 1.5;
     }
-    .pwa-update-toast .x {
+    .pwa-update-bar .btn-primary,
+    .pwa-update-bar .x {
       flex: 0 0 auto;
-      color: var(--soft);
-      background: none;
-      border: 0;
-      font-size: 18px;
+    }
+    /* 狭い画面は1行に入らないので、「本文＋×」の行と全幅ボタンの2行に折る。
+       DOM 順は 本文 → ボタン → × のままで、見た目だけ order で入れ替える。 */
+    @media (max-width:520px) {
+      .pwa-update-bar .inner {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 9px 12px;
+      }
+      .pwa-update-bar .copy {
+        order: 1;
+      }
+      .pwa-update-bar .x {
+        order: 2;
+      }
+      .pwa-update-bar .btn-primary {
+        order: 3;
+        flex: 1 1 100%;
+      }
     }
     /* ═══ ボトムナビ（モバイル） ═══ */
     .bottomnav {
@@ -1116,7 +1220,7 @@
       min-width: 0;
     }
     .bn-item.active {
-      color: var(--lamp);
+      color: var(--lamp-ink);
       font-weight: 700;
     }
     .bn-label {
@@ -1129,7 +1233,7 @@
       width: 52px;
       height: 52px;
       border-radius: 50%;
-      background: var(--lamp);
+      background: var(--lamp-ink);
       color: var(--on-lamp);
       display: flex;
       flex-direction: column;
@@ -1168,7 +1272,7 @@
         flex-wrap: wrap;
       }
       .wrap {
-        padding-bottom: 120px;
+        padding: 14px 14px 120px;
       }
       #importBtn {
         display: none;
@@ -1176,10 +1280,193 @@
       .startgrid {
         grid-template-columns: 1fr;
       }
+      /* ═══ モバイル読みやすさ（オーナー 2026-07-27）═══
+         「文字サイズがモバイルだと小さくて見にくい」。デスクトップは縮めず、
+         このブロックだけで底上げする。方針:
+           ・読ませる文字は 12px 以上、予約行の主要行は 14〜15px
+           ・Zen Kaku Gothic New 400 は端末で細く見えるので、小さい二次テキストは 500
+           ・行間と行のすき間を広げ、320px でも折り返しで詰まらせない */
+      .resv {
+        gap: 10px 14px;
+      }
+      .resv .name {
+        font-size: 15px;
+        line-height: 1.5;
+      }
+      .resv .sub,
+      .resv .tools,
+      .resv .cut {
+        font-size: 12.5px;
+        font-weight: 500;
+        line-height: 1.65;
+      }
+      .plan {
+        padding: 15px 16px;
+      }
+      .plan-title {
+        font-size: 16px;
+      }
+      .plan-note {
+        font-size: 12.5px;
+        font-weight: 500;
+      }
+      .decide-note {
+        font-size: 13px;
+        padding: 9px 12px;
+      }
+      /* 期限バーのキャプションは3つとも入りきらないので、真ん中を独立行に落とす。 */
+      .bar-cap {
+        flex-wrap: wrap;
+        row-gap: 2px;
+        font-size: 12px;
+        font-weight: 500;
+        margin-top: 5px;
+      }
+      .bar-cap .mid {
+        order: 3;
+        flex: 1 0 100%;
+        text-align: center;
+        line-height: 1.5;
+      }
+      .rail-item {
+        padding: 13px 14px;
+      }
+      .rail-item .lb {
+        font-size: 12px;
+      }
+      .rail-item .tt {
+        font-size: 15px;
+        line-height: 1.55;
+        margin-top: 4px;
+      }
+      .rail-item .ds {
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.6;
+      }
+      .rail-head {
+        font-size: 13px;
+      }
+      .rail-head .cnt,
+      .rail-done {
+        font-size: 12.5px;
+      }
+      .rowbtn {
+        font-size: 13px;
+        padding: 6px 13px;
+      }
+      .okmark {
+        font-size: 13px;
+        align-self: center;
+      }
+      .rowbtn.dashed {
+        font-size: 12.5px;
+      }
+      .chip {
+        font-size: 12.5px;
+        font-weight: 500;
+        padding: 4px 12px;
+      }
+      .pill {
+        font-size: 12.5px;
+        padding: 3px 10px;
+      }
+      .stamp {
+        font-size: 11.5px;
+        padding: 1px 8px;
+      }
+      .share-tag,
+      .databar,
+      .btn-ghost.mini {
+        font-size: 12.5px;
+        font-weight: 500;
+      }
+      /* トップバーは 320px でも1行に収める（「予約整理アプリ」を途中で折らない）。
+         本文と左右の位置を合わせるため .wrap も同じ 14px にする。 */
+      .topbar {
+        padding: 16px 14px 12px;
+        gap: 10px;
+      }
+      .logo {
+        font-size: 25px;
+      }
+      .logo-sub {
+        font-size: 11px;
+        letter-spacing: .04em;
+        white-space: nowrap;
+      }
+      .top-right {
+        gap: 8px;
+      }
+      #todayChip {
+        padding: 4px 10px;
+      }
+      .hint,
+      .startcard .d,
+      .import-opt .d,
+      .ics-item .when,
+      .pwa-status,
+      .foot-note,
+      .ics-guide ol {
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.7;
+      }
+      .sec-h {
+        font-size: 13px;
+      }
+      label {
+        font-size: 14px;
+      }
+      .pol-hint {
+        font-size: 12.5px;
+      }
+      .pol-add {
+        font-size: 13px;
+      }
+      .pol-preview {
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      /* 320px では日付/時刻を横並びにすると date 入力があふれるので1列にする。 */
+      .two {
+        grid-template-columns: 1fr;
+      }
+      .overlay {
+        padding: 24px 10px;
+      }
+      .modal {
+        padding: 20px 16px;
+        max-height: calc(100vh - 48px);
+      }
+      .modal-head h3 {
+        font-size: 17px;
+      }
+      /* ボトムナビ: 5列 × 320px でも「マイページ」が入るよう左右を詰めて 12px に。 */
+      .bottomnav {
+        padding: 9px 4px calc(13px + env(safe-area-inset-bottom));
+      }
+      .bn-item {
+        font-size: 12px;
+      }
+      .bn-fab {
+        width: 56px;
+        height: 56px;
+        margin-top: -28px;
+        font-size: 11px;
+      }
     }
     </style>
   </head>
   <body>
+    <div class="pwa-update-bar" id="pwaUpdateToast" role="status" aria-live="polite">
+      <div class="inner">
+        <div class="copy">新しいplancelを利用できます。</div>
+        <button class="btn-primary" id="pwaApplyUpdate">今すぐ更新</button>
+        <button class="x" id="pwaDismissUpdate" aria-label="このお知らせを閉じる">×</button>
+      </div>
+    </div>
+
     <div class="topbar">
       <div>
         <div class="logo">plan<span class="cel">cel</span><span class="dia">◆</span></div>
@@ -1209,7 +1496,7 @@
       <div class="statusrow">
         <div class="chips">
           <span class="chip lamp" id="chipNext">◆ 次の締切 —</span>
-          <span class="chip">放置損失 <b style="color:var(--danger)" id="stLoss">¥0</b></span>
+          <span class="chip">放置損失 <b style="color:var(--danger-ink)" id="stLoss">¥0</b></span>
         </div>
         <div class="miniacts">
           <button class="btn-ghost mini" id="addBtn">＋手動で追加</button>
@@ -1254,17 +1541,22 @@
           <div class="sec">
             <div class="sec-h">プロフィール</div>
             <label>表示名（他の人と同じでも OK）</label>
-            <input id="p_name" placeholder="例: あきと">
+            <input id="p_name" placeholder="例: たろう">
             <label>ユーザーID（任意・半角英小文字のみ 6〜20文字・早い者勝ちで一意）</label>
-            <input id="p_uid" placeholder="例: akitosan">
+            <input id="p_uid" placeholder="例: planceluser">
             <div class="hint" style="margin:4px 0 0">設定しなくても利用できます。設定するとログインや、今後の「予約への招待」で相手に見つけてもらう際に使えて便利です。</div>
+            <!-- 保存ボタンは保存する対象（プロフィール）の末尾・メール欄の上に置く
+                 （オーナー 2026-07-27）。#profileSave は表示名・ユーザーID・下の
+                 「別のログイン用メールアドレス」の3つをまとめて保存するので、メール欄を
+                 直したあともこのボタンで保存できる。 -->
+            <div class="modal-foot"><button class="btn-primary" id="profileSave">プロフィールを保存</button></div>
           </div>
 
           <div class="sec">
             <div class="sec-h">ログイン方法</div>
             <label>別のログイン用メールアドレス（iCloud など・任意）</label>
             <input id="p_alt" type="email" placeholder="you@icloud.com">
-            <div class="modal-foot"><button class="btn-primary" id="profileSave">プロフィールを保存</button></div>
+            <div class="hint" style="margin:4px 0 0">直したら、上の「プロフィールを保存」を押してください。</div>
             <label style="margin-top:16px">パスワード（設定するとメールアドレスでもログインできます）</label>
             <input id="p_pw" type="password" placeholder="8文字以上" autocomplete="new-password">
             <input id="p_pw2" type="password" placeholder="確認のためもう一度" autocomplete="new-password" style="margin-top:6px">
@@ -1306,12 +1598,6 @@
           </div>
         </div>
       </section>
-    </div>
-
-    <div class="pwa-update-toast" id="pwaUpdateToast" role="status" aria-live="polite">
-      <div class="copy">新しいplancelを利用できます。</div>
-      <button class="btn-primary" id="pwaApplyUpdate">今すぐ更新</button>
-      <button class="x" id="pwaDismissUpdate" aria-label="あとで">×</button>
     </div>
 
     <nav class="bottomnav">
@@ -1415,13 +1701,22 @@
       </div>
     </div>
 
-    <!-- ICS how-to modal (file picker is unfamiliar; explain before opening it) -->
+    <!-- ICS how-to modal (file picker is unfamiliar; explain before opening it).
+         TimeTree・iPhone カレンダーはスマホから .ics を書き出せないので、狭い画面 /
+         タッチ端末ではスクショ読み取りを主動線にし、PC 手順は <details> に畳む
+         （オーナー 2026-07-27）。解析パイプラインと呼び先は変えていない。 -->
     <div class="overlay" id="icsHelpOverlay">
       <div class="modal">
         <div class="modal-head"><h3><span class="back-link" id="icsHelpBack">‹ 戻る</span>カレンダーから取り込み</h3><button class="x" data-close>×</button></div>
-        <p class="hint" style="margin-bottom:10px">カレンダーの「.ics ファイル」を選ぶと、今後の予定をまとめて取り込めます（候補・キャンセル料「不明」で登録され、あとから編集できます）。</p>
-        <details class="ics-guide">
-          <summary>.ics ファイルの取り出し方（アプリ別）</summary>
+        <p class="hint" id="icsLeadPhone" style="display:none;margin-bottom:8px">スマホからは .ics ファイルを書き出せないアプリが多いので、<b>スクショ読み取り</b>が一番早いです。予定の一覧が写った画面を撮って選ぶだけで登録できます。</p>
+        <ul class="ics-lead" id="icsAppsPhone" style="display:none">
+          <li>🌳 <b>TimeTree</b>: スマホから .ics を書き出す方法はありません。スクショで取り込みます。</li>
+          <li>🍏 <b>iPhone のカレンダー</b>: 同じくスクショが確実です。</li>
+          <li>📗 <b>Google カレンダー</b>: .ics の書き出しはパソコンのブラウザだけです。</li>
+        </ul>
+        <p class="hint" id="icsLeadPc" style="margin-bottom:10px">カレンダーの「.ics ファイル」を選ぶと、今後の予定をまとめて取り込めます（候補・キャンセル料「不明」で登録され、あとから編集できます）。</p>
+        <details class="ics-guide" id="icsPcGuide">
+          <summary>パソコンで .ics ファイルを取り出す手順（アプリ別）</summary>
           <div class="g-app">📗 Google カレンダー（PC ブラウザ）</div>
           <ol>
             <li>歯車 → 「設定」 → 左の「インポート / エクスポート」</li>
@@ -1439,8 +1734,10 @@
             <li>.ics の書き出しが難しいので<b>スクショ読み取りが手軽です</b>（下のボタン）</li>
           </ol>
         </details>
-        <button class="btn-primary" id="icsPick" style="width:100%">📂 .ics ファイルを選ぶ</button>
-        <div class="modal-foot" style="justify-content:center"><button class="btn-ghost" id="icsAltPhoto">📷 かわりにスクショで読み取る</button></div>
+        <div class="ics-acts">
+          <button class="btn-primary" id="icsPick">📂 .ics ファイルを選ぶ</button>
+          <button class="btn-ghost" id="icsAltPhoto">📷 かわりにスクショで読み取る</button>
+        </div>
       </div>
     </div>
 
@@ -1460,7 +1757,7 @@
     <!-- Busy overlay -->
     <div class="overlay" id="busyOverlay">
       <div class="modal" style="max-width:320px;text-align:center">
-        <div id="busyText" style="font-weight:700;color:var(--navy)">読み取り中…</div>
+        <div id="busyText" style="font-weight:700;color:var(--lamp-ink)">読み取り中…</div>
         <div class="hint" style="margin:8px 0 0">AI が解析しています（数秒かかります）</div>
       </div>
     </div>
@@ -1473,7 +1770,7 @@
         <button class="btn-primary" id="googleLoginBtn" style="width:100%">Google でログイン</button>
         <div class="hint" style="text-align:center;margin:10px 0">— またはメールアドレスで —</div>
         <label>メールアドレスまたはユーザーID</label>
-        <input id="loginEmail" placeholder="you@icloud.com ／ akitosan" autocomplete="username">
+        <input id="loginEmail" placeholder="you@example.com ／ planceluser" autocomplete="username">
         <label>パスワード（8文字以上）</label>
         <input id="loginPassword" type="password" autocomplete="current-password">
         <div id="pwConfirmRow" style="display:none">
@@ -1488,30 +1785,43 @@
       </div>
     </div>
 
-    <!-- Calendar integration / account modal -->
+    <!-- Calendar integration / LINE notifications / account modal.
+         締切リマインドは LINE で届くので、通知の動線を①に置く（オーナー 2026-07-27）。 -->
     <div class="overlay" id="calOverlay">
       <div class="modal">
-        <div class="modal-head"><h3>カレンダー連携</h3><button class="x" data-close>×</button></div>
-        <p class="hint" style="margin-bottom:0">確定した予約だけがカレンダーに載ります。</p>
+        <div class="modal-head"><h3>連携と通知</h3><button class="x" data-close>×</button></div>
 
-        <div class="sec">
-          <div class="sec-h">① どのカレンダーでも: 購読 URL（iCloud / Google / TimeTree）</div>
-          <input id="icsUrl" readonly style="font-size:12px">
-          <div class="hint" style="margin:4px 0 0">
-            <a id="icsCopy" style="cursor:pointer;text-decoration:underline">URL をコピー</a> ·
-            <a id="icsRotate" style="cursor:pointer;text-decoration:underline">URL を再発行（漏れたとき）</a><br>
-            iPhone: 設定 → カレンダー → 照会カレンダーを追加／Google: 他のカレンダー → URL で追加。反映はカレンダー側の巡回間隔に依存します（iCloud 15分〜 / Google 数時間）。TimeTree の方は②の Google 連携後、TimeTree の「外部カレンダーのインポート」で Google を接続すると表示されます。
+        <div class="sec" style="margin-top:0;padding-top:0;border-top:none">
+          <div class="sec-h">① 締切のお知らせを LINE で受け取る</div>
+          <p class="hint" style="margin:0 0 10px">無料キャンセルの期限が近づくと、plancel の公式アカウントから LINE でお知らせが届きます。まず友だち追加してください。</p>
+          <a class="btn-a" id="lineAddBtn" href="https://line.me/R/ti/p/@791wbdma" target="_blank" rel="noopener">💬 LINE で友だち追加</a>
+          <div class="hint" style="margin:8px 0 0">
+            LINE ID は <b>@791wbdma</b>（<a id="lineIdCopy" style="cursor:pointer;text-decoration:underline">ID をコピー</a>）。パソコンで見ているときは、スマホの LINE で ID を検索するか、このページをスマホで開いて上のボタンを押してください。
+          </div>
+          <div class="hint" style="margin:6px 0 0">
+            ⚠ いまのお知らせの宛先は<b>台帳の持ち主の LINE だけ</b>です。ご家族が友だち追加しても、その方あてのリマインドはまだ届きません（次の版で対応予定）。
           </div>
         </div>
 
         <div class="sec">
-          <div class="sec-h">② Google カレンダーへ即時反映</div>
+          <div class="sec-h">② どのカレンダーでも: 購読 URL（iCloud / Google / TimeTree）</div>
+          <p class="hint" style="margin:0 0 6px">確定した予約だけがカレンダーに載ります。</p>
+          <input id="icsUrl" readonly style="font-size:12px">
+          <div class="hint" style="margin:4px 0 0">
+            <a id="icsCopy" style="cursor:pointer;text-decoration:underline">URL をコピー</a> ·
+            <a id="icsRotate" style="cursor:pointer;text-decoration:underline">URL を再発行（漏れたとき）</a><br>
+            iPhone: 設定 → カレンダー → 照会カレンダーを追加／Google: 他のカレンダー → URL で追加。反映はカレンダー側の巡回間隔に依存します（iCloud 15分〜 / Google 数時間）。TimeTree の方は③の Google 連携後、TimeTree の「外部カレンダーのインポート」で Google を接続すると表示されます。
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h">③ Google カレンダーへ即時反映</div>
           <div class="hint" id="gcalStatus" style="margin:0 0 8px">…</div>
           <div class="modal-foot" style="margin-top:8px"><button class="btn-primary" id="gcalConnectBtn">Google カレンダーと連携する</button></div>
         </div>
 
         <div class="sec">
-          <div class="sec-h">③ Claude（MCP）から操作</div>
+          <div class="sec-h">④ Claude（MCP）から操作</div>
           <div class="hint" style="margin:0 0 8px" id="mcpStatus">Claude に予約の登録・確定などを頼めるようになります。発行したトークンは MCP 設定の環境変数（PLANCEL_API_URL / PLANCEL_API_TOKEN）に入れてください。</div>
           <div class="hint"><a id="mcpIssue" style="cursor:pointer;text-decoration:underline">🔑 MCP 用トークンを発行（再発行で旧トークンは失効）</a> · <a id="mcpRevoke" style="cursor:pointer;text-decoration:underline">失効</a></div>
         </div>
@@ -1525,7 +1835,7 @@
         <p class="hint" style="margin-bottom:8px">メールアドレスまたはユーザーID（完全一致）で検索して追加します。追加された相手の台帳にこの予約が共有表示されます（相手は閲覧のみ）。</p>
         <label>メールアドレスまたはユーザーID</label>
         <div style="display:flex;gap:8px">
-          <input id="inv_q" placeholder="you@example.com ／ akitosan" style="flex:1" autocomplete="off">
+          <input id="inv_q" placeholder="you@example.com ／ planceluser" style="flex:1" autocomplete="off">
           <button class="btn-primary" id="inv_add" style="flex:0 0 auto;white-space:nowrap">検索して追加</button>
         </div>
         <div class="hint" id="inv_msg" style="margin-top:6px;min-height:16px"></div>
@@ -1730,7 +2040,7 @@
             const pen = first ? penaltyAfterFree(first) : 0;
             decide = `<div class="decide-note">⏳ 決めどきは <b>${fmtDate(ds2[0])} まで</b>${
               pen
-                ? ` — 過ぎると最低でも <b style="color:var(--danger)">${yen(pen)}</b> かかります`
+                ? ` — 過ぎると最低でも <b style="color:var(--danger-ink)">${yen(pen)}</b> かかります`
                 : ""
             }</div>`;
           }
@@ -1914,7 +2224,8 @@
         : (alwaysFree(r)
           ? "いつでも無料で戻れます"
           : (dl && dl > now ? `◆${fmtDate(dl)} ¥0で戻れる最終日` : "無料期間は終了"));
-      const cap = `<div class="bar-cap"><span>今日</span><span>${mid}</span><span>${
+      // .mid はモバイルで独立行に回し、色も --ink-2 にする（キャプション読みやすさ）
+      const cap = `<div class="bar-cap"><span>今日</span><span class="mid">${mid}</span><span>${
         fmtDate(start)
       } ▶</span></div>`;
       const d = new Date(start);
@@ -2349,9 +2660,29 @@
     // A file picker alone is baffling for non-technical family members, so the
     // option first opens a how-to modal with per-app instructions + a screenshot
     // fallback (owner 2026-07-22).
+    // スマホ / タッチ端末では .ics の書き出し自体ができないアプリ（TimeTree・iPhone の
+    // カレンダー）が多いので、スクショ読み取りを主ボタンにして先に見せる。PC 手順は
+    // 畳んだ <details> に残す（オーナー 2026-07-27）。
+    const phoneLike = () =>
+      matchMedia("(max-width:860px)").matches || matchMedia("(pointer:coarse)").matches;
+    function openIcsHelp() {
+      const phone = phoneLike();
+      q("#icsHelpOverlay").classList.toggle("phone", phone);
+      q("#icsLeadPhone").style.display = phone ? "" : "none";
+      q("#icsAppsPhone").style.display = phone ? "" : "none";
+      q("#icsLeadPc").style.display = phone ? "none" : "";
+      q("#icsPcGuide").open = false;
+      // 主・副の入れ替えは見た目のクラスと文言だけ（onclick は据え置き）
+      q("#icsPick").className = phone ? "btn-ghost" : "btn-primary";
+      q("#icsAltPhoto").className = phone ? "btn-primary" : "btn-ghost";
+      q("#icsAltPhoto").textContent = phone
+        ? "📷 スクショから読み取る"
+        : "📷 かわりにスクショで読み取る";
+      q("#icsHelpOverlay").classList.add("on");
+    }
     document.querySelector('[data-imp="ics"]').onclick = () => {
       closeAll();
-      q("#icsHelpOverlay").classList.add("on");
+      openIcsHelp();
     };
     q("#icsHelpBack").onclick = () => {
       closeAll();
@@ -2554,6 +2885,16 @@
       q("#calOverlay").classList.add("on");
     };
     q("#gcalConnectBtn").onclick = () => location.href = "/auth/google";
+    // LINE の友だち追加: リンクは <a href> なので JS 不要。PC 向けに ID だけ渡せるように
+    // する（外部の QR 画像は取りに行かない — このページは外部リクエストを増やさない）。
+    q("#lineIdCopy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText("@791wbdma");
+        alert("LINE ID「@791wbdma」をコピーしました。スマホの LINE の検索に貼り付けてください。");
+      } catch (e) {
+        alert("コピーできませんでした。LINE ID は @791wbdma です。");
+      }
+    };
     q("#icsCopy").onclick = async () => {
       try {
         await navigator.clipboard.writeText(q("#icsUrl").value);
@@ -2589,6 +2930,8 @@
             : "Google 未連携（このアカウントはメール登録のみ）。紐付けるとアカウントの本人確認も完了します。"));
       setView(true);
     };
+    // 表示名・ユーザーID・別ログイン用メールの3つを1回で保存する（ボタンはプロフィール
+    // セクションの末尾＝メール欄の上にあるが、押した時点の値を読むので3つとも保存される）。
     q("#profileSave").onclick = async () => {
       const body = {};
       const name = q("#p_name").value.trim();
@@ -2866,6 +3209,8 @@
       }
     };
     q("#pwaApplyUpdate").onclick = applyAvailableUpdate;
+    // × はこのページ読み込みの間だけ閉じる。localStorage などに残さないので、待機中の
+    // Service Worker があれば次回アクセスでまた最上部に出る（更新の取りこぼし防止）。
     q("#pwaDismissUpdate").onclick = () => q("#pwaUpdateToast").classList.remove("on");
     updateInstallButton();
 
