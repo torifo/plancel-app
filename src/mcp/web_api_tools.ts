@@ -17,6 +17,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { webPolicyInputSchema } from "../web/policy.ts";
 
 export interface WebApiConfig {
   /** e.g. https://plancel-app.torifo.deno.net */
@@ -26,13 +27,18 @@ export interface WebApiConfig {
   fetchFn?: typeof fetch;
 }
 
+/** Presets stay one word; any other policy goes through the stage table. */
+const POLICY_DESC =
+  'キャンセル規定: "unknown"/"none"(いつでも無料)/"free24"(前日まで無料)/"staged"(7日前まで無料→30%→50%→100%) ' +
+  'または任意の段階 {"stages":[{"h":120,"pct":0},{"h":0,"pct":100}]}（h=開始までの残り時間, pct=料率%、最後は h=0）';
+
 const createInput = z.object({
   service: z.string().min(1).describe("お店・宿・サービス名"),
   startsAt: z.string().min(1).describe("開始日時 (ISO8601, 例 2026-08-01T19:00:00+09:00)"),
   plan: z.string().nullable().default(null).describe("プラン名（候補を束ねる場合）"),
   amount: z.number().nullable().default(null).describe("金額（円）"),
   location: z.string().nullable().default(null).describe("場所（店名・住所、任意）"),
-  policy: z.enum(["unknown", "none", "free24", "staged"]).default("unknown"),
+  policy: webPolicyInputSchema.default("unknown").describe(POLICY_DESC),
   confirmed: z.boolean().default(false).describe("true で確定済みとして登録"),
 });
 
@@ -45,7 +51,7 @@ const patchInput = z.object({
   plan: z.string().nullable().optional(),
   amount: z.number().nullable().optional(),
   location: z.string().nullable().optional(),
-  policy: z.enum(["unknown", "none", "free24", "staged"]).optional(),
+  policy: webPolicyInputSchema.optional().describe(POLICY_DESC),
 });
 
 interface McpTextResult {

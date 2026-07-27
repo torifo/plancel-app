@@ -10,9 +10,11 @@
  * self-contained per-user store that the same KV database backs.
  */
 import { z } from "zod";
+import { webPolicySchema } from "./policy.ts";
 
-export const webPolicySchema = z.enum(["unknown", "none", "free24", "staged"]);
-export type WebPolicy = z.infer<typeof webPolicySchema>;
+// The policy model (presets + arbitrary stage tables) and its math live in
+// ./policy.ts; re-exported here because the record schema is this module's.
+export { type WebPolicy, webPolicySchema } from "./policy.ts";
 
 export const webStatusSchema = z.enum(["candidate", "confirmed", "to_cancel", "cancelled"]);
 export type WebStatus = z.infer<typeof webStatusSchema>;

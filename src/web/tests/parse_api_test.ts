@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { handleParseApi, mapPolicyToPreset, type ParseApiDeps } from "../parse-api.ts";
+import { handleParseApi, type ParseApiDeps } from "../parse-api.ts";
 import { MockParser } from "../../parse/mod.ts";
 import type { Parser } from "../../parse/mod.ts";
 import type { ParseJob } from "../../core/schema/mod.ts";
@@ -30,36 +30,6 @@ const reqOf = (body: unknown, token: string | null = "t") =>
     headers: token !== null ? { "x-plancel-token": token } : {},
     body: JSON.stringify(body),
   });
-
-Deno.test("mapPolicyToPreset: folds parsed stage arrays into web presets", () => {
-  assertEquals(mapPolicyToPreset("unknown"), "unknown");
-  assertEquals(mapPolicyToPreset(null), "unknown");
-  assertEquals(mapPolicyToPreset({ stages: [] }), "unknown");
-  assertEquals(
-    mapPolicyToPreset({ stages: [{ until_offset_hours: 0, fee_percent: 0, fee_fixed_jpy: null }] }),
-    "none",
-  );
-  assertEquals(
-    mapPolicyToPreset({
-      stages: [
-        { until_offset_hours: 24, fee_percent: 0, fee_fixed_jpy: null },
-        { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null },
-      ],
-    }),
-    "free24",
-  );
-  assertEquals(
-    mapPolicyToPreset({
-      stages: [
-        { until_offset_hours: 168, fee_percent: 0, fee_fixed_jpy: null },
-        { until_offset_hours: 72, fee_percent: 30, fee_fixed_jpy: null },
-        { until_offset_hours: 24, fee_percent: 50, fee_fixed_jpy: null },
-        { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null },
-      ],
-    }),
-    "staged",
-  );
-});
 
 Deno.test("parse api: missing token -> 400", async () => {
   const { deps } = makeDeps([]);
@@ -100,6 +70,34 @@ Deno.test("parse api: pasted mail -> parsed fields mapped to the web shape", asy
   assertEquals(body.fields.policy, "free24");
   assertEquals(body.fields.location, "東京都中央区銀座1-2-3");
   assertEquals(jobs.length, 1); // ParseJob saved for the replay corpus
+});
+
+// 「5日前まで無料」 has no preset — before 2026-07-27 it was flattened to
+// "staged" (7日前) and the UI's deadline lied. It now reaches the form as-is.
+Deno.test("parse api: a nonstandard policy keeps its own stages", async () => {
+  const mail = "【予約確認】翠嶺館 8/20 15:00 5日前まで無料、以降30%、当日100%";
+  const p1 = MockParser(
+    "p1",
+    new Map([[mail, {
+      raw_response: "{}",
+      output: {
+        service_name: "翠嶺館",
+        starts_at: "2026-08-20T15:00:00+09:00",
+        cancellation_policy: {
+          stages: [
+            { until_offset_hours: 120, fee_percent: 0, fee_fixed_jpy: null },
+            { until_offset_hours: 72, fee_percent: 30, fee_fixed_jpy: null },
+            { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null },
+          ],
+        },
+      },
+    }]]),
+  );
+  const { deps } = makeDeps([p1]);
+  const body = await (await handleParseApi(reqOf({ type: "text", content: mail }), deps)).json();
+  assertEquals(body.fields.policy, {
+    stages: [{ h: 120, pct: 0 }, { h: 72, pct: 30 }, { h: 0, pct: 100 }],
+  });
 });
 
 Deno.test("parse api: unparseable text -> status failed (UI falls back to manual)", async () => {

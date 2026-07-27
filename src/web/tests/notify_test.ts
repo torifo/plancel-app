@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { freeDeadlineMs, type NotifyDeps, sweepDeadlineNotifications } from "../notify.ts";
+import { type NotifyDeps, sweepDeadlineNotifications } from "../notify.ts";
+import { freeDeadlineMs } from "../policy.ts";
 import { getOrCreateUserByEmail } from "../users.ts";
 import type { WebPolicy, WebReservation, WebStatus } from "../store.ts";
 import { makeAuthIds } from "./users_test.ts";
@@ -149,7 +150,24 @@ Deno.test("staged free deadline is start − 168h (last free stage) and notifies
   });
 });
 
-// ⑤ the ::demo ledger namespace is never swept.
+// ⑤ an arbitrary (non-preset) policy is swept on ITS own boundary — the whole
+// point of the 2026-07-27 model change: 「5日前まで無料」 = start − 120h.
+Deno.test("notifies on a custom 5日前 policy boundary", async () => {
+  await withKv(async (kv) => {
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
+    const policy = { stages: [{ h: 120, pct: 0 }, { h: 72, pct: 30 }, { h: 0, pct: 100 }] };
+    const start = NOW + 132 * H; // deadline = start − 120h = now+12h (in window)
+    assertEquals(freeDeadlineMs(policy, iso(start)), start - 120 * H);
+    await putResv(kv, u.ledgerId, "C1", policy, "candidate", start);
+    // A second reservation with the same policy but a deadline 6 days out.
+    await putResv(kv, u.ledgerId, "C2", policy, "candidate", NOW + 264 * H);
+    const sent: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
+    assertEquals(sent[0]?.text.includes("svc-C1"), true);
+  });
+});
+
+// ⑥ the ::demo ledger namespace is never swept.
 Deno.test("ignores the ::demo ledger", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
@@ -160,7 +178,7 @@ Deno.test("ignores the ::demo ledger", async () => {
   });
 });
 
-// ⑥ the owner's own ledger is delivered by LINE push — never by mail.
+// ⑦ the owner's own ledger is delivered by LINE push — never by mail.
 Deno.test("routes the owner's deadline notification to LINE push", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "owner@b.jp", makeAuthIds());
@@ -179,7 +197,7 @@ Deno.test("routes the owner's deadline notification to LINE push", async () => {
   });
 });
 
-// ⑦ owner matching ignores case and surrounding whitespace.
+// ⑧ owner matching ignores case and surrounding whitespace.
 Deno.test("matches the owner email case-insensitively", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "Owner@B.jp", makeAuthIds());
@@ -193,7 +211,7 @@ Deno.test("matches the owner email case-insensitively", async () => {
   });
 });
 
-// ⑧ a non-owner ledger keeps the email/console route even when LINE is wired.
+// ⑨ a non-owner ledger keeps the email/console route even when LINE is wired.
 Deno.test("keeps the email route for non-owner users", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "other@b.jp", makeAuthIds());
@@ -210,7 +228,7 @@ Deno.test("keeps the email route for non-owner users", async () => {
   });
 });
 
-// ⑨ a failing push leaves the marker unset, so the next sweep retries.
+// ⑩ a failing push leaves the marker unset, so the next sweep retries.
 Deno.test("retries on the next sweep when the LINE push fails", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "owner@b.jp", makeAuthIds());

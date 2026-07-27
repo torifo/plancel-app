@@ -12,8 +12,8 @@
  * `cancelReservation` from src/web/store.ts are the same functions the HTTP
  * API calls (so plan-sibling auto to_cancel stays in one place), and
  * `onMutate` is the same post-write hook that kicks the Google Calendar sync.
- * Display math reuses `freeDeadlineMs` / `maxLossYen` from src/web/notify.ts,
- * which mirror web/index.html.
+ * Display math and the parsed-policy conversion reuse src/web/policy.ts — the
+ * single source the web UI mirrors.
  *
  * The owner's ledger is resolved by email (PLANCEL_LINE_OWNER_EMAIL, default =
  * first PLANCEL_ADMIN_EMAILS) exactly like the deadline reminders. No direct
@@ -26,13 +26,12 @@ import {
   getReservation,
   listReservations,
   type WebIds,
-  type WebPolicy,
   type WebReservation,
   WebTransitionError,
 } from "../web/store.ts";
 import type { CancellationPolicyOrUnknown } from "../core/schema/mod.ts";
 import { findUserByEmail, type WebUser } from "../web/users.ts";
-import { freeDeadlineMs, maxLossYen } from "../web/notify.ts";
+import { freeDeadlineMs, fromCoreStages, isAlwaysFree, maxLossYen } from "../web/policy.ts";
 import type { LineQuickReplyItem, LineTextMessage } from "./types.ts";
 
 /** Access to the owner's WEB ledger, injected into the webhook (optional). */
@@ -108,8 +107,11 @@ function startMs(r: WebReservation): number {
 /** `◆8/15まで¥0` / `規定不明` / `いつでも無料` — the per-line deadline hint. */
 function deadlineNote(r: WebReservation): string {
   if (r.policy === "unknown") return "規定不明";
+  if (isAlwaysFree(r.policy)) return "いつでも無料";
   const deadlineMs = freeDeadlineMs(r.policy, r.startsAt);
-  if (deadlineMs === null) return "いつでも無料";
+  // A custom policy can be paid from the outset — there is no free window to
+  // count down to, which is NOT the same as always-free.
+  if (deadlineMs === null) return "無料期間なし";
   return `◆${fmtMd(deadlineMs)}まで¥0`;
 }
 
@@ -239,42 +241,6 @@ export interface WebRegistrationInput {
 }
 
 /**
- * Server-side stage tables of the three web policy presets, in core
- * `PolicyStage` terms. Mirrors `STAGES` in src/web/notify.ts (and `POLICIES` in
- * web/index.html); `unknown` has no table by design.
- */
-const PRESET_STAGES: ReadonlyArray<
-  readonly [WebPolicy, ReadonlyArray<readonly [number, number]>]
-> = [
-  ["none", [[0, 0]]],
-  ["free24", [[24, 0], [0, 100]]],
-  ["staged", [[168, 0], [72, 30], [24, 50], [0, 100]]],
-];
-
-/**
- * Maps a parsed core cancellation policy onto the web ledger's policy enum by
- * EXACT preset match (offsets + fee percentages, and no fixed fees). Anything
- * else — "unknown", a nonstandard stage array, a fixed-yen fee — becomes
- * "unknown": the honest fallback, since silently coercing a policy the user
- * never chose would make the UI's deadline/loss math lie. The user completes it
- * in the web UI afterwards.
- */
-export function toWebPolicy(policy: CancellationPolicyOrUnknown | undefined): WebPolicy {
-  if (policy === undefined || policy === "unknown") return "unknown";
-  const stages = policy.stages;
-  if (stages.some((s) => s.fee_fixed_jpy !== null && s.fee_fixed_jpy !== 0)) return "unknown";
-  for (const [name, preset] of PRESET_STAGES) {
-    if (preset.length !== stages.length) continue;
-    const same = preset.every(([h, pct], i) => {
-      const s = stages[i];
-      return s !== undefined && s.until_offset_hours === h && s.fee_percent === pct;
-    });
-    if (same) return name;
-  }
-  return "unknown";
-}
-
-/**
  * Registers a parsed reservation as a CANDIDATE in the owner's web ledger,
  * through the same `createReservation` the HTTP API calls (and firing the same
  * `onMutate` hook it fires on create, unconditionally — the sync itself decides
@@ -288,7 +254,9 @@ export async function registerWebReservation(
   const owner = await findUserByEmail(deps.kv, deps.ownerEmail);
   if (owner === null) return null;
 
-  const policy = toWebPolicy(output.cancellation_policy);
+  // Arbitrary parsed stages are preserved as-is (src/web/policy.ts); only a
+  // policy with no % expression at all stays "unknown" for the owner to fill in.
+  const policy = fromCoreStages(output.cancellation_policy);
   const r = await createReservation(deps.kv, owner.ledgerId, {
     plan: null,
     service: output.service_name,

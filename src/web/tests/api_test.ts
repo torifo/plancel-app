@@ -69,6 +69,65 @@ Deno.test("web api: create then list is scoped to the token", async () => {
   });
 });
 
+// 任意段階のキャンセル規定（オーナー 2026-07-27: 5日前も選べること）が
+// create / patch を素通りし、正規形で保存されること。
+Deno.test("web api: create and patch accept an arbitrary policy stage table", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const fiveDay = { stages: [{ h: 120, pct: 0 }, { h: 72, pct: 30 }, { h: 0, pct: 100 }] };
+    const create = await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        service: "翠嶺館",
+        startsAt: "2026-08-20T15:00:00+09:00",
+        amount: 40000,
+        policy: fiveDay,
+      }),
+      ids,
+    );
+    assertEquals(create.status, 201);
+    const r = (await create.json()).reservation;
+    assertEquals(r.policy, fiveDay);
+
+    // Unsorted input comes back canonical (h descending, one stage per h).
+    const patched = await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${r.id}`, "t", {
+        policy: { stages: [{ h: 0, pct: 100 }, { h: 240, pct: 0 }] },
+      }),
+      ids,
+    );
+    assertEquals(patched.status, 200);
+    assertEquals((await patched.json()).reservation.policy, {
+      stages: [{ h: 240, pct: 0 }, { h: 0, pct: 100 }],
+    });
+  });
+});
+
+Deno.test("web api: a malformed policy is rejected with 400", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const base = { service: "宿", startsAt: "2026-08-20T15:00:00+09:00" };
+    // No 当日 (h=0) stage: the model refuses to guess the closing rate.
+    const bad = await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", { ...base, policy: { stages: [{ h: 120, pct: 0 }] } }),
+      ids,
+    );
+    assertEquals(bad.status, 400);
+    assertEquals((await bad.json()).error, "invalid");
+
+    const created = await handleWebApi(kv, reqOf("POST", BASE, "t", base), ids);
+    const id = (await created.json()).reservation.id;
+    const badPatch = await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${id}`, "t", { policy: { stages: [{ h: 0, pct: 130 }] } }),
+      ids,
+    );
+    assertEquals(badPatch.status, 400);
+  });
+});
+
 Deno.test("web api: confirm settles siblings in the same plan -> to_cancel", async () => {
   await withKv(async (kv) => {
     const ids = makeIds();

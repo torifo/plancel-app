@@ -41,6 +41,24 @@ Deno.test("buildIcs emits only confirmed reservations, UTC times, escaped text",
   assertEquals(ics.includes("宿B"), false);
 });
 
+// カレンダーに出るのは人が読む規定ラベル（生の値だと段階表がJSONで漏れる）。
+Deno.test("calendar descriptions carry the human policy label, never the raw value", () => {
+  assertStringIncludes(buildIcs([resv({})]), "キャンセル規定: 前日まで無料 → 当日100%");
+  const custom = resv({
+    policy: { stages: [{ h: 120, pct: 0 }, { h: 72, pct: 30 }, { h: 0, pct: 100 }] },
+  });
+  assertStringIncludes(
+    buildIcs([custom]),
+    "キャンセル規定: 5日前まで無料 → 3日前まで30% → 当日100%",
+  );
+  assertEquals(buildIcs([custom]).includes("stages"), false);
+  assertStringIncludes(
+    String((eventBody(custom) as { description: string }).description),
+    "キャンセル規定: 5日前まで無料 → 3日前まで30% → 当日100%",
+  );
+  assertStringIncludes(buildIcs([resv({ policy: "unknown", status: "confirmed" })]), "規定: 不明");
+});
+
 Deno.test("location lands in ICS LOCATION and the Google event body", () => {
   const withLoc = resv({ location: "長野県諏訪市湖岸通り1-2-3" });
   const ics = buildIcs([withLoc]);

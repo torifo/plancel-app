@@ -10,9 +10,10 @@
  * per-user reservation records (src/web/store.ts) directly — the core
  * notifier (src/notify/) is event-sourced and is NOT reused here.
  *
- * Deadline math MUST match the client (web/index.html `freeDeadline` +
- * `POLICIES`): the free deadline is `startsAt − h(firstPaidStage)`. `unknown`
- * and `none` never notify (no paid stage / no table entry).
+ * Deadline math is NOT re-implemented here: `freeDeadlineMs` from ./policy.ts
+ * is the single source (mirrored by web/index.html `freeDeadline`). Policies
+ * with no free window to lose — "unknown", always-free, paid from the outset —
+ * yield a null deadline and never notify.
  *
  * QUEUE-FREE (Deno Deploy KV Connect has no queues): this is swept from the
  * existing 15-minute cron, alongside sweepDirtySync. Idempotency is a KV
@@ -22,6 +23,7 @@
  * injected via `deps.nowMs` (FR-008).
  */
 import { logger } from "../lib/log.ts";
+import { freeDeadlineMs } from "./policy.ts";
 import { listReservations, type WebReservation, type WebStatus } from "./store.ts";
 import { type WebUser, webUserSchema } from "./users.ts";
 
@@ -34,18 +36,6 @@ const NOTIFIED_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
 const TOKYO_OFFSET = "+09:00";
 
 const log = logger("web.notify");
-
-/**
- * Server-side mirror of web/index.html `POLICIES`. Each entry lists the fee
- * stages `{ h: hours-before-start, pct: fee-% }`; the free deadline is the
- * first stage whose `pct > 0`. `unknown` is intentionally absent (→ null);
- * `none` has no paid stage (→ null). Keep in lockstep with the client.
- */
-const STAGES: Record<string, ReadonlyArray<{ h: number; pct: number }>> = {
-  none: [{ h: 0, pct: 0 }],
-  free24: [{ h: 24, pct: 0 }, { h: 0, pct: 100 }],
-  staged: [{ h: 168, pct: 0 }, { h: 72, pct: 30 }, { h: 24, pct: 50 }, { h: 0, pct: 100 }],
-};
 
 /** Statuses that still warrant a deadline nudge (cancelled ones do not). */
 const ACTIVE_STATUSES: ReadonlySet<WebStatus> = new Set<WebStatus>([
@@ -69,39 +59,6 @@ export interface NotifyDeps {
    * Everyone else keeps the email/console route.
    */
   line?: { ownerEmail: string; push: (text: string) => Promise<void> };
-}
-
-/**
- * The FREE-cancellation deadline (epoch ms) for a reservation, or null when
- * its policy has no paid stage (`unknown`/`none`). Mirrors the client's
- * `freeDeadline`: `startsAt − h(firstPaidStage) * 1h`.
- */
-export function freeDeadlineMs(policy: string, startsAt: string): number | null {
-  const stages = STAGES[policy];
-  if (stages === undefined) return null; // unknown (and any unmapped policy)
-  // Stage semantics: `pct` applies to cancellations made until `h` hours
-  // before the start (stages listed descending). The free window therefore
-  // ends at the LAST pct==0 stage's boundary — free24 (「前日まで無料」) =
-  // start−24h, staged (「7日前まで無料」) = start−168h. (2026-07-25 fix: the
-  // old first-paid-stage reading was off by one stage on both sides.)
-  const paid = stages.find((s) => s.pct > 0);
-  if (paid === undefined) return null; // none — always free, no deadline
-  const lastFree = [...stages].reverse().find((s) => s.pct === 0);
-  if (lastFree === undefined) return null; // paid from the outset — no free window
-  const startMs = Temporal.Instant.from(startsAt).epochMilliseconds;
-  return startMs - lastFree.h * HOUR_MS;
-}
-
-/**
- * Worst-case cancellation fee (放置損失) for a reservation, mirroring the
- * client's `maxLoss`: amount × the highest fee-% in the policy's stages.
- * `unknown` policy / missing amount → 0.
- */
-export function maxLossYen(policy: string, amount: number | null): number {
-  if (amount === null || amount === 0) return 0;
-  const stages = STAGES[policy];
-  if (stages === undefined) return 0; // unknown
-  return Math.round(amount * Math.max(...stages.map((s) => s.pct)) / 100);
 }
 
 /** Formats an epoch-ms instant as `YYYY/MM/DD(曜) HH:MM JST`. */

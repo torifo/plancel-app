@@ -11,16 +11,16 @@
  * (SDD §10.4) — observability only, a save failure never fails the
  * request.
  *
- * The web store models cancellation policies as presets
- * (unknown/none/free24/staged) while the parser emits arbitrary stage
- * arrays; `mapPolicyToPreset` folds one into the other.
+ * A parsed cancellation policy keeps its arbitrary stages: `fromCoreStages`
+ * (src/web/policy.ts) is the one conversion into the web policy model, shared
+ * with the LINE registration path.
  */
 import { z } from "zod";
 import type { Clock } from "../core/clock/mod.ts";
 import type { ParseJob } from "../core/schema/mod.ts";
 import { missingFieldQuestions, runParseChain } from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
-import type { WebPolicy } from "./store.ts";
+import { fromCoreStages } from "./policy.ts";
 
 export interface ParseApiDeps {
   parsers: Parser[];
@@ -35,28 +35,6 @@ const parseReqSchema = z.object({
   type: z.enum(["text", "image"]).default("text"),
   content: z.string().min(1),
 });
-
-interface PolicyStageLike {
-  until_offset_hours?: number;
-  fee_percent?: number;
-  fee_fixed_jpy?: number | null;
-}
-
-/**
- * Folds a parsed CancellationPolicy (arbitrary stages) into the web UI's
- * preset enum: no/unknown policy -> "unknown"; all-free stages -> "none";
- * fees that only start within 24h of the booking -> "free24"; anything
- * with an earlier paid boundary -> "staged".
- */
-export function mapPolicyToPreset(cp: unknown): WebPolicy {
-  if (cp === null || cp === undefined || cp === "unknown") return "unknown";
-  const stages = (cp as { stages?: PolicyStageLike[] }).stages;
-  if (!Array.isArray(stages) || stages.length === 0) return "unknown";
-  const paid = stages.filter((s) => (s.fee_percent ?? 0) > 0 || (s.fee_fixed_jpy ?? 0) > 0);
-  if (paid.length === 0) return "none";
-  const firstPaidOffset = Math.max(...paid.map((s) => s.until_offset_hours ?? 0));
-  return firstPaidOffset <= 24 ? "free24" : "staged";
-}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -109,7 +87,7 @@ export async function handleParseApi(req: Request, deps: ParseApiDeps): Promise<
     service: typeof merged.service_name === "string" ? merged.service_name : null,
     startsAt: typeof merged.starts_at === "string" ? merged.starts_at : null,
     amount: typeof merged.amount_jpy === "number" ? merged.amount_jpy : null,
-    policy: mapPolicyToPreset(merged.cancellation_policy),
+    policy: fromCoreStages(merged.cancellation_policy),
     location: typeof merged.location === "string" ? merged.location : null,
     notes: typeof merged.notes === "string" ? merged.notes : null,
   };

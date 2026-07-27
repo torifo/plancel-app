@@ -402,11 +402,26 @@ const CORE_POLICY = {
       { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null },
     ],
   },
-  /** Nonstandard: real stages, but no preset matches -> must NOT be coerced. */
+  /** Nonstandard: real stages, no preset match -> preserved as a stage table. */
   weird: {
     stages: [
       { until_offset_hours: 48, fee_percent: 20, fee_fixed_jpy: null },
       { until_offset_hours: 12, fee_percent: 80, fee_fixed_jpy: null },
+    ],
+  },
+  /** 「5日前まで無料」 — the shape the owner needed and presets could not hold. */
+  fiveDay: {
+    stages: [
+      { until_offset_hours: 120, fee_percent: 0, fee_fixed_jpy: null },
+      { until_offset_hours: 72, fee_percent: 30, fee_fixed_jpy: null },
+      { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null },
+    ],
+  },
+  /** A fixed-yen fee has no % expression -> the honest answer is "unknown". */
+  fixedFee: {
+    stages: [
+      { until_offset_hours: 72, fee_percent: 0, fee_fixed_jpy: 0 },
+      { until_offset_hours: 0, fee_percent: 0, fee_fixed_jpy: 5000 },
     ],
   },
 } satisfies Record<string, CancellationPolicyOrUnknown>;
@@ -457,32 +472,58 @@ Deno.test("webhook: parsed text with web wired -> web-ledger candidate, NOT the 
   });
 });
 
-Deno.test("webhook: nonstandard / absent parsed policy -> web policy unknown (never coerced)", async () => {
-  await withKv(async (kv) => {
-    for (const [label, policy] of [["weird", CORE_POLICY.weird], ["absent", undefined]] as const) {
-      const { web, owner } = await makeWebDeps(kv);
-      const text = `${label} 8/1 19時に〇〇を予約`;
-      const parser = MockParser(
-        "p1",
-        new Map([[text, {
-          raw_response: "{}",
-          output: {
-            service_name: `宿-${label}`,
-            starts_at: "2026-08-01T19:00:00+09:00",
-            ...(policy === undefined ? {} : { cancellation_policy: policy }),
-          },
-        }]]),
-      );
-      const { deps, replies } = makeDeps({ web });
-      deps.parsers = [parser];
+/** Registers one parsed reservation and returns the stored record + reply text. */
+async function registerParsed(
+  kv: Deno.Kv,
+  label: string,
+  policy: CancellationPolicyOrUnknown | undefined,
+) {
+  const { web, owner } = await makeWebDeps(kv);
+  const text = `${label} 8/1 19時に〇〇を予約`;
+  const parser = MockParser(
+    "p1",
+    new Map([[text, {
+      raw_response: "{}",
+      output: {
+        service_name: `宿-${label}`,
+        starts_at: "2026-08-01T19:00:00+09:00",
+        ...(policy === undefined ? {} : { cancellation_policy: policy }),
+      },
+    }]]),
+  );
+  const { deps, replies } = makeDeps({ web });
+  deps.parsers = [parser];
+  assertEquals((await post(deps, [textEvent(text)])).handled, ["registered"]);
+  const r = (await listReservations(kv, owner.ledgerId)).find((x) => x.service === `宿-${label}`);
+  return { r, text: replies[0]?.messages[0]?.text ?? "" };
+}
 
-      const result = await post(deps, [textEvent(text)]);
-      assertEquals(result.handled, ["registered"]);
-      const r = (await listReservations(kv, owner.ledgerId)).find(
-        (x) => x.service === `宿-${label}`,
-      );
+// 2026-07-27: arbitrary parsed stages are PRESERVED (the web model now holds
+// them) instead of being flattened onto a preset or dropped as "unknown".
+Deno.test("webhook: nonstandard parsed policy -> stored as its own stage table", async () => {
+  await withKv(async (kv) => {
+    const weird = await registerParsed(kv, "weird", CORE_POLICY.weird);
+    // 12h の段は「開始まで80%」と同義なので、正規形では h=0 に畳まれる。
+    assertEquals(weird.r?.policy, { stages: [{ h: 48, pct: 20 }, { h: 0, pct: 80 }] });
+    assertEquals(weird.text.includes("キャンセル規定は不明"), false);
+
+    const five = await registerParsed(kv, "five", CORE_POLICY.fiveDay);
+    assertEquals(five.r?.policy, {
+      stages: [{ h: 120, pct: 0 }, { h: 72, pct: 30 }, { h: 0, pct: 100 }],
+    });
+  });
+});
+
+// A policy with no % expression at all still becomes "unknown" — reported, so
+// the owner completes it in the web UI rather than being told a wrong number.
+Deno.test("webhook: fixed-yen fee / absent parsed policy -> unknown, and says so", async () => {
+  await withKv(async (kv) => {
+    for (
+      const [label, policy] of [["fixed", CORE_POLICY.fixedFee], ["absent", undefined]] as const
+    ) {
+      const { r, text } = await registerParsed(kv, label, policy);
       assertEquals(r?.policy, "unknown", label);
-      assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "キャンセル規定は不明");
+      assertStringIncludes(text, "キャンセル規定は不明");
     }
   });
 });

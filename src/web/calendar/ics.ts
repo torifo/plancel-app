@@ -10,6 +10,7 @@
  */
 import type { WebReservation } from "../store.ts";
 import { listReservations } from "../store.ts";
+import { describePolicy } from "../policy.ts";
 import { findUserByIcsSecret } from "../users.ts";
 import { listSharedReservations } from "../sharing.ts";
 
@@ -51,7 +52,8 @@ export function buildIcs(reservations: WebReservation[]): string {
     const desc = [
       r.plan !== null ? `プラン: ${r.plan}` : null,
       r.amount !== null ? `金額: ¥${r.amount.toLocaleString("ja-JP")}` : null,
-      `キャンセル規定: ${r.policy}`,
+      // Never the raw policy: a custom stage table would print as JSON.
+      `キャンセル規定: ${describePolicy(r.policy)}`,
       "plancel で管理されている予約",
     ].filter((x): x is string => x !== null).join("\\n");
     lines.push(

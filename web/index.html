@@ -790,6 +790,94 @@
     .radio-row input {
       width: auto;
     }
+    /* ═══ キャンセル規定フォーム ═══ */
+    .pol-modes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .pol-mode {
+      background: var(--card2);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 9px 14px;
+      font-size: 13px;
+    }
+    .pol-mode.on {
+      background: var(--lamp-soft);
+      border-color: var(--lamp);
+      color: var(--lamp);
+      font-weight: 700;
+    }
+    .pol-body {
+      display: none;
+      margin-top: 10px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--card2);
+    }
+    .pol-body.on {
+      display: block;
+    }
+    /* 入力とラベルは行ごとに折り返す（狭い画面で詰まらせない） */
+    .pol-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .pol-line .lb {
+      font-weight: 600;
+    }
+    .pol-in {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .pol-in input {
+      width: 4.6em;
+      text-align: right;
+      background: var(--card);
+    }
+    .pol-in select {
+      width: auto;
+      background: var(--card);
+    }
+    /* 段階行は狭い画面で2行に折り返るので、左の罫線で1段だとわかるようにする */
+    .pol-stage {
+      border-left: 2px solid var(--line);
+      padding-left: 8px;
+    }
+    .pol-x {
+      margin-left: auto;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--soft);
+      padding: 5px 10px;
+    }
+    .pol-hint {
+      font-size: 12px;
+      margin: -2px 0 10px;
+    }
+    .pol-add {
+      padding: 7px 14px;
+      font-size: 12.5px;
+    }
+    .pol-add:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+    .pol-preview {
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--lamp);
+    }
     .share-tag {
       display: inline-block;
       font-size: 11px;
@@ -1256,16 +1344,29 @@
           <div><label>予約日 <span class="req">*</span></label><input id="f_date" type="date"></div>
           <div><label>時刻</label><input id="f_time" type="time" value="18:00"></div>
         </div>
-        <div class="two">
-          <div><label>金額（円）</label><input id="f_amount" type="number" placeholder="例: 18000"></div>
-          <div><label>キャンセル料</label>
-        <select id="f_policy">
-          <option value="unknown">不明（あとで入力）</option>
-          <option value="free24">前日まで無料 → 当日100%</option>
-          <option value="staged">7日前まで無料 → 30% → 50% → 100%</option>
-          <option value="none">キャンセル無料</option>
-        </select>
-      </div>
+        <label>金額（円）</label>
+        <input id="f_amount" type="number" inputmode="numeric" placeholder="例: 18000">
+        <label>キャンセル料</label>
+        <div class="pol-modes" id="polModes">
+          <button type="button" class="pol-mode" data-pol="unknown">不明（あとで）</button>
+          <button type="button" class="pol-mode" data-pol="none">いつでも無料</button>
+          <button type="button" class="pol-mode" data-pol="free24">前日まで無料</button>
+          <button type="button" class="pol-mode" data-pol="custom">期限つき（日数で指定）</button>
+        </div>
+        <div class="pol-body" id="polBody">
+          <div class="pol-line">
+            <span class="lb">無料でキャンセルできるのは</span>
+            <span class="pol-in"><input id="pol_freeN" type="number" min="0" max="366" step="1" inputmode="numeric"><select id="pol_freeU"><option value="d">日前</option><option value="h">時間前</option></select></span>
+            <span class="lb">まで</span>
+          </div>
+          <div class="hint pol-hint">「5」なら5日前まで無料、「1」は前日、「0」は開始まで無料。空欄にすると無料の期間なしです。</div>
+          <div id="pol_stages"></div>
+          <div class="pol-line">
+            <span class="lb">当日は</span>
+            <span class="pol-in"><input id="pol_todayPct" type="number" min="0" max="100" step="1" inputmode="numeric"><span>%</span></span>
+          </div>
+          <button type="button" class="btn-ghost pol-add" id="pol_add">＋段階を足す（例：3日前まで30%）</button>
+          <div class="pol-preview" id="pol_preview"></div>
         </div>
         <div class="modal-foot"><button class="btn-primary" id="f_submit">登録する</button></div>
       </div>
@@ -1473,13 +1574,45 @@
     let data = [];
     let editingId = null;
 
-    const POLICIES = {
-      unknown: "unknown",
-      none: { stages: [{ h: 0, pct: 0 }] },
-      free24: { stages: [{ h: 24, pct: 0 }, { h: 0, pct: 100 }] },
-      staged: {
-        stages: [{ h: 168, pct: 0 }, { h: 72, pct: 30 }, { h: 24, pct: 50 }, { h: 0, pct: 100 }],
-      },
+    // ---- キャンセル規定モデル: src/web/policy.ts の写し。ロックステップ必須 ----
+    // 規定は プリセット名（unknown / none / free24 / staged）か、任意の段階表
+    // {stages:[{h,pct}...]}（h=開始までの残り時間・pct=その境界から内側の料率%）。
+    const PRESET_STAGES = {
+      none: [{ h: 0, pct: 0 }],
+      free24: [{ h: 24, pct: 0 }, { h: 0, pct: 100 }],
+      staged: [{ h: 168, pct: 0 }, { h: 72, pct: 30 }, { h: 24, pct: 50 }, { h: 0, pct: 100 }],
+    };
+    const POL_MAX_STAGES = 8;
+    // h 降順・同じ h は後勝ち・内側と同率の段は冗長なので落とす（正規形は一意）
+    function normalizeStages(stages) {
+      const byBoundary = new Map();
+      for (const s of [...stages].sort((a, b) => b.h - a.h)) {
+        byBoundary.set(s.h, { h: s.h, pct: s.pct });
+      }
+      const ordered = [...byBoundary.values()];
+      return ordered.filter((s, i) => !ordered[i + 1] || ordered[i + 1].pct !== s.pct);
+    }
+    function sameStages(a, b) {
+      return a.length === b.length && a.every((s, i) => s.h === b[i].h && s.pct === b[i].pct);
+    }
+    // プリセットと一致する段階表はプリセット名で保存する（既存データと同じ値になる）
+    function presetNameOf(stages) {
+      for (const [name, preset] of Object.entries(PRESET_STAGES)) {
+        if (sameStages(stages, preset)) return name;
+      }
+      return null;
+    }
+    // すべての表示計算はここを通る。null は「不明」のときだけ。
+    function stagesOfPolicy(policy) {
+      if (policy && typeof policy === "object") return normalizeStages(policy.stages || []);
+      if (!policy || policy === "unknown") return null;
+      return PRESET_STAGES[policy] ? [...PRESET_STAGES[policy]] : null;
+    }
+    const stagesOf = (r) => stagesOfPolicy(r.policy);
+    const unknownPolicy = (r) => stagesOf(r) === null;
+    const alwaysFree = (r) => {
+      const st = stagesOf(r);
+      return !!st && st.every((s) => s.pct === 0);
     };
     const startMs = (r) => new Date(r.startsAt).getTime();
     const yen = (n) => "¥" + (n || 0).toLocaleString("ja-JP");
@@ -1488,21 +1621,39 @@
       return `${d.getMonth() + 1}/${d.getDate()}(${"日月火水木金土"[d.getDay()]})`;
     };
     function freeDeadline(r) {
-      const p = POLICIES[r.policy];
-      if (!p || p === "unknown") return null;
-      const paid = p.stages.find((s) => s.pct > 0);
-      if (!paid) return null;
-      // 無料期限 = 最後の pct==0 ステージの境界（free24=24h前・staged=168h前）。
+      const st = stagesOf(r);
+      if (!st || !st.some((s) => s.pct > 0)) return null; // 不明 / いつでも無料
+      // 無料期限 = 最後の pct==0 ステージの境界（前日まで無料=24h前・5日前まで無料=120h前）。
       // 2026-07-25 修正: 従来の「最初の有料ステージの h」は1段ズレていた。
-      const lastFree = [...p.stages].reverse().find((s) => s.pct === 0);
-      if (!lastFree) return null;
+      const lastFree = [...st].reverse().find((s) => s.pct === 0);
+      if (!lastFree) return null; // 最初から有料 — 無料期間なし
       return startMs(r) - lastFree.h * 3600000;
     }
     function maxLoss(r) {
-      if (!r.amount || r.policy === "unknown") return 0;
-      const p = POLICIES[r.policy];
-      if (p === "unknown") return 0;
-      return Math.round(r.amount * Math.max(...p.stages.map((s) => s.pct)) / 100);
+      const st = stagesOf(r);
+      if (!r.amount || !st) return 0;
+      return Math.round(r.amount * Math.max(...st.map((s) => s.pct)) / 100);
+    }
+    // 「5日前」「前日」「当日」「36時間前」— 人が言う形の境界
+    function boundaryLabel(h) {
+      if (h === 0) return "当日";
+      if (h === 24) return "前日";
+      return h % 24 === 0 ? `${h / 24}日前` : `${h}時間前`;
+    }
+    // 人が読む規定ラベル（ICS・Googleカレンダーの説明と同じ文言）。段階の h は
+    // 帯の内側の端（＝「〜まで」）なので、実際の規定表と同じ書き方になる。
+    function describePolicy(policy) {
+      const st = stagesOfPolicy(policy);
+      if (!st) return "不明";
+      if (st.every((s) => s.pct === 0)) return "いつでも無料";
+      const parts = [];
+      const lastFree = [...st].reverse().find((s) => s.pct === 0);
+      if (lastFree) parts.push(`${boundaryLabel(lastFree.h)}まで無料`);
+      for (const s of st) {
+        if (s.pct === 0) continue;
+        parts.push(s.h === 0 ? `当日${s.pct}%` : `${boundaryLabel(s.h)}まで${s.pct}%`);
+      }
+      return parts.join(" → ");
     }
 
     const q = (s) => document.querySelector(s);
@@ -1649,18 +1800,15 @@
       );
     }
     // ---- 帳場×宵の帳: 期限バー・やることレールのヘルパー ----
-    function stagesOf(r) {
-      const p = POLICIES[r.policy];
-      return (p && p !== "unknown") ? p.stages : null;
-    }
     // 今キャンセルした場合の損失率（%）。規定不明なら null。
     function pctNow(r, now) {
       const st = stagesOf(r);
       if (!st) return null;
       const hl = (startMs(r) - now) / 3600000;
-      const c = st.filter((s) => hl >= s.h);
-      if (!c.length) return st[st.length - 1].pct;
-      return c.reduce((a, b) => (a.h >= b.h ? a : b)).pct;
+      // st は h 降順なので、最初に越えている境界がいま効いている段。開始を過ぎたら
+      // 最も内側の料率が残る。
+      const crossed = st.filter((s) => hl >= s.h);
+      return (crossed[0] || st[st.length - 1]).pct;
     }
     // 無料期限を過ぎた直後に発生する最低キャンセル料
     function penaltyAfterFree(r) {
@@ -1699,7 +1847,7 @@
         const dl = freeDeadline(r);
         const label = dl ? (dl > now ? `◆${fmtDate(dl)} まで` : "今日中") : "早めに";
         const pct = pctNow(r, now);
-        const ds = r.policy === "unknown"
+        const ds = unknownPolicy(r)
           ? "規定不明のため損失は未知"
           : (r.amount
             ? `今なら ${yen(Math.round(r.amount * (pct || 0) / 100))} · 放置で最大 ${
@@ -1730,7 +1878,7 @@
         );
       }
       for (const r of active) {
-        if (r.shared || r.policy !== "unknown" || r.status === "to_cancel") continue;
+        if (r.shared || !unknownPolicy(r) || r.status === "to_cancel") continue;
         items.push(
           `<div class="rail-item soft"><div class="lb muted">いつでも</div><div class="tt"><b>${
             esc(r.service)
@@ -1751,7 +1899,7 @@
         dl = freeDeadline(r);
       const pos = (t) => Math.max(0, Math.min(100, ((t - now) / span) * 100));
       const freePct = dl ? pos(dl) : 0;
-      const track = r.policy === "unknown"
+      const track = unknownPolicy(r)
         ? `<div class="bar unknown" title="キャンセル規定が不明です"></div>`
         : `<div class="bar" style="background:${barGradient(r, now)}">${
           dl && dl > now
@@ -1760,9 +1908,12 @@
             }"></span>`
             : ""
         }</div>`;
-      const mid = r.policy === "unknown"
+      // 無料期限のない規定は2種類ある（いつでも無料／最初から有料）ので区別する。
+      const mid = unknownPolicy(r)
         ? "規定が不明だと見張れません"
-        : (dl && dl > now ? `◆${fmtDate(dl)} ¥0で戻れる最終日` : "無料期間は終了");
+        : (alwaysFree(r)
+          ? "いつでも無料で戻れます"
+          : (dl && dl > now ? `◆${fmtDate(dl)} ¥0で戻れる最終日` : "無料期間は終了"));
       const cap = `<div class="bar-cap"><span>今日</span><span>${mid}</span><span>${
         fmtDate(start)
       } ▶</span></div>`;
@@ -1791,7 +1942,7 @@
       let mainBtn = "";
       if (r.status === "candidate") {
         mainBtn = `<button class="rowbtn confirm" data-confirm="${r.id}">これで確定</button>`;
-        if (r.policy === "unknown") {
+        if (unknownPolicy(r)) {
           mainBtn += `<button class="rowbtn dashed" data-edit="${r.id}">規定 不明 → 入れる</button>`;
         }
       } else if (r.status === "to_cancel") {
@@ -1876,6 +2027,139 @@
       }
     };
 
+    // ---- キャンセル規定フォーム（プリセット4つ + 期限つきの自由入力） ----
+    // 「7日前しか選べない」を無くすのが目的（オーナー 2026-07-27）。期限つきは
+    // 「無料期限」＋「N日前から M%」の段階行＋「当日 M%」で組み立て、プリセットに
+    // 一致すればプリセット名で保存する（既存データと同じ値のまま）。
+    let polMode = "unknown"; // unknown | none | free24 | custom
+    let polFree = { n: "5", u: "d" };
+    let polRows = []; // [{ n, u, pct }] — 無料期限より内側の段階
+    let polToday = "100";
+    // 上限は1年（サーバの webPolicyStageSchema と同じ）。超えた入力は丸めて弾かせない。
+    const POL_MAX_HOURS = 24 * 366;
+    const polHours = (n, u) =>
+      Math.min(POL_MAX_HOURS, Math.max(0, Math.round(Number(n) * (u === "d" ? 24 : 1))));
+    const polPct = (v) => Math.min(100, Math.max(0, Math.round(Number(v) || 0)));
+    const boundaryToInput = (h) =>
+      h % 24 === 0 ? { n: String(h / 24), u: "d" } : { n: String(h), u: "h" };
+    function polStages() {
+      const freeRaw = String(polFree.n).trim();
+      const freeH = freeRaw === "" ? null : polHours(freeRaw, polFree.u);
+      if (freeH === 0) return [{ h: 0, pct: 0 }]; // 開始まで無料 = いつでも無料
+      const stages = [];
+      if (freeH !== null) stages.push({ h: freeH, pct: 0 });
+      for (const row of polRows) {
+        if (String(row.n).trim() === "") continue;
+        const h = polHours(row.n, row.u);
+        // 有効なのは無料期限より内側（残り時間が短い側）の段階だけ。当日は専用行。
+        if (h <= 0 || (freeH !== null && h >= freeH)) continue;
+        stages.push({ h, pct: polPct(row.pct) });
+      }
+      stages.push({ h: 0, pct: polPct(polToday) });
+      return normalizeStages(stages);
+    }
+    // 送信する値: プリセットに一致すればその名前、そうでなければ {stages:[...]}
+    function readPolicy() {
+      if (polMode !== "custom") return polMode;
+      const stages = polStages();
+      return presetNameOf(stages) || { stages };
+    }
+    function fillPolicyForm(policy) {
+      const p = policy || "unknown";
+      polFree = { n: "5", u: "d" };
+      polRows = [];
+      polToday = "100";
+      // staged も「7日前まで無料 → …」という期限つきの一例なので、開いて見せる。
+      if (typeof p === "string" && p !== "staged") {
+        polMode = (p === "none" || p === "free24") ? p : "unknown";
+        renderPolicyForm();
+        return;
+      }
+      polMode = "custom";
+      const st = stagesOfPolicy(p) || [];
+      const lastFree = [...st].reverse().find((s) => s.pct === 0);
+      polFree = lastFree ? boundaryToInput(lastFree.h) : { n: "", u: "d" };
+      polRows = st.filter((s) => s.pct > 0 && s.h > 0).map((s) => ({
+        ...boundaryToInput(s.h),
+        pct: String(s.pct),
+      }));
+      const today = st.find((s) => s.h === 0);
+      polToday = String(today ? today.pct : 100);
+      renderPolicyForm();
+    }
+    function polPreview() {
+      q("#pol_preview").textContent = `この規定: ${describePolicy(readPolicy())}`;
+    }
+    function renderPolicyForm() {
+      document.querySelectorAll("#polModes [data-pol]").forEach((b) =>
+        b.classList.toggle("on", b.dataset.pol === polMode)
+      );
+      q("#polBody").classList.toggle("on", polMode === "custom");
+      q("#pol_freeN").value = polFree.n;
+      q("#pol_freeU").value = polFree.u;
+      q("#pol_todayPct").value = polToday;
+      const unit = (u, sel) =>
+        `<option value="${u}"${sel === u ? " selected" : ""}>${u === "d" ? "日前" : "時間前"}</option>`;
+      q("#pol_stages").innerHTML = polRows.map((row, i) =>
+        `<div class="pol-line pol-stage"><span class="pol-in"><input type="number" min="0" max="8784" step="1" inputmode="numeric" data-n="${i}" value="${row.n}"><select data-u="${i}">${
+          unit("d", row.u)
+        }${unit("h", row.u)}</select></span><span class="lb">まで</span><span class="pol-in"><input type="number" min="0" max="100" step="1" inputmode="numeric" data-p="${i}" value="${row.pct}"><span>%</span></span><button type="button" class="pol-x" data-x="${i}" aria-label="この段階を消す">×</button></div>`
+      ).join("");
+      // 入力中は再描画しない（フォーカスが飛ぶ）ので、プレビューだけ更新する。
+      q("#pol_stages").querySelectorAll("[data-n]").forEach((el) =>
+        el.oninput = () => {
+          polRows[+el.dataset.n].n = el.value;
+          polPreview();
+        }
+      );
+      q("#pol_stages").querySelectorAll("[data-p]").forEach((el) =>
+        el.oninput = () => {
+          polRows[+el.dataset.p].pct = el.value;
+          polPreview();
+        }
+      );
+      q("#pol_stages").querySelectorAll("[data-u]").forEach((el) =>
+        el.onchange = () => {
+          polRows[+el.dataset.u].u = el.value;
+          polPreview();
+        }
+      );
+      q("#pol_stages").querySelectorAll("[data-x]").forEach((el) =>
+        el.onclick = () => {
+          polRows.splice(+el.dataset.x, 1);
+          renderPolicyForm();
+        }
+      );
+      // 段階は最大8段（無料期限 + 行 + 当日）
+      q("#pol_add").disabled = polRows.length >= POL_MAX_STAGES - 2;
+      polPreview();
+    }
+    document.querySelectorAll("#polModes [data-pol]").forEach((b) =>
+      b.onclick = () => {
+        polMode = b.dataset.pol;
+        renderPolicyForm();
+      }
+    );
+    q("#pol_freeN").oninput = () => {
+      polFree.n = q("#pol_freeN").value;
+      polPreview();
+    };
+    q("#pol_freeU").onchange = () => {
+      polFree.u = q("#pol_freeU").value;
+      polPreview();
+    };
+    q("#pol_todayPct").oninput = () => {
+      polToday = q("#pol_todayPct").value;
+      polPreview();
+    };
+    q("#pol_add").onclick = () => {
+      // 直近の境界の半分あたり（日単位）に置くと、そのまま使えるか少し直すだけで済む。
+      const inner = polRows.length ? polRows[polRows.length - 1] : polFree;
+      const innerDays = Math.max(1, Math.round(polHours(inner.n || "4", inner.u) / 24));
+      polRows.push({ n: String(Math.max(1, Math.floor(innerDays / 2))), u: "d", pct: "50" });
+      renderPolicyForm();
+    };
+
     // ---- add / edit modal (also the confirmation screen for parsed imports) ----
     function openAdd(r) {
       const isEdit = !!(r && r.id);
@@ -1898,7 +2182,7 @@
         String(d.getMinutes()).padStart(2, "0")
       }`;
       q("#f_amount").value = (r && r.amount != null) ? r.amount : "";
-      q("#f_policy").value = (r && r.policy) ? r.policy : "unknown";
+      fillPolicyForm(r && r.policy);
       [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === "candidate");
       q("#addOverlay").classList.add("on");
     }
@@ -1931,7 +2215,7 @@
       const plan = q("#f_plan").value.trim() || null;
       const amount = q("#f_amount").value ? Number(q("#f_amount").value) : null;
       const location = q("#f_location").value.trim() || null;
-      const policy = q("#f_policy").value;
+      const policy = readPolicy();
       try {
         if (editingId) {
           // Editing a cancelled reservation = 取り直し: revive it as a candidate
