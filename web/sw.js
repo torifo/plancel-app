@@ -1,11 +1,11 @@
-const CACHE_VERSION = "plancel-shell-v1";
+const CACHE_VERSION = "plancel-shell-v2";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/icon-maskable-512.png",
+  "/icons/icon-192.png?v=2",
+  "/icons/icon-512.png?v=2",
+  "/icons/icon-maskable-512.png?v=2",
 ];
 
 self.addEventListener("install", (event) => {
