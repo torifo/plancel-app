@@ -14,12 +14,14 @@
  * が理念 — future tools may cover profile edits (display name etc.). The
  * EXCEPTIONS are identity-critical, deliberately human/GUI-only flows:
  * unique-uid claiming, account linking/merging, and issuing a LINE link code
- * (owner 2026-07-27) are NEVER exposed here.
+ * (owner 2026-07-27) are NEVER exposed here. Sharing is NOT such an exception,
+ * so the invite/role tools live here too (owner 2026-07-28).
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { webPolicyInputSchema } from "../web/policy.ts";
 import { templatePolicyInputSchema } from "../web/policy-template.ts";
+import { memberRoleSchema } from "../web/sharing.ts";
 
 export interface WebApiConfig {
   /** e.g. https://plancel-app.torifo.deno.net */
@@ -68,6 +70,27 @@ const patchInput = z.object({
   amount: z.number().nullable().optional(),
   location: z.string().nullable().optional(),
   policy: webPolicyInputSchema.optional().describe(POLICY_DESC),
+});
+
+const ROLE_DESC =
+  '共有相手の権限: "viewer"（閲覧のみ・既定）/ "editor"（内容の編集も許可）。確定・キャンセル・削除・' +
+  "招待・権限変更はどちらの権限でもオーナー専用";
+
+const shareInput = z.object({
+  id: z.string().min(1).describe("予約ID"),
+  q: z.string().min(1).describe("相手のメールアドレスまたはユーザーID（完全一致）"),
+  role: memberRoleSchema.default("viewer").describe(ROLE_DESC),
+});
+
+const memberRoleInput = z.object({
+  id: z.string().min(1).describe("予約ID"),
+  userId: z.string().min(1).describe("共有相手の userId（list_reservation_members が返す）"),
+  role: memberRoleSchema.describe(ROLE_DESC),
+});
+
+const memberInput = z.object({
+  id: z.string().min(1).describe("予約ID"),
+  userId: z.string().min(1).describe("共有相手の userId"),
 });
 
 interface McpTextResult {
@@ -170,6 +193,66 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       const parsed = idInput.safeParse(args ?? {});
       if (!parsed.success) return invalidArgs(parsed.error.issues);
       return callApi(cfg, "DELETE", `/api/reservations/${parsed.data.id}`);
+    },
+  );
+
+  // ---- 予約の共有（招待・権限）(owner 2026-07-28) ----
+  // 「GUI でできることは MCP でもできる」: the invite box's four operations,
+  // including the 「編集を許可」 grant. The API keeps every one of them
+  // owner-only, so a token can only manage shares of its own reservations.
+  server.registerTool(
+    "list_reservation_members",
+    {
+      description: "予約を共有している相手と権限（viewer/editor）を一覧する",
+      inputSchema: idInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = idInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      return callApi(cfg, "GET", `/api/reservations/${parsed.data.id}/members`);
+    },
+  );
+
+  server.registerTool(
+    "share_reservation",
+    {
+      description:
+        "予約を相手に共有する（メール/ユーザーID完全一致。role=editor で内容の編集も許可する）",
+      inputSchema: shareInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = shareInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      const { id, ...body } = parsed.data;
+      return callApi(cfg, "POST", `/api/reservations/${id}/members`, body);
+    },
+  );
+
+  server.registerTool(
+    "set_member_role",
+    {
+      description: "共有相手の権限を変更する（viewer ⇄ editor）",
+      inputSchema: memberRoleInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = memberRoleInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      const { id, userId, role } = parsed.data;
+      return callApi(cfg, "PATCH", `/api/reservations/${id}/members/${userId}`, { role });
+    },
+  );
+
+  server.registerTool(
+    "unshare_reservation",
+    {
+      description: "共有相手を予約から外す（相手の台帳から予約が消える。予約自体は残る）",
+      inputSchema: memberInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = memberInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      const { id, userId } = parsed.data;
+      return callApi(cfg, "DELETE", `/api/reservations/${id}/members/${userId}`);
     },
   );
 

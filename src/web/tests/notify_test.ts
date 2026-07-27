@@ -87,6 +87,7 @@ async function putResv(
     status,
     created_at: iso(NOW),
     updated_at: iso(NOW),
+    updated_by: null,
   };
   await kv.set(["web", ledger, "resv", id], r);
 }

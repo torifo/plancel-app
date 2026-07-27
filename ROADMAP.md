@@ -41,6 +41,15 @@ remote-MCP tools. **The web UI hookup is still pending**: the add/edit form does
 `GET /api/policy-templates/lookup?service=…` to pre-fill the fee table, offer a
 「この施設の規定として覚える」 save, or expose a management list for editing/deleting templates.
 
+Share roles (owner 2026-07-28: 「招待する時に編集を許可すれば細かい修正を参加者もできるように」):
+the backend is done — a `viewer`/`editor` role on the membership (`src/web/sharing.ts`), the `role`
+parameter on `POST /api/reservations/:id/members`, the new owner-only
+`PATCH /api/reservations/:id/members/:userId`, an editor's PATCH applied to the OWNER's ledger with
+the same calendar-sync hook, `updated_by` attribution on every reservation write, and the matching
+remote-MCP tools. **The invite UI hookup is still pending**: the invite box has no 「編集を許可」
+checkbox, the member list shows no role and offers no way to change it, and a shared row is still
+rendered read-only for editors (the list response now carries `shared.role`).
+
 Weather integration (ADR-8): JMA public JSON (key-free, effectively rate-limit-free) behind a
 `WeatherProvider` interface (+ Mock/replay, same discipline as Parser/Notifier). Weather enriches
 notification messages and adds a `weather_alert` trigger (typhoon approach × unsettled candidates ×

@@ -52,10 +52,37 @@ plancel と opulse（現 opulse-monitor）は **1 つの org に軽量2アプリ
   | `/auth/*`                    | ログイン・マイページ・API トークン・カレンダー/LINE 連携（§4） |
   | `GET /calendar/<secret>.ics` | 全員向け iCal 購読フィード（§5）                               |
   | `POST /api/parse`            | 貼り付けメール／画像の取り込み（**ログイン必須**・401 で拒否） |
-  | `/api/reservations…`         | 予約 CRUD（ログインまたは API トークン必須）                   |
+  | `/api/reservations…`         | 予約 CRUD ＋ 共有（招待・権限、下記）（ログインまたは API トークン必須） |
   | `/api/policy-templates…`     | 施設ごとのキャンセル規定テンプレ（下記・台帳ごとに非公開）      |
   | `GET /healthz`               | ヘルスチェック（`ok`）                                         |
   | `POST /webhook`              | LINE webhook（LINE env 未設定時は 503）                        |
+- **予約の共有（招待）と権限**（オーナー
+  2026-07-28「招待する時に編集を許可すれば細かい修正を参加者もできるように」）: 予約は**オーナーの
+  台帳に置いたまま参照で共有**する（相手の台帳にコピーは作らない）。KV は
+  `["resv_members", <ownerUserId>, <resvId>, <memberUserId>] → { addedAt, role }` と 逆引き
+  `["shared_in", <memberUserId>, <ownerUserId>, <resvId>] →`（同じ値）の2本を常に同一 atomic
+  で更新する。`role` は **`viewer`（既定・閲覧のみ）** と **`editor`（内容の編集も可）** の2種類で、
+  role キーを持たない旧行は viewer として読む（既存の共有は読み取り専用のまま）。
+  - `GET /api/reservations/:id/members` — オーナーまたはメンバーが閲覧 →
+    `{members:[{userId,displayName,uid,label,role}]}`
+  - `POST /api/reservations/:id/members` `{q, role?}` — 招待（オーナー専用）。`role` 省略は
+    `viewer`、未知の role は 400、相手が見つからなければ 404 `user_not_found`、自分宛て・重複は
+    200 の no-op（**再招待で権限は変わらない** — 変更は下の PATCH で明示的に）
+  - `PATCH /api/reservations/:id/members/:userId` `{role}` — 権限変更（オーナー専用）→ 200
+    `{member}`。未知の role は 400、その userId が共有相手でなければ 404
+  - `DELETE /api/reservations/:id/members/me` — メンバー自身が脱退
+  - `DELETE /api/reservations/:id/members/:userId` — オーナーが外す
+
+  **権限の分界**（`src/web/api.ts` の `memberGate` 一箇所で強制）: editor に許すのは
+  `PATCH /api/reservations/:id`（service / startsAt / amount / location / policy / plan）**だけ**。
+  **確定・キャンセル・復元・削除・招待・権限変更はオーナー専用** — 確定はプラン全体を決着させ
+  （同プランの他候補が自動で要キャンセル）、削除は取り消せないため、参加者に渡した「細かい修正」の
+  範囲を超える。権限不足のメンバーには 403 `{error:"forbidden",reason:"role",role}`、そもそも共有
+  されていない相手には 404（予約の存在を教えない）。editor の編集は**オーナーの台帳へ直接**適用され、
+  オーナーの Google/ICS を追随させる同じ同期フックが発火する。最後に書いた人は予約の
+  `updated_by`（userId、旧レコードは null）に残る。メンバーに見せるオーナー名・相手名は
+  `displayName → @uid →「共有ユーザー」`の順で、**メールアドレスは絶対に返さない**（招待検索 API
+  と同じ規律）。
 - **キャンセル規定テンプレ**（オーナー 2026-07-27「ホテルごとに規定(ベース)を設定できるといいかも」）:
   施設名をキーに規定を1件だけ覚えておき、同じ宿・同じ店の次の予約で初期値にする。KV は
   `["web", <ledger>, "policy_tpl", <正規化施設名>]`（NFKC + trim + 空白畳み + 小文字化。
@@ -204,16 +231,19 @@ Web台帳の無料キャンセル期限リマインド（`src/web/notify.ts`、1
 Claude Desktop 等から本番 Web 台帳を直接操作できる。
 
 - **remote モード**: env `PLANCEL_API_URL` + `PLANCEL_API_TOKEN` が揃うと、`src/mcp/main.ts` は
-  ローカル core ストアではなく本番 Web API を叩く 11 ツールを serve する。予約 7
+  ローカル core ストアではなく本番 Web API を叩く 15 ツールを serve する。予約 7
   （list / create / confirm / cancel / restore / update / delete）＋
   キャンセル規定テンプレ 4（`list_policy_templates` / `lookup_policy_template` /
-  `save_policy_template` / `delete_policy_template` → `/api/policy-templates`）。トークンはマイページの
+  `save_policy_template` / `delete_policy_template` → `/api/policy-templates`）＋
+  共有 4（`list_reservation_members` / `share_reservation`（`role` で「編集を許可」）/
+  `set_member_role` / `unshare_reservation` → `/api/reservations/:id/members`）。トークンはマイページの
   カレンダー連携画面で発行するパーソナル API トークン（`x-plancel-token`）。Claude で作った予約が
   家族の見る台帳に入り、確定はカレンダーにも流れる。
 - **local core モード**: env 無しなら従来どおりローカル KV の core ストアを操作する。
 - **原則**: 「GUI でできることは MCP でもできる」を目指す。ただし**uid 確定・アカウント連携/マージ・
   LINE 連携コードの発行は GUI 専用**（アイデンティティ確定は人手のみ）で MCP には出さない。
-  キャンセル規定テンプレはこの例外に当たらないので MCP にも出す（上記4ツール）。
+  キャンセル規定テンプレと共有（招待・権限）はこの例外に当たらないので MCP にも出す（上記8ツール）。
+  共有ツールも API 側の分界に従うので、オーナー専用の操作は MCP からも実行できない。
 
 Claude Desktop の設定例（`claude_desktop_config.json`）:
 

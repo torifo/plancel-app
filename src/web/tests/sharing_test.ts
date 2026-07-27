@@ -1,6 +1,7 @@
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
+import { assertEquals, assertFalse, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import { handleUserLookup, handleWebApi } from "../api.ts";
 import { getOrCreateUserByEmail, setUid, updateUser, type WebUser } from "../users.ts";
+import { listReservations } from "../store.ts";
 import { handleCalendarFeed } from "../calendar/ics.ts";
 import { makeAuthIds } from "./users_test.ts";
 
@@ -51,6 +52,19 @@ async function createConfirmed(
     confirmed: true,
   });
   return (await res.json()).reservation.id;
+}
+
+/** Owner + one invited member on one confirmed reservation. */
+async function shared(
+  kv: Deno.Kv,
+  ids: ReturnType<typeof makeAuthIds>,
+  role: "viewer" | "editor" = "viewer",
+): Promise<{ owner: WebUser; member: WebUser; rid: string }> {
+  const owner = await getOrCreateUserByEmail(kv, "o@x.jp", ids);
+  const member = await getOrCreateUserByEmail(kv, "m@x.jp", ids);
+  const rid = await createConfirmed(kv, ids, owner, "宿");
+  await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "m@x.jp", role });
+  return { owner, member, rid };
 }
 
 Deno.test("lookup: exact email/uid hit (no email leaked); partial + logged-out miss", async () => {
@@ -179,13 +193,10 @@ Deno.test("invite is owner-only: the demo ledger cannot share (403)", async () =
   });
 });
 
-Deno.test("members cannot edit / confirm / cancel / delete a shared reservation (403)", async () => {
+Deno.test("viewer cannot edit / confirm / cancel / delete a shared reservation (403)", async () => {
   await withKv(async (kv) => {
     const ids = makeAuthIds();
-    const owner = await getOrCreateUserByEmail(kv, "o@x.jp", ids);
-    const member = await getOrCreateUserByEmail(kv, "m@x.jp", ids);
-    const rid = await createConfirmed(kv, ids, owner, "宿");
-    await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "m@x.jp" });
+    const { owner, member, rid } = await shared(kv, ids, "viewer");
 
     for (
       const [method, path] of [
@@ -202,6 +213,199 @@ Deno.test("members cannot edit / confirm / cancel / delete a shared reservation 
     // The owner's copy is untouched.
     const ownerList = await (await asUser(kv, ids, owner, "GET", BASE)).json();
     assertEquals(ownerList.reservations[0].service, "宿");
+  });
+});
+
+Deno.test("editor patches the OWNER's record and fires the owner's calendar sync", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const { owner, member, rid } = await shared(kv, ids, "editor");
+
+    const synced: [string, string | null][] = [];
+    const res = await handleWebApi(
+      kv,
+      apiReq("PATCH", `${BASE}/${rid}`, { service: "湖畔の宿（部屋変更）", amount: 24000 }),
+      ids,
+      {
+        user: member,
+        ledger: member.ledgerId,
+        onMutate: (resvId, ledgerOwner) => synced.push([resvId, ledgerOwner?.id ?? null]),
+      },
+    );
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).reservation.service, "湖畔の宿（部屋変更）");
+
+    // The edit landed in the OWNER's ledger …
+    const ownerList = await (await asUser(kv, ids, owner, "GET", BASE)).json();
+    assertEquals(ownerList.reservations.length, 1);
+    assertEquals(ownerList.reservations[0].service, "湖畔の宿（部屋変更）");
+    assertEquals(ownerList.reservations[0].amount, 24000);
+    // … and nothing was copied into the member's own ledger.
+    assertEquals(await listReservations(kv, member.ledgerId), []);
+    // The sync hook names the owner, so THEIR Google calendar is reconciled.
+    assertEquals(synced, [[rid, owner.id]]);
+  });
+});
+
+Deno.test("editor still cannot confirm / cancel / delete / invite / re-grade (403)", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const { member, rid } = await shared(kv, ids, "editor");
+    const other = await getOrCreateUserByEmail(kv, "o2@x.jp", ids);
+
+    for (
+      const [method, path, body] of [
+        ["POST", `${BASE}/${rid}/confirm`, undefined],
+        ["POST", `${BASE}/${rid}/cancel`, undefined],
+        ["POST", `${BASE}/${rid}/restore`, undefined],
+        ["DELETE", `${BASE}/${rid}`, undefined],
+        ["POST", `${BASE}/${rid}/members`, { q: "o2@x.jp" }],
+        ["PATCH", `${BASE}/${rid}/members/${other.id}`, { role: "editor" }],
+      ] as const
+    ) {
+      const res = await asUser(kv, ids, member, method, path, body);
+      assertEquals(res.status, 403, `${method} ${path} should be 403`);
+    }
+  });
+});
+
+Deno.test("role defaults to viewer, and a pre-role membership row reads as viewer", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const owner = await getOrCreateUserByEmail(kv, "o@x.jp", ids);
+    const member = await getOrCreateUserByEmail(kv, "m@x.jp", ids);
+    const rid = await createConfirmed(kv, ids, owner, "宿");
+
+    // Invite without a role -> read-only.
+    await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "m@x.jp" });
+    const roster = await (await asUser(kv, ids, owner, "GET", `${BASE}/${rid}/members`)).json();
+    assertEquals(roster.members[0].role, "viewer");
+
+    // A row written before roles existed (no `role` key) parses the same way
+    // and stays read-only.
+    const legacy = { addedAt: "2026-07-25T00:00:00.000Z" };
+    await kv.set(["resv_members", owner.id, rid, member.id], legacy);
+    await kv.set(["shared_in", member.id, owner.id, rid], legacy);
+    const legacyRoster = await (await asUser(kv, ids, owner, "GET", `${BASE}/${rid}/members`))
+      .json();
+    assertEquals(legacyRoster.members[0].role, "viewer");
+    const memberList = await (await asUser(kv, ids, member, "GET", BASE)).json();
+    assertEquals(memberList.reservations[0].shared.role, "viewer");
+    const patch = await asUser(kv, ids, member, "PATCH", `${BASE}/${rid}`, { service: "改ざん" });
+    assertEquals(patch.status, 403);
+  });
+});
+
+Deno.test("role change: owner promotes and demotes; stranger 404; non-owner cannot", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const { owner, member, rid } = await shared(kv, ids, "viewer");
+    const stranger = await getOrCreateUserByEmail(kv, "s@x.jp", ids);
+
+    const promoted = await asUser(kv, ids, owner, "PATCH", `${BASE}/${rid}/members/${member.id}`, {
+      role: "editor",
+    });
+    assertEquals(promoted.status, 200);
+    assertEquals((await promoted.json()).member.role, "editor");
+    assertEquals(
+      (await asUser(kv, ids, member, "PATCH", `${BASE}/${rid}`, { service: "編集" })).status,
+      200,
+    );
+
+    const demoted = await asUser(kv, ids, owner, "PATCH", `${BASE}/${rid}/members/${member.id}`, {
+      role: "viewer",
+    });
+    assertEquals(demoted.status, 200);
+    assertEquals((await demoted.json()).member.role, "viewer");
+    assertEquals(
+      (await asUser(kv, ids, member, "PATCH", `${BASE}/${rid}`, { service: "再編集" })).status,
+      403,
+    );
+
+    // A userId that is not on this roster -> 404 (nothing to re-grade).
+    const ghost = await asUser(kv, ids, owner, "PATCH", `${BASE}/${rid}/members/${stranger.id}`, {
+      role: "editor",
+    });
+    assertEquals(ghost.status, 404);
+
+    // A stranger may not re-grade anyone, and learns nothing about the record.
+    const byStranger = await asUser(
+      kv,
+      ids,
+      stranger,
+      "PATCH",
+      `${BASE}/${rid}/members/${member.id}`,
+      { role: "editor" },
+    );
+    assertEquals(byStranger.status, 404);
+    assertEquals(
+      (await (await asUser(kv, ids, owner, "GET", `${BASE}/${rid}/members`)).json())
+        .members[0].role,
+      "viewer",
+    );
+  });
+});
+
+Deno.test("an unknown role string is rejected (400) on invite and on re-grade", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const owner = await getOrCreateUserByEmail(kv, "o@x.jp", ids);
+    const member = await getOrCreateUserByEmail(kv, "m@x.jp", ids);
+    const rid = await createConfirmed(kv, ids, owner, "宿");
+
+    const badInvite = await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, {
+      q: "m@x.jp",
+      role: "admin",
+    });
+    assertEquals(badInvite.status, 400);
+    // Nothing was shared by the rejected call.
+    const roster = await (await asUser(kv, ids, owner, "GET", `${BASE}/${rid}/members`)).json();
+    assertEquals(roster.members.length, 0);
+
+    await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "m@x.jp" });
+    const badRole = await asUser(kv, ids, owner, "PATCH", `${BASE}/${rid}/members/${member.id}`, {
+      role: "owner",
+    });
+    assertEquals(badRole.status, 400);
+  });
+});
+
+Deno.test("updated_by names the acting user on an editor's edit and on the owner's", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const { owner, member, rid } = await shared(kv, ids, "editor");
+
+    await asUser(kv, ids, member, "PATCH", `${BASE}/${rid}`, { service: "参加者が直した" });
+    const afterMember = await (await asUser(kv, ids, owner, "GET", BASE)).json();
+    assertEquals(afterMember.reservations[0].updated_by, member.id);
+
+    await asUser(kv, ids, owner, "PATCH", `${BASE}/${rid}`, { service: "オーナーが直した" });
+    const afterOwner = await (await asUser(kv, ids, owner, "GET", BASE)).json();
+    assertEquals(afterOwner.reservations[0].updated_by, owner.id);
+  });
+});
+
+Deno.test("member-facing responses never carry the owner's e-mail", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const { owner, member, rid } = await shared(kv, ids, "viewer");
+
+    // No display name and no uid: a neutral label, never the address.
+    const listText = await (await asUser(kv, ids, member, "GET", BASE)).text();
+    assertFalse(listText.includes(owner.email), "the owner's e-mail must not reach a member");
+    assertEquals(JSON.parse(listText).reservations[0].shared.ownerDisplayName, "共有ユーザー");
+
+    // With a uid it becomes @uid (still not the address).
+    await setUid(kv, owner.id, "ownerhandle", ids);
+    const withUid = await (await asUser(kv, ids, member, "GET", BASE)).text();
+    assertFalse(withUid.includes(owner.email));
+    assertEquals(JSON.parse(withUid).reservations[0].shared.ownerDisplayName, "@ownerhandle");
+
+    // The roster a member may read carries no address either.
+    const roster = await (await asUser(kv, ids, member, "GET", `${BASE}/${rid}/members`)).text();
+    assertFalse(roster.includes(owner.email));
+    assertFalse(roster.includes(member.email));
+    assertEquals(JSON.parse(roster).members[0].label, "共有ユーザー");
   });
 });
 
@@ -272,7 +476,7 @@ Deno.test("ICS feed: a member's subscription includes shared confirmed reservati
 Deno.test("退会 integration: share mirrors are cleaned on both sides", async () => {
   await withKv(async (kv) => {
     const ids = makeAuthIds();
-    const { addMember, listMemberIds, listSharedIn } = await import("../sharing.ts");
+    const { addMember, listMembers, listSharedIn } = await import("../sharing.ts");
     const { deleteAccount } = await import("../users.ts");
     const owner = await getOrCreateUserByEmail(kv, "owner@example.com", ids);
     const member = await getOrCreateUserByEmail(kv, "member@example.com", ids);
@@ -280,7 +484,7 @@ Deno.test("退会 integration: share mirrors are cleaned on both sides", async (
 
     // member 退会 -> owner's roster no longer lists them
     await deleteAccount(kv, member.id, ids);
-    assertEquals(await listMemberIds(kv, owner.id, "R1"), []);
+    assertEquals(await listMembers(kv, owner.id, "R1"), []);
 
     // owner 退会 -> a member's shared_in no longer references the owner
     const owner2 = await getOrCreateUserByEmail(kv, "owner2@example.com", ids);

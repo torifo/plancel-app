@@ -22,10 +22,11 @@
  * are references (see sharing.ts). Available only when the acting ledger IS
  * the logged-in user's own ledger (opts.user); header-token / demo callers
  * get no sharing surface:
- *   GET    /api/reservations/:id/members          list (owner OR member)
- *   POST   /api/reservations/:id/members {q}       invite (owner only)
- *   DELETE /api/reservations/:id/members/me        leave (member)
- *   DELETE /api/reservations/:id/members/:userId   remove (owner only)
+ *   GET    /api/reservations/:id/members             list (owner OR member)
+ *   POST   /api/reservations/:id/members {q,role?}   invite (owner only)
+ *   PATCH  /api/reservations/:id/members/:userId {role}  re-grade (owner only)
+ *   DELETE /api/reservations/:id/members/me          leave (member)
+ *   DELETE /api/reservations/:id/members/:userId     remove (owner only)
  * Plus the exact-match lookup used by the invite box:
  *   GET    /api/users/lookup?q=<email|uid>         (login required)
  *
@@ -57,18 +58,23 @@ import {
   webCreateSchema,
   type WebIds,
   webPatchSchema,
+  type WebReservation,
   WebTransitionError,
 } from "./store.ts";
 import { getUser, type WebUser } from "./users.ts";
 import {
   addMember,
   cleanupReservationShares,
+  displayLabel,
+  findShare,
   isMember,
-  listMemberIds,
-  listSharedIn,
+  listMembers,
   listSharedReservations,
   lookupUser,
+  type MemberRole,
+  memberRoleSchema,
   removeMember,
+  setMemberRole,
 } from "./sharing.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -76,6 +82,18 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { "content-type": "application/json; charset=utf-8" },
   });
+
+/**
+ * What the roster tells one member about another. `label` is the ready-to-show
+ * name; the e-mail address is never part of a member-facing response.
+ */
+const memberView = (u: WebUser, role: MemberRole) => ({
+  userId: u.id,
+  displayName: u.displayName,
+  uid: u.uid,
+  label: displayLabel(u),
+  role,
+});
 
 /** True if this request targets a route `handleWebApi` serves. */
 export function isApiPath(pathname: string): boolean {
@@ -97,8 +115,61 @@ export interface WebApiOptions {
    * ledger (not the ::demo namespace).
    */
   user?: WebUser | null;
-  /** Called with the reservation id after each successful mutation. */
-  onMutate?: (resvId: string) => void;
+  /**
+   * Called with the reservation id after each successful mutation.
+   * `ledgerOwner` is set when the write landed in ANOTHER user's ledger (an
+   * editor member's edit), so the caller syncs the OWNER's calendar.
+   */
+  onMutate?: (resvId: string, ledgerOwner?: WebUser) => void;
+}
+
+/** Where an editor member's write goes: the OWNER's ledger, never a copy. */
+interface MemberGrant {
+  ledger: string;
+  ownerUser: WebUser;
+}
+
+/**
+ * THE permission gate for a reservation request the acting ledger could not
+ * serve itself (i.e. the record is not in it). It is the only place that reads
+ * a membership role, so the capability split lives here and nowhere else.
+ *
+ * Capability split (owner 2026-07-28「招待する時に編集を許可すれば細かい修正を
+ * 参加者もできるように」): an "editor" may PATCH the reservation's own fields.
+ * confirm / cancel / restore / delete / invite / re-grade stay owner-only —
+ * confirming settles a whole plan (siblings → to_cancel) and deletion is
+ * irreversible, neither of which is the 細かい修正 the owner delegated.
+ *
+ * 403 distinguishes "you are on this share but not allowed" from the 404 that
+ * a non-member gets (which must not confirm the reservation exists).
+ */
+async function memberGate(
+  kv: Deno.Kv,
+  actor: WebUser | null,
+  resvId: string,
+  need: "edit",
+): Promise<MemberGrant | Response>;
+async function memberGate(
+  kv: Deno.Kv,
+  actor: WebUser | null,
+  resvId: string,
+  need: "owner",
+): Promise<Response>;
+async function memberGate(
+  kv: Deno.Kv,
+  actor: WebUser | null,
+  resvId: string,
+  need: "edit" | "owner",
+): Promise<MemberGrant | Response> {
+  const share = actor === null ? null : await findShare(kv, actor.id, resvId);
+  if (share === null) return json({ error: "not found" }, 404);
+  if (need === "owner" || share.role !== "editor") {
+    return json({ error: "forbidden", reason: "role", role: share.role }, 403);
+  }
+  const ownerUser = await getUser(kv, share.ownerUserId);
+  // Dangling share (the owner 退会'd): there is no ledger left to write to.
+  if (ownerUser === null) return json({ error: "not found" }, 404);
+  return { ledger: ownerUser.ledgerId, ownerUser };
 }
 
 /**
@@ -118,7 +189,10 @@ export async function handleUserLookup(
   return json({ found: true, userId: found.id, displayName: found.displayName, uid: found.uid });
 }
 
-const inviteSchema = z.object({ q: z.string().min(1) });
+// Role is optional on invite and defaults to read-only: an owner who does not
+// say 「編集を許可」 must never hand out write access by omission.
+const inviteSchema = z.object({ q: z.string().min(1), role: memberRoleSchema.default("viewer") });
+const roleSchema = z.object({ role: memberRoleSchema });
 
 /**
  * Handles one `/api/*` request. `kv` is the shared Deno KV; `ids` supplies id
@@ -133,14 +207,14 @@ export async function handleWebApi(
 ): Promise<Response> {
   const token = opts.ledger ?? req.headers.get("x-plancel-token")?.trim();
   if (!token) return json({ error: "missing x-plancel-token" }, 400);
-  const mutated = (id: string) => opts.onMutate?.(id);
+  const mutated = (id: string, ledgerOwner?: WebUser) => opts.onMutate?.(id, ledgerOwner);
 
   const user = opts.user ?? null;
   // Sharing is available only when the acting ledger IS this user's OWN
   // ledger. Demo (`ledgerId::demo`) and header/admin callers get `owner === null`.
   const owner = user !== null && token === user.ledgerId ? user : null;
-  const isSharedMemberOf = async (resvId: string): Promise<boolean> =>
-    user !== null && (await listSharedIn(kv, user.id)).some((r) => r.resvId === resvId);
+  // Attribution for `updated_by`; null for header-token / admin tooling.
+  const actor = user?.id ?? null;
 
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean); // ["api","reservations",id?,action?,sub?]
@@ -167,7 +241,7 @@ export async function handleWebApi(
       if (owner !== null) {
         const shared = (await listSharedReservations(kv, owner.id)).map((s) => ({
           ...s.reservation,
-          shared: { ownerDisplayName: s.ownerDisplayName },
+          shared: { ownerDisplayName: s.ownerDisplayName, role: s.role },
         }));
         return json({ reservations: [...own, ...shared] });
       }
@@ -178,7 +252,7 @@ export async function handleWebApi(
       if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
       let r;
       try {
-        r = await createReservation(kv, token, parsed.data, ids);
+        r = await createReservation(kv, token, parsed.data, ids, actor);
       } catch (error) {
         if (error instanceof WebTransitionError) {
           return json({ error: "invalid_transition", message: error.message }, 409);
@@ -199,54 +273,73 @@ export async function handleWebApi(
       if (owner !== null && (await getReservation(kv, token, id)) !== null) {
         ownerUserId = owner.id;
       } else if (user !== null) {
-        const ref = (await listSharedIn(kv, user.id)).find((r) => r.resvId === id);
-        if (ref !== undefined) ownerUserId = ref.ownerUserId;
+        const share = await findShare(kv, user.id, id);
+        if (share !== null) ownerUserId = share.ownerUserId;
       }
       if (ownerUserId === null) return json({ error: "not found" }, 404);
       const members = [];
-      for (const memberUserId of await listMemberIds(kv, ownerUserId, id)) {
-        const u = await getUser(kv, memberUserId);
-        if (u !== null) members.push({ userId: u.id, displayName: u.displayName, uid: u.uid });
+      for (const m of await listMembers(kv, ownerUserId, id)) {
+        const u = await getUser(kv, m.userId);
+        if (u !== null) members.push(memberView(u, m.role));
       }
       return json({ members });
     }
     // Invite — owner only. Self / duplicate are no-op successes.
     if (sub === undefined && req.method === "POST") {
       if (owner === null) return json({ error: "forbidden" }, 403);
-      if ((await getReservation(kv, token, id)) === null) return json({ error: "not found" }, 404);
+      if ((await getReservation(kv, token, id)) === null) {
+        return await memberGate(kv, user, id, "owner");
+      }
       const parsed = inviteSchema.safeParse(await readJson(req));
       if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
       const target = await lookupUser(kv, parsed.data.q);
       if (target === null) return json({ error: "user_not_found" }, 404);
       if (target.id === owner.id) return json({ ok: true });
+      // A re-invite must not silently re-grade an existing member: the owner
+      // changes a role through the explicit PATCH below.
       if (await isMember(kv, owner.id, id, target.id)) return json({ ok: true });
-      await addMember(kv, owner.id, id, target.id, ids);
-      return json({ ok: true });
+      await addMember(kv, owner.id, id, target.id, ids, parsed.data.role);
+      return json({ ok: true, member: memberView(target, parsed.data.role) });
+    }
+    // Re-grade a member (編集を許可 / 閲覧のみ) — owner only.
+    if (sub !== undefined && sub !== "me" && req.method === "PATCH") {
+      if (owner === null) return json({ error: "forbidden" }, 403);
+      if ((await getReservation(kv, token, id)) === null) {
+        return await memberGate(kv, user, id, "owner");
+      }
+      const parsed = roleSchema.safeParse(await readJson(req));
+      if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+      const updated = await setMemberRole(kv, owner.id, id, sub, parsed.data.role);
+      if (updated === null) return json({ error: "not found" }, 404);
+      const u = await getUser(kv, sub);
+      if (u === null) return json({ error: "not found" }, 404);
+      return json({ member: memberView(u, updated.role) });
     }
     // Leave — a member removes themselves.
     if (sub === "me" && req.method === "DELETE") {
-      if (user === null) return json({ error: "not found" }, 404);
-      const ref = (await listSharedIn(kv, user.id)).find((r) => r.resvId === id);
-      if (ref === undefined) return json({ error: "not found" }, 404);
-      await removeMember(kv, ref.ownerUserId, id, user.id);
+      const share = user === null ? null : await findShare(kv, user.id, id);
+      if (share === null || user === null) return json({ error: "not found" }, 404);
+      await removeMember(kv, share.ownerUserId, id, user.id);
       return json({ ok: true });
     }
     // Remove — owner drops a member by userId.
     if (sub !== undefined && sub !== "me" && req.method === "DELETE") {
       if (owner === null) return json({ error: "forbidden" }, 403);
-      if ((await getReservation(kv, token, id)) === null) return json({ error: "not found" }, 404);
+      if ((await getReservation(kv, token, id)) === null) {
+        return await memberGate(kv, user, id, "owner");
+      }
       await removeMember(kv, owner.id, id, sub);
       return json({ ok: true });
     }
     return json({ error: "method not allowed" }, 405);
   }
 
-  // Item action: /api/reservations/:id/(confirm|cancel|restore) — members of a
-  // shared reservation may NOT mutate it (403 rather than a misleading 404).
+  // Item action: /api/reservations/:id/(confirm|cancel|restore) — settling a
+  // shared reservation stays with its owner, whatever the member's role.
   if (action === "confirm" && req.method === "POST") {
     let r;
     try {
-      r = await confirmReservation(kv, token, id, ids);
+      r = await confirmReservation(kv, token, id, ids, actor);
     } catch (error) {
       if (error instanceof WebTransitionError) {
         return json({ error: "invalid_transition", message: error.message }, 409);
@@ -257,29 +350,23 @@ export async function handleWebApi(
       mutated(r.id);
       return json({ reservation: r });
     }
-    return (await isSharedMemberOf(id))
-      ? json({ error: "forbidden" }, 403)
-      : json({ error: "not found" }, 404);
+    return await memberGate(kv, user, id, "owner");
   }
   if (action === "cancel" && req.method === "POST") {
-    const r = await cancelReservation(kv, token, id, ids);
+    const r = await cancelReservation(kv, token, id, ids, actor);
     if (r) {
       mutated(r.id);
       return json({ reservation: r });
     }
-    return (await isSharedMemberOf(id))
-      ? json({ error: "forbidden" }, 403)
-      : json({ error: "not found" }, 404);
+    return await memberGate(kv, user, id, "owner");
   }
   if (action === "restore" && req.method === "POST") {
-    const r = await restoreReservation(kv, token, id, ids);
+    const r = await restoreReservation(kv, token, id, ids, actor);
     if (r) {
       mutated(r.id);
       return json({ reservation: r });
     }
-    return (await isSharedMemberOf(id))
-      ? json({ error: "forbidden" }, 403)
-      : json({ error: "not found" }, 404);
+    return await memberGate(kv, user, id, "owner");
   }
 
   // Item: /api/reservations/:id
@@ -287,22 +374,28 @@ export async function handleWebApi(
     if (req.method === "PATCH") {
       const parsed = webPatchSchema.safeParse(await readJson(req));
       if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
-      let r;
+      let r: WebReservation | null;
+      // An editor member's edit is applied to the OWNER's ledger (no copy is
+      // made in the member's) and reports the owner so the same post-write
+      // calendar sync runs for THEIR Google/ICS.
+      let ledgerOwner: WebUser | undefined;
       try {
-        r = await patchReservation(kv, token, id, parsed.data, ids);
+        r = await patchReservation(kv, token, id, parsed.data, ids, actor);
+        if (r === null) {
+          const grant = await memberGate(kv, user, id, "edit");
+          if (grant instanceof Response) return grant;
+          ledgerOwner = grant.ownerUser;
+          r = await patchReservation(kv, grant.ledger, id, parsed.data, ids, actor);
+        }
       } catch (error) {
         if (error instanceof WebTransitionError) {
           return json({ error: "invalid_transition", message: error.message }, 409);
         }
         throw error;
       }
-      if (r) {
-        mutated(r.id);
-        return json({ reservation: r });
-      }
-      return (await isSharedMemberOf(id))
-        ? json({ error: "forbidden" }, 403)
-        : json({ error: "not found" }, 404);
+      if (r === null) return json({ error: "not found" }, 404);
+      mutated(r.id, ledgerOwner);
+      return json({ reservation: r });
     }
     if (req.method === "DELETE") {
       const ok = await deleteReservation(kv, token, id);
@@ -312,9 +405,7 @@ export async function handleWebApi(
         mutated(id);
         return json({ ok: true });
       }
-      return (await isSharedMemberOf(id))
-        ? json({ error: "forbidden" }, 403)
-        : json({ error: "not found" }, 404);
+      return await memberGate(kv, user, id, "owner");
     }
   }
 

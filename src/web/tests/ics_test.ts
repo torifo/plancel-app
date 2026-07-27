@@ -16,6 +16,7 @@ const resv = (over: Partial<WebReservation>): WebReservation => ({
   status: "confirmed",
   created_at: "2026-07-21T00:00:00.000Z",
   updated_at: "2026-07-21T00:00:00.000Z",
+  updated_by: null,
   ...over,
 });
 

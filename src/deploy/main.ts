@@ -315,10 +315,14 @@ if (import.meta.main) {
       return await handleWebApi(store.kv, req, webIds, {
         ledger: who.ledger,
         user,
-        onMutate: (resvId) => {
-          // Only real (non-demo) ledgers of Google-linked users sync.
-          if (user === null || user.google === null || who.ledger !== user.ledgerId) return;
-          requestSync(syncDeps, user.id, resvId).catch((err) =>
+        onMutate: (resvId, ledgerOwner) => {
+          // Only real (non-demo) ledgers of Google-linked users sync. An
+          // editor member's edit landed in `ledgerOwner`'s ledger, so it is
+          // THEIR calendar that has to follow — not the caller's.
+          const target = ledgerOwner ??
+            (user !== null && who.ledger === user.ledgerId ? user : null);
+          if (target === null || target.google === null) return;
+          requestSync(syncDeps, target.id, resvId).catch((err) =>
             log.error("requestSync failed", { err: String(err) })
           );
         },

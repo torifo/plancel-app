@@ -31,8 +31,20 @@ export const webReservationSchema = z.object({
   status: webStatusSchema,
   created_at: z.string(),
   updated_at: z.string(),
+  /**
+   * userId of whoever wrote the record last — an invited editor (sharing.ts)
+   * is not always the owner. Defaulted so pre-2026-07-28 records still parse
+   * (they carry no attribution, hence null).
+   */
+  updated_by: z.string().nullable().default(null),
 });
 export type WebReservation = z.infer<typeof webReservationSchema>;
+
+/**
+ * Who a write is attributed to (`updated_by`): the acting userId, or null for
+ * callers with no user identity (header-token / admin tooling).
+ */
+export type WebActor = string | null;
 
 /** Fields a client may set on create; server owns id/status/timestamps. */
 export const webCreateSchema = z.object({
@@ -113,6 +125,7 @@ export async function createReservation(
   token: string,
   input: z.infer<typeof webCreateSchema>,
   ids: WebIds,
+  actor: WebActor = null,
 ): Promise<WebReservation> {
   const now = ids.nowIso();
   const r: WebReservation = {
@@ -128,11 +141,12 @@ export async function createReservation(
     status: "candidate",
     created_at: now,
     updated_at: now,
+    updated_by: actor,
   };
   await put(kv, token, r);
   if (!input.confirmed) return r;
   try {
-    return (await confirmReservation(kv, token, r.id, ids))!;
+    return (await confirmReservation(kv, token, r.id, ids, actor))!;
   } catch (error) {
     // The generated id has not been returned to a caller yet, so failed
     // create-with-confirmed must not leave a surprise candidate behind.
@@ -147,6 +161,7 @@ export async function patchReservation(
   id: string,
   patch: z.infer<typeof webPatchSchema>,
   ids: WebIds,
+  actor: WebActor = null,
 ): Promise<WebReservation | null> {
   const cur = await getReservation(kv, token, id);
   if (cur === null) return null;
@@ -172,6 +187,7 @@ export async function patchReservation(
     ...(patch.location !== undefined ? { location: patch.location } : {}),
     ...(patch.policy !== undefined ? { policy: patch.policy } : {}),
     updated_at: ids.nowIso(),
+    updated_by: actor,
   };
   await put(kv, token, next);
   return next;
@@ -182,6 +198,7 @@ export async function confirmReservation(
   token: string,
   id: string,
   ids: WebIds,
+  actor: WebActor = null,
 ): Promise<WebReservation | null> {
   // Retry optimistic conflicts. A competing confirmation is observed on the
   // next read as either a non-candidate target or a claimed plan guard.
@@ -194,7 +211,12 @@ export async function confirmReservation(
     }
 
     const now = ids.nowIso();
-    const next: WebReservation = { ...cur, status: "confirmed", updated_at: now };
+    const next: WebReservation = {
+      ...cur,
+      status: "confirmed",
+      updated_at: now,
+      updated_by: actor,
+    };
     let tx = kv.atomic().check(targetEntry);
 
     if (cur.plan !== null) {
@@ -240,6 +262,7 @@ export async function confirmReservation(
           ...sibling.value,
           status: "to_cancel",
           updated_at: now,
+          updated_by: actor,
         });
       }
       tx = tx.set(planConfirmedKey(token, cur.plan), id);
@@ -267,11 +290,17 @@ export async function restoreReservation(
   token: string,
   id: string,
   ids: WebIds,
+  actor: WebActor = null,
 ): Promise<WebReservation | null> {
   const cur = await getReservation(kv, token, id);
   if (cur === null) return null;
   if (cur.status !== "cancelled" && cur.status !== "to_cancel") return cur;
-  const next: WebReservation = { ...cur, status: "candidate", updated_at: ids.nowIso() };
+  const next: WebReservation = {
+    ...cur,
+    status: "candidate",
+    updated_at: ids.nowIso(),
+    updated_by: actor,
+  };
   await put(kv, token, next);
   return next;
 }
@@ -281,10 +310,16 @@ export async function cancelReservation(
   token: string,
   id: string,
   ids: WebIds,
+  actor: WebActor = null,
 ): Promise<WebReservation | null> {
   const cur = await getReservation(kv, token, id);
   if (cur === null) return null;
-  const next: WebReservation = { ...cur, status: "cancelled", updated_at: ids.nowIso() };
+  const next: WebReservation = {
+    ...cur,
+    status: "cancelled",
+    updated_at: ids.nowIso(),
+    updated_by: actor,
+  };
   await put(kv, token, next);
   return next;
 }

@@ -487,7 +487,7 @@ export async function applyWebAction(
   if (before === null) return text(STALE);
 
   if (action === "cancel") {
-    const r = await cancelReservation(deps.kv, ledger, id, deps.ids);
+    const r = await cancelReservation(deps.kv, ledger, id, deps.ids, owner.id);
     if (r === null) return text(STALE);
     deps.onMutate?.(owner, id);
     return text(`キャンセル済みにしました: ${r.service}（${label}）。「確認」で一覧`);
@@ -499,7 +499,7 @@ export async function applyWebAction(
   ).length;
   let r;
   try {
-    r = await confirmReservation(deps.kv, ledger, id, deps.ids);
+    r = await confirmReservation(deps.kv, ledger, id, deps.ids, owner.id);
   } catch (error) {
     if (error instanceof WebTransitionError) {
       return text("この予約は現在の状態から確定できません。「確認」で最新の一覧を出せます。");
@@ -541,16 +541,22 @@ export async function registerWebReservation(
   // Arbitrary parsed stages are preserved as-is (src/web/policy.ts); only a
   // policy with no % expression at all stays "unknown" for the owner to fill in.
   const policy = fromCoreStages(output.cancellation_policy);
-  const r = await createReservation(deps.kv, owner.ledgerId, {
-    plan: null,
-    service: output.service_name,
-    startsAt: output.starts_at,
-    amount: output.amount_jpy ?? null,
-    location: output.location ?? null,
-    policy,
-    // LINE additions are candidates; the owner confirms from 「確認」or the web UI.
-    confirmed: false,
-  }, deps.ids);
+  const r = await createReservation(
+    deps.kv,
+    owner.ledgerId,
+    {
+      plan: null,
+      service: output.service_name,
+      startsAt: output.starts_at,
+      amount: output.amount_jpy ?? null,
+      location: output.location ?? null,
+      policy,
+      // LINE additions are candidates; the owner confirms from 「確認」or the web UI.
+      confirmed: false,
+    },
+    deps.ids,
+    owner.id,
+  );
   deps.onMutate?.(owner, r.id);
 
   const when = fmtMdHm(Temporal.Instant.from(r.startsAt).epochMilliseconds);

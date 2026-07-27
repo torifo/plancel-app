@@ -53,10 +53,14 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
       "delete_policy_template",
       "delete_reservation",
       "list_policy_templates",
+      "list_reservation_members",
       "list_reservations",
       "lookup_policy_template",
       "restore_reservation",
       "save_policy_template",
+      "set_member_role",
+      "share_reservation",
+      "unshare_reservation",
       "update_reservation",
     ]);
 
@@ -80,6 +84,48 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
     assertEquals(calls[2]?.url, "https://plancel.test/api/reservations/R1/confirm");
     assertEquals(calls[3]?.method, "PATCH");
     assertEquals((calls[3]?.body as { location: string }).location, "六本木");
+  });
+});
+
+Deno.test("web-api MCP tools drive the sharing API, including the role grant", async () => {
+  const { calls, fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    // Role omitted -> the API's read-only default travels explicitly.
+    await client.callTool({
+      name: "share_reservation",
+      arguments: { id: "R1", q: "m@x.jp" },
+    });
+    await client.callTool({
+      name: "share_reservation",
+      arguments: { id: "R1", q: "e@x.jp", role: "editor" },
+    });
+    await client.callTool({
+      name: "set_member_role",
+      arguments: { id: "R1", userId: "U9", role: "editor" },
+    });
+    await client.callTool({ name: "list_reservation_members", arguments: { id: "R1" } });
+    await client.callTool({
+      name: "unshare_reservation",
+      arguments: { id: "R1", userId: "U9" },
+    });
+
+    assertEquals(calls[0]?.method, "POST");
+    assertEquals(calls[0]?.url, "https://plancel.test/api/reservations/R1/members");
+    assertEquals(calls[0]?.body, { q: "m@x.jp", role: "viewer" });
+    assertEquals(calls[1]?.body, { q: "e@x.jp", role: "editor" });
+    assertEquals(calls[2]?.method, "PATCH");
+    assertEquals(calls[2]?.url, "https://plancel.test/api/reservations/R1/members/U9");
+    assertEquals(calls[2]?.body, { role: "editor" });
+    assertEquals(calls[3]?.url, "https://plancel.test/api/reservations/R1/members");
+    assertEquals(calls[4]?.method, "DELETE");
+
+    // An unknown role is rejected locally, without touching the API.
+    const bad = await client.callTool({
+      name: "set_member_role",
+      arguments: { id: "R1", userId: "U9", role: "admin" },
+    });
+    assertEquals(bad.isError, true);
+    assertEquals(calls.length, 5);
   });
 });
 
