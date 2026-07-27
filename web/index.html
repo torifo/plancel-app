@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-title" content="plancel">
     <title>plancel — 予約とキャンセル期限の台帳</title>
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png?v=2">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -934,6 +934,153 @@
       font-weight: 700;
       color: var(--lamp-ink);
     }
+    /* ═══ 施設ごとの規定テンプレ（既定）═══
+       「◯◯の保存済み規定を適用しました」は勝手に入れた合図なので、.parse-note と
+       同じ safe 系にして「元に戻す」を必ず横に置く。 */
+    .tpl-note {
+      display: none;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      margin-top: 10px;
+      padding: 8px 12px;
+      border: 1px solid var(--safe);
+      border-radius: 8px;
+      background: var(--safe-soft);
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--safe-ink);
+    }
+    .tpl-note.on {
+      display: flex;
+    }
+    .tpl-note a {
+      color: var(--safe-ink);
+      font-weight: 700;
+      text-decoration: underline;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .tpl-save {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      margin: 12px 0 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .tpl-save input {
+      width: auto;
+      flex: 0 0 auto;
+      margin-top: 3px;
+    }
+    /* 保存できないとき（施設名が空・規定が不明）は理由を下に出して薄く見せる */
+    .tpl-save.off {
+      color: var(--soft);
+    }
+    .tpl-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .tpl-row:last-child {
+      border-bottom: none;
+    }
+    .tpl-row .fc {
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .tpl-row .pl {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--ink-2);
+      line-height: 1.6;
+    }
+    /* ═══ LINE 連携（「連携と通知」①）═══
+       コードは画面で読んでスマホで打つので、大きく等幅で出す。連携の完了はこの
+       ページには届かないので、期限切れの見た目（打ち消し線・赤）を必ず用意する。 */
+    .line-step {
+      margin-top: 14px;
+    }
+    .line-step-h {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+    .line-code-box {
+      margin-top: 10px;
+      padding: 12px 14px;
+      border: 1px solid var(--lamp);
+      border-radius: 10px;
+      background: var(--lamp-soft);
+    }
+    /* 期限切れの箱は琥珀をやめる（--danger-ink は琥珀の上だとダークで 4.1:1 しかない） */
+    .line-code-box.expired {
+      border-color: var(--line);
+      background: var(--card2);
+    }
+    .line-code {
+      font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      font-size: 27px;
+      font-weight: 700;
+      letter-spacing: .16em;
+      line-height: 1.35;
+      text-align: center;
+      color: var(--ink);
+      user-select: all;
+      -webkit-user-select: all;
+    }
+    .line-code.expired {
+      color: var(--soft);
+      text-decoration: line-through;
+    }
+    .line-code-acts {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 8px 12px;
+      margin-top: 8px;
+    }
+    .line-count {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--ink-2);
+    }
+    .line-count.expired {
+      color: var(--danger-ink);
+    }
+    .line-howto {
+      list-style: none;
+      margin: 12px 0 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink-2);
+    }
+    .line-howto li {
+      margin-bottom: 2px;
+      line-height: 1.7;
+    }
+    .line-linked {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--safe);
+      border-radius: 10px;
+      background: var(--safe-soft);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--safe-ink);
+    }
+    .line-code-acts button:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
     .share-tag {
       display: inline-block;
       font-size: 11px;
@@ -1428,6 +1575,24 @@
         font-size: 14px;
         line-height: 1.6;
       }
+      /* 新しい二次テキストもモバイルは 12px 以上・weight 500 に揃える */
+      .tpl-note,
+      .tpl-row .pl,
+      .line-howto,
+      .line-count {
+        font-size: 13px;
+      }
+      .tpl-save {
+        font-size: 14px;
+      }
+      .line-step-h {
+        font-size: 14px;
+      }
+      /* 320px でも 8 桁が1行に収まる幅にする */
+      .line-code {
+        font-size: 25px;
+        letter-spacing: .12em;
+      }
       /* 320px では日付/時刻を横並びにすると date 入力があふれるので1列にする。 */
       .two {
         grid-template-columns: 1fr;
@@ -1570,9 +1735,15 @@
           </div>
 
           <div class="sec">
+            <div class="sec-h">施設ごとのキャンセル規定（既定）</div>
+            <p class="hint" style="margin:0 0 8px">同じ宿・同じお店をまた予約するとき、ここに保存した規定が自動で入ります。</p>
+            <div id="tplList"></div>
+          </div>
+
+          <div class="sec">
             <div class="sec-h">アプリ</div>
             <div class="pwa-panel">
-              <img class="pwa-icon" src="/icons/icon-192.png" alt="">
+              <img class="pwa-icon" src="/icons/icon-192.png?v=2" alt="">
               <div>
                 <div class="pwa-title">ホーム画面から、すぐ台帳へ</div>
                 <div class="hint" style="margin:2px 0 0">ブラウザのタブを探さず、plancelをアプリとして開けます。</div>
@@ -1654,6 +1825,9 @@
           <button type="button" class="btn-ghost pol-add" id="pol_add">＋段階を足す（例：3日前まで30%）</button>
           <div class="pol-preview" id="pol_preview"></div>
         </div>
+        <div class="tpl-note" id="tplNote"><span id="tplNoteText"></span><a id="tplUndo">元に戻す</a></div>
+        <label class="tpl-save" id="tplSaveRow"><input type="checkbox" id="tplSave"><span id="tplSaveLabel"></span></label>
+        <div class="hint" id="tplSaveWhy" style="margin:4px 0 0;display:none"></div>
         <div class="modal-foot"><button class="btn-primary" id="f_submit">登録する</button></div>
       </div>
     </div>
@@ -1793,13 +1967,40 @@
 
         <div class="sec" style="margin-top:0;padding-top:0;border-top:none">
           <div class="sec-h">① 締切のお知らせを LINE で受け取る</div>
-          <p class="hint" style="margin:0 0 10px">無料キャンセルの期限が近づくと、plancel の公式アカウントから LINE でお知らせが届きます。まず友だち追加してください。</p>
-          <a class="btn-a" id="lineAddBtn" href="https://line.me/R/ti/p/@791wbdma" target="_blank" rel="noopener">💬 LINE で友だち追加</a>
-          <div class="hint" style="margin:8px 0 0">
-            LINE ID は <b>@791wbdma</b>（<a id="lineIdCopy" style="cursor:pointer;text-decoration:underline">ID をコピー</a>）。パソコンで見ているときは、スマホの LINE で ID を検索するか、このページをスマホで開いて上のボタンを押してください。
+          <p class="hint" style="margin:0 0 10px">無料キャンセルの期限が近づくと、plancel の公式アカウントから LINE でお知らせが届きます。連携すると<b>あなたあてのお知らせは、あなたの LINE に届きます</b>。台帳を共有している方も、それぞれご自分の LINE で受け取れます。</p>
+          <div class="line-step" style="margin-top:0">
+            <div class="line-step-h">1. plancel を友だち追加する</div>
+            <a class="btn-a" id="lineAddBtn" href="https://line.me/R/ti/p/@791wbdma" target="_blank" rel="noopener">💬 LINE で友だち追加</a>
+            <div class="hint" style="margin:8px 0 0">
+              LINE ID は <b>@791wbdma</b>（<a id="lineIdCopy" style="cursor:pointer;text-decoration:underline">ID をコピー</a>）。パソコンで見ているときは、スマホの LINE で ID を検索するか、このページをスマホで開いて上のボタンを押してください。
+            </div>
           </div>
-          <div class="hint" style="margin:6px 0 0">
-            ⚠ いまのお知らせの宛先は<b>台帳の持ち主の LINE だけ</b>です。ご家族が友だち追加しても、その方あてのリマインドはまだ届きません（次の版で対応予定）。
+          <div class="line-step">
+            <div class="line-step-h">2. このアカウントと連携する</div>
+            <div id="lineUnlinked">
+              <p class="hint" style="margin:0 0 8px">友だち追加が済んだら、コードを発行して LINE のトークに送ってください。トークに送ったコードで、この plancel アカウントとつながります。</p>
+              <button class="btn-primary" id="lineIssueBtn">LINE と連携する</button>
+              <div class="line-code-box" id="lineCodeBox" style="display:none">
+                <div class="line-code" id="lineCode"></div>
+                <div class="line-code-acts">
+                  <button class="btn-ghost" id="lineCodeCopy">コードをコピー</button>
+                  <span class="line-count" id="lineCount" role="status" aria-live="polite"></span>
+                </div>
+                <ol class="line-howto">
+                  <li>①コードをコピー</li>
+                  <li>②LINE の plancel トークに送る</li>
+                  <li>③下の「連携を確認」を押す</li>
+                </ol>
+                <div class="hint" style="margin:0 0 10px">もう一度発行すると、前のコードは使えなくなります。</div>
+                <button class="btn-primary" id="lineVerifyBtn">連携を確認</button>
+              </div>
+              <div class="hint" id="lineMsg" style="margin:8px 0 0;min-height:1.7em" role="status" aria-live="polite"></div>
+            </div>
+            <div id="lineLinked" style="display:none">
+              <div class="line-linked"><span aria-hidden="true">✅</span><span>LINE と連携済み</span></div>
+              <div class="hint" id="lineLinkedMsg" style="margin:8px 0 0"></div>
+              <div class="hint" style="margin:6px 0 0"><a id="lineUnlinkBtn" style="cursor:pointer;text-decoration:underline">連携を解除</a></div>
+            </div>
           </div>
         </div>
 
@@ -1879,6 +2080,9 @@
         } catch (e) {}
         throw new Error(m || ("HTTP " + res.status));
       }
+      // DELETE /api/policy-templates/<facility> は 204（本文なし）を返すので、
+      // json() に渡すと落ちる。本文がない成功は null を返す。
+      if (res.status === 204) return null;
       return res.json();
     }
     let data = [];
@@ -2400,6 +2604,9 @@
     }
     function polPreview() {
       q("#pol_preview").textContent = `この規定: ${describePolicy(readPolicy())}`;
+      // 「既定として保存」の可否・ラベルは規定と施設名で変わるので、規定が動くたびに
+      // 一緒に描き直す（ここは規定フォームのあらゆる変更を通る）。
+      renderTplSaveRow();
     }
     function renderPolicyForm() {
       document.querySelectorAll("#polModes [data-pol]").forEach((b) =>
@@ -2419,24 +2626,28 @@
       // 入力中は再描画しない（フォーカスが飛ぶ）ので、プレビューだけ更新する。
       q("#pol_stages").querySelectorAll("[data-n]").forEach((el) =>
         el.oninput = () => {
+          markPolicyTouched();
           polRows[+el.dataset.n].n = el.value;
           polPreview();
         }
       );
       q("#pol_stages").querySelectorAll("[data-p]").forEach((el) =>
         el.oninput = () => {
+          markPolicyTouched();
           polRows[+el.dataset.p].pct = el.value;
           polPreview();
         }
       );
       q("#pol_stages").querySelectorAll("[data-u]").forEach((el) =>
         el.onchange = () => {
+          markPolicyTouched();
           polRows[+el.dataset.u].u = el.value;
           polPreview();
         }
       );
       q("#pol_stages").querySelectorAll("[data-x]").forEach((el) =>
         el.onclick = () => {
+          markPolicyTouched();
           polRows.splice(+el.dataset.x, 1);
           renderPolicyForm();
         }
@@ -2447,29 +2658,140 @@
     }
     document.querySelectorAll("#polModes [data-pol]").forEach((b) =>
       b.onclick = () => {
+        markPolicyTouched();
         polMode = b.dataset.pol;
         renderPolicyForm();
       }
     );
     q("#pol_freeN").oninput = () => {
+      markPolicyTouched();
       polFree.n = q("#pol_freeN").value;
       polPreview();
     };
     q("#pol_freeU").onchange = () => {
+      markPolicyTouched();
       polFree.u = q("#pol_freeU").value;
       polPreview();
     };
     q("#pol_todayPct").oninput = () => {
+      markPolicyTouched();
       polToday = q("#pol_todayPct").value;
       polPreview();
     };
     q("#pol_add").onclick = () => {
+      markPolicyTouched();
       // 直近の境界の半分あたり（日単位）に置くと、そのまま使えるか少し直すだけで済む。
       const inner = polRows.length ? polRows[polRows.length - 1] : polFree;
       const innerDays = Math.max(1, Math.round(polHours(inner.n || "4", inner.u) / 24));
       polRows.push({ n: String(Math.max(1, Math.floor(innerDays / 2))), u: "d", pct: "50" });
       renderPolicyForm();
     };
+
+    // ---- 施設ごとの規定テンプレ（既定）: /api/policy-templates ----
+    // 施設名を入れて離れたときに1回だけ照会し、ユーザーがまだ規定に触っていなければ
+    // 当てる。自分で入れた規定は絶対に上書きしない（polTouched）。規定の作り方は
+    // readPolicy() / fillPolicyForm() をそのまま使う（モデルを二重に持たない）。
+    let polTouched = false; // この入力中にユーザーが規定フォームを触ったか
+    let tplLookedUp = ""; // 直近に照会した施設名（同じ名前で二重に照会しない）
+    let tplAppliedFor = null; // テンプレを当てた施設名（ノートと「元に戻す」の対象）
+    let tplUndoPolicy = null; // 当てる直前の規定
+    function markPolicyTouched() {
+      polTouched = true;
+      // ユーザーが上から書いた時点で「適用しました」は古い情報になる
+      if (tplAppliedFor !== null) hideTplNote();
+    }
+    const tplFacility = () => q("#f_service").value.trim();
+    function hideTplNote() {
+      q("#tplNote").classList.remove("on");
+      tplAppliedFor = null;
+      tplUndoPolicy = null;
+    }
+    function renderTplSaveRow() {
+      const box = q("#tplSave"), why = q("#tplSaveWhy");
+      const name = tplFacility();
+      const reason = name === ""
+        ? "先にお店・宿・サービス名を入れると、その施設の既定として保存できます。"
+        : (stagesOfPolicy(readPolicy()) === null
+          ? "キャンセル料が「不明」のままでは、既定として保存できません。"
+          : "");
+      q("#tplSaveLabel").textContent = name === ""
+        ? "この規定をこの施設の既定として保存する"
+        : `この規定を「${name}」の既定として保存する`;
+      box.disabled = reason !== "";
+      if (box.disabled) box.checked = false;
+      q("#tplSaveRow").classList.toggle("off", box.disabled);
+      why.textContent = reason;
+      why.style.display = reason === "" ? "none" : "";
+    }
+    async function lookupTemplate() {
+      const name = tplFacility();
+      renderTplSaveRow();
+      if (name === "" || name === tplLookedUp || polTouched) return;
+      tplLookedUp = name;
+      let j;
+      try {
+        j = await api("GET", "/api/policy-templates/lookup?service=" + encodeURIComponent(name));
+      } catch (e) {
+        return; // 照会はおまけなので、失敗しても入力の邪魔をしない
+      }
+      // 待っている間にユーザーが規定を触った / 施設名を変えたのなら、もう当てない
+      if (!j || !j.template || polTouched || tplFacility() !== name) return;
+      tplUndoPolicy = readPolicy();
+      tplAppliedFor = name;
+      fillPolicyForm(j.template.policy);
+      polTouched = false; // fillPolicyForm 由来の変更はユーザー入力ではない
+      q("#tplNoteText").textContent = `「${j.template.facility}」の保存済み規定を適用しました。`;
+      q("#tplNote").classList.add("on");
+    }
+    q("#f_service").onblur = lookupTemplate;
+    q("#f_service").onchange = lookupTemplate;
+    q("#f_service").oninput = () => {
+      // 施設名が変わればノートの宛先が変わるので出しっぱなしにしない
+      if (tplAppliedFor !== null && tplFacility() !== tplAppliedFor) hideTplNote();
+      renderTplSaveRow();
+    };
+    q("#tplUndo").onclick = () => {
+      const prev = tplUndoPolicy;
+      hideTplNote();
+      fillPolicyForm(prev);
+      polTouched = false;
+    };
+
+    // マイページ: 保存済みの既定の一覧（施設名・人が読む規定・削除）
+    async function loadTemplates() {
+      const el = q("#tplList");
+      el.innerHTML = `<div class="hint" style="margin:0">読み込んでいます…</div>`;
+      let j;
+      try {
+        j = await api("GET", "/api/policy-templates");
+      } catch (e) {
+        el.innerHTML =
+          `<div class="hint" style="margin:0">読み込めませんでした。ページを再読み込みしてください。</div>`;
+        return;
+      }
+      if (!j.templates.length) {
+        el.innerHTML =
+          `<div class="hint" style="margin:0">まだありません。予約を登録するときに「既定として保存する」にチェックを入れると、ここに並びます。</div>`;
+        return;
+      }
+      el.innerHTML = j.templates.map((t) =>
+        `<div class="tpl-row"><div><div class="fc">${esc(t.facility)}</div><div class="pl">${
+          esc(describePolicy(t.policy))
+        }</div></div><button class="rowbtn danger" data-tpl-del="${esc(t.facility)}">削除</button></div>`
+      ).join("");
+      el.querySelectorAll("[data-tpl-del]").forEach((b) =>
+        b.onclick = async () => {
+          const name = b.dataset.tplDel;
+          if (!confirm(`「${name}」の既定を削除しますか？登録済みの予約の規定は変わりません。`)) return;
+          try {
+            await api("DELETE", "/api/policy-templates/" + encodeURIComponent(name));
+          } catch (e) {
+            alert("削除できませんでした: " + e.message);
+          }
+          await loadTemplates();
+        }
+      );
+    }
 
     // ---- add / edit modal (also the confirmation screen for parsed imports) ----
     function openAdd(r) {
@@ -2493,7 +2815,13 @@
         String(d.getMinutes()).padStart(2, "0")
       }`;
       q("#f_amount").value = (r && r.amount != null) ? r.amount : "";
-      fillPolicyForm(r && r.policy);
+      // テンプレ関連の状態を1件ごとに巻き戻す。tplLookedUp を開いた時点の施設名に
+      // しておくと、名前を触っていない編集で既存の規定を勝手に差し替えなくなる。
+      polTouched = false;
+      tplLookedUp = tplFacility();
+      hideTplNote();
+      q("#tplSave").checked = false;
+      fillPolicyForm(r && r.policy); // 末尾の polPreview() が renderTplSaveRow() を呼ぶ
       [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === "candidate");
       q("#addOverlay").classList.add("on");
     }
@@ -2502,6 +2830,8 @@
     }
     function closeAll() {
       document.querySelectorAll(".overlay").forEach((o) => o.classList.remove("on"));
+      // 見えなくなったカウントダウンは止める（コード自体は開き直すまで保持する）
+      stopLineCountdown();
     }
     document.querySelectorAll("[data-close]").forEach((b) => b.onclick = closeAll);
     document.querySelectorAll(".overlay").forEach((o) =>
@@ -2527,6 +2857,7 @@
       const amount = q("#f_amount").value ? Number(q("#f_amount").value) : null;
       const location = q("#f_location").value.trim() || null;
       const policy = readPolicy();
+      const saveTpl = q("#tplSave").checked && !q("#tplSave").disabled;
       try {
         if (editingId) {
           // Editing a cancelled reservation = 取り直し: revive it as a candidate
@@ -2559,8 +2890,22 @@
         alert("失敗しました: " + e.message);
         return;
       }
+      // 既定の保存は予約が通ったあと。ここで失敗しても予約は成立させ、知らせるだけ。
+      let tplError = null;
+      if (saveTpl) {
+        try {
+          await api("PUT", "/api/policy-templates/" + encodeURIComponent(service), { policy });
+        } catch (e) {
+          tplError = e.message;
+        }
+      }
       closeAll();
       await refresh();
+      if (tplError !== null) {
+        alert(
+          `予約は登録しました。ただし「${service}」の既定は保存できませんでした（${tplError}）。予約の「編集」からもう一度お試しください。`,
+        );
+      }
     };
 
     // ---- imports: all real now (mail paste / .ics / photo). LINE 連携のみ後日 ----
@@ -2882,6 +3227,8 @@
         st.textContent = "Google アカウントを接続すると、確定予約が専用「plancel」カレンダーに即時反映されます。";
         btn.style.display = "";
       }
+      lineNote("");
+      renderLineSection();
       q("#calOverlay").classList.add("on");
     };
     q("#gcalConnectBtn").onclick = () => location.href = "/auth/google";
@@ -2894,6 +3241,172 @@
       } catch (e) {
         alert("コピーできませんでした。LINE ID は @791wbdma です。");
       }
+    };
+    // ---- LINE 連携（②このアカウントと連携する）----
+    // 連携は LINE のトーク側で完了するので、このページには何も届かない。だから状態は
+    // ・起動時の ME.line.linked ・「連携を確認」を押したとき の2か所でだけ読む
+    // （タイマーでの /auth/me ポーリングはしない）。1秒ごとに動かすのは残り時間の
+    // 表示だけで、残りは常に期限の絶対時刻から計算し直す。
+    const LINE_CODE_SEC = 600;
+    let lineCode = null; // 発行済みコード（このページ読み込みの間だけ持つ）
+    let lineCodeUntil = 0; // 期限の絶対時刻
+    let lineTimer = null;
+    const lineLinked = () => !!(ME && ME.line && ME.line.linked);
+    function lineNote(msg, kind) {
+      const el = q("#lineMsg");
+      el.textContent = msg;
+      el.style.color = kind === "err"
+        ? "var(--danger-ink)"
+        : (kind === "ok" ? "var(--safe-ink)" : "");
+    }
+    function stopLineCountdown() {
+      if (lineTimer === null) return;
+      clearInterval(lineTimer);
+      lineTimer = null;
+    }
+    function renderLineCountdown() {
+      const left = Math.max(0, Math.ceil((lineCodeUntil - Date.now()) / 1000));
+      const expired = left === 0;
+      q("#lineCodeBox").classList.toggle("expired", expired);
+      q("#lineCode").classList.toggle("expired", expired);
+      q("#lineCount").classList.toggle("expired", expired);
+      q("#lineCodeCopy").disabled = expired;
+      if (expired) {
+        stopLineCountdown();
+        q("#lineCount").textContent = "期限切れ — もう一度発行してください";
+        return;
+      }
+      q("#lineCount").textContent = `のこり ${Math.floor(left / 60)}分${
+        String(left % 60).padStart(2, "0")
+      }秒`;
+    }
+    function showLineCode() {
+      // 読み上げ・書き写しのために4桁ずつに割る（サーバは空白とハイフンを無視する）
+      q("#lineCode").textContent = lineCode.slice(0, 4) + " " + lineCode.slice(4);
+      q("#lineCodeBox").style.display = "";
+      stopLineCountdown();
+      renderLineCountdown();
+      if (Date.now() < lineCodeUntil) lineTimer = setInterval(renderLineCountdown, 1000);
+    }
+    function renderLineSection() {
+      const linked = lineLinked();
+      q("#lineLinked").style.display = linked ? "" : "none";
+      q("#lineUnlinked").style.display = linked ? "none" : "";
+      q("#lineLinkedMsg").textContent = "このアカウントの期限のお知らせは、連携した LINE に届きます。";
+      if (linked) {
+        stopLineCountdown();
+        q("#lineCodeBox").style.display = "none";
+        return;
+      }
+      q("#lineIssueBtn").textContent = lineCode === null ? "LINE と連携する" : "コードを再発行する";
+      if (lineCode === null) {
+        q("#lineCodeBox").style.display = "none";
+        return;
+      }
+      showLineCode();
+    }
+    // "ok" | "unauth" | "error" — 401 と通信失敗で出す文言が違うので区別する
+    async function reloadMe() {
+      let res;
+      try {
+        res = await fetch("/auth/me");
+      } catch (e) {
+        return "error";
+      }
+      if (!res.ok) return "unauth";
+      ME = await res.json();
+      return "ok";
+    }
+    const LINE_RELOAD = "ログインの有効期限が切れました。ページを再読み込みしてからやり直してください。";
+    const LINE_OFFLINE = "通信できませんでした。電波のよいところで、もう一度お試しください。";
+    q("#lineIssueBtn").onclick = async () => {
+      const btn = q("#lineIssueBtn");
+      btn.disabled = true;
+      lineNote("コードを発行しています…");
+      let res;
+      try {
+        res = await fetch("/auth/line/code", { method: "POST" });
+      } catch (e) {
+        btn.disabled = false;
+        lineNote(LINE_OFFLINE, "err");
+        return;
+      }
+      btn.disabled = false;
+      if (res.status === 429) {
+        lineNote("発行が多すぎます。15分ほど待ってください。", "err");
+        return;
+      }
+      if (res.status === 401) {
+        lineNote(LINE_RELOAD, "err");
+        return;
+      }
+      if (!res.ok) {
+        lineNote("コードを発行できませんでした。もう一度お試しください。", "err");
+        return;
+      }
+      const j = await res.json();
+      const sec = Number(j.expiresInSec) > 0 ? Number(j.expiresInSec) : LINE_CODE_SEC;
+      lineCode = String(j.code);
+      lineCodeUntil = Date.now() + sec * 1000;
+      btn.textContent = "コードを再発行する";
+      showLineCode();
+      lineNote("");
+    };
+    q("#lineCodeCopy").onclick = async () => {
+      if (lineCode === null || Date.now() >= lineCodeUntil) return;
+      try {
+        await navigator.clipboard.writeText(lineCode);
+        lineNote("コードをコピーしました。LINE の plancel トークに送ってください。", "ok");
+      } catch (e) {
+        lineNote("コピーできませんでした。画面のコードを LINE に打ち込んでください。", "err");
+      }
+    };
+    q("#lineVerifyBtn").onclick = async () => {
+      const btn = q("#lineVerifyBtn");
+      btn.disabled = true;
+      lineNote("連携を確認しています…");
+      const state = await reloadMe();
+      btn.disabled = false;
+      if (state === "error") {
+        lineNote(LINE_OFFLINE, "err");
+        return;
+      }
+      if (state === "unauth") {
+        lineNote(LINE_RELOAD, "err");
+        return;
+      }
+      if (!lineLinked()) {
+        lineNote("まだ連携が確認できません。LINE の plancel トークにコードを送ってから、もう一度押してください。", "err");
+        return;
+      }
+      lineCode = null;
+      lineNote("");
+      renderLineSection();
+      q("#lineLinkedMsg").textContent = "連携できました。これから期限のお知らせが LINE に届きます。";
+    };
+    q("#lineUnlinkBtn").onclick = async () => {
+      if (!confirm("LINE との連携を解除します。期限のお知らせは LINE に届かなくなります。よろしいですか？")) {
+        return;
+      }
+      let res;
+      try {
+        res = await fetch("/auth/line", { method: "DELETE" });
+      } catch (e) {
+        alert(LINE_OFFLINE);
+        return;
+      }
+      if (res.status === 401) {
+        alert(LINE_RELOAD);
+        return;
+      }
+      if (!res.ok) {
+        alert("解除できませんでした。もう一度お試しください。");
+        return;
+      }
+      await reloadMe();
+      lineCode = null;
+      renderLineSection();
+      lineNote("連携を解除しました。", "ok");
     };
     q("#icsCopy").onclick = async () => {
       try {
@@ -2928,6 +3441,7 @@
           : (ME.emailVerified
             ? "Google 未連携。紐付けると Google でもログインできます。"
             : "Google 未連携（このアカウントはメール登録のみ）。紐付けるとアカウントの本人確認も完了します。"));
+      loadTemplates();
       setView(true);
     };
     // 表示名・ユーザーID・別ログイン用メールの3つを1回で保存する（ボタンはプロフィール
