@@ -33,6 +33,14 @@ Remaining product candidates: email-forward parsing, bookmarklet entry point, an
 deadline notices. Production acceptance checks are tracked in `docs/VERIFICATION.md`, not as new
 implementation layers.
 
+Facility policy templates (owner 2026-07-27:
+「ホテルごとに規定(ベース)を設定できるといいかも。プランごとになるかもだけど基本的に同じことが多いため」):
+the backend is done — a per-ledger library keyed by the normalized facility name
+(`src/web/policy-template.ts`), its four HTTP routes under `/api/policy-templates`, and the matching
+remote-MCP tools. **The web UI hookup is still pending**: the add/edit form does not yet call
+`GET /api/policy-templates/lookup?service=…` to pre-fill the fee table, offer a
+「この施設の規定として覚える」 save, or expose a management list for editing/deleting templates.
+
 Weather integration (ADR-8): JMA public JSON (key-free, effectively rate-limit-free) behind a
 `WeatherProvider` interface (+ Mock/replay, same discipline as Parser/Notifier). Weather enriches
 notification messages and adds a `weather_alert` trigger (typhoon approach × unsettled candidates ×

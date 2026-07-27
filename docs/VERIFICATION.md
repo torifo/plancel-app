@@ -19,7 +19,7 @@
 ```sh
 deno task check     # 型 + Date直呼び禁止lint → "no_direct_date_check: OK"
 deno lint           # 0 problems
-deno task test      # 440 passed | 0 failed
+deno task test      # 465 passed | 0 failed
 deno task verify    # fmt check + 上記検査 + replayを一括実行
 ```
 
@@ -27,7 +27,8 @@ deno task verify    # fmt check + 上記検査 + replayを一括実行
 冪等・リトライ / MCP ツール入出力 / パーサーチェーン 3 経路（フォールバック・食い違い・全段失敗）/
 Groq・Gemini パーサー（stub fetch）/ LINE webhook（署名・許可リスト・Quick Reply 解決・画像）/
 Email(Resend) Notifier / **年推論プロンプト（JST 日付注入）と 2 年先警告**。 PWA manifest / Service
-Worker / アイコン配信、API/Authをキャッシュしないこと、明示更新メッセージ。
+Worker / アイコン配信、API/Authをキャッシュしないこと、明示更新メッセージ。 施設ごとのキャンセル
+規定テンプレ（施設名の正規化・`unknown` 拒否・上書き・削除の冪等性・台帳間の非公開性）。
 
 ### 1.2 パース回帰リプレイ（必須）
 

@@ -53,8 +53,23 @@ plancel と opulse（現 opulse-monitor）は **1 つの org に軽量2アプリ
   | `GET /calendar/<secret>.ics` | 全員向け iCal 購読フィード（§5）                               |
   | `POST /api/parse`            | 貼り付けメール／画像の取り込み（**ログイン必須**・401 で拒否） |
   | `/api/reservations…`         | 予約 CRUD（ログインまたは API トークン必須）                   |
+  | `/api/policy-templates…`     | 施設ごとのキャンセル規定テンプレ（下記・台帳ごとに非公開）      |
   | `GET /healthz`               | ヘルスチェック（`ok`）                                         |
   | `POST /webhook`              | LINE webhook（LINE env 未設定時は 503）                        |
+- **キャンセル規定テンプレ**（オーナー 2026-07-27「ホテルごとに規定(ベース)を設定できるといいかも」）:
+  施設名をキーに規定を1件だけ覚えておき、同じ宿・同じ店の次の予約で初期値にする。KV は
+  `["web", <ledger>, "policy_tpl", <正規化施設名>]`（NFKC + trim + 空白畳み + 小文字化。
+  「ＡＢＣ」と「ABC」、全角スペースと半角スペースは同一キー）。表示名は入力どおり保存。
+  - `GET /api/policy-templates` — 一覧（表示名順）→ `{templates:[…]}`
+  - `PUT /api/policy-templates/<施設名>` `{policy}` — 保存・上書き → 200 `{template}`、
+    不正な規定と `unknown` は 400
+  - `DELETE /api/policy-templates/<施設名>` — 削除 → 204（存在しなくても 204・冪等）
+  - `GET /api/policy-templates/lookup?service=<施設名>` — フォーム初期値の引き当て →
+    `{template}` または `{template:null}`
+
+  施設名はパスで percent-encode する。引き当ては**正規化後の完全一致のみ**（あいまい一致は誤った
+  料率表を黙って埋めるので入れない）。`unknown` はテンプレとして保存できない（規定を「言っていない」
+  テンプレは無いより悪い）。テンプレは**台帳ごとに非公開**で、予約を共有しても相手には見えない。
 - cron・webhook・Web は起動時に開く 1 つのマネージド KV（`KvStore.open()` = 引数なし）を共有する。
 - cron の通知チャネルは env から自動選択（`selectNotifier`）: **LINE push（owner宛）>
   Email（Resend）
@@ -167,13 +182,16 @@ TOKEN/SECRET/KEY を含む名前は Deploy が自動で secret 扱いにする�
 Claude Desktop 等から本番 Web 台帳を直接操作できる。
 
 - **remote モード**: env `PLANCEL_API_URL` + `PLANCEL_API_TOKEN` が揃うと、`src/mcp/main.ts` は
-  ローカル core ストアではなく本番 `/api/reservations` を叩く 7 ツールを serve する （list / create
-  / confirm / cancel / restore / update / delete）。トークンはマイページの
+  ローカル core ストアではなく本番 Web API を叩く 11 ツールを serve する。予約 7
+  （list / create / confirm / cancel / restore / update / delete）＋
+  キャンセル規定テンプレ 4（`list_policy_templates` / `lookup_policy_template` /
+  `save_policy_template` / `delete_policy_template` → `/api/policy-templates`）。トークンはマイページの
   カレンダー連携画面で発行するパーソナル API トークン（`x-plancel-token`）。Claude で作った予約が
   家族の見る台帳に入り、確定はカレンダーにも流れる。
 - **local core モード**: env 無しなら従来どおりローカル KV の core ストアを操作する。
 - **原則**: 「GUI でできることは MCP でもできる」を目指す。ただし**uid 確定とアカウント連携/マージは
-  GUI 専用**（アイデンティティ確定は人手のみ）で MCP には出さない。
+  GUI 専用**（アイデンティティ確定は人手のみ）で MCP には出さない。キャンセル規定テンプレは例外では
+  ないので MCP にも出す（上記4ツール）。
 
 Claude Desktop の設定例（`claude_desktop_config.json`）:
 

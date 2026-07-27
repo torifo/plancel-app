@@ -17,7 +17,7 @@
 ```sh
 deno task seed        # デモデータ投入
 deno task scenario    # E2E: 確定 → 3日進める → 通知列挙 を1コマンドで体験
-deno task test        # 458 tests — 外部サービス接続ゼロで完結
+deno task test        # 465 tests — 外部サービス接続ゼロで完結
 deno task verify      # fmt + check + lint + test + replay を一括実行
 ```
 
