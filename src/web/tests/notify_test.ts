@@ -1,7 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
 import { type NotifyDeps, sweepDeadlineNotifications } from "../notify.ts";
 import { freeDeadlineMs } from "../policy.ts";
-import { getOrCreateUserByEmail } from "../users.ts";
+import { getOrCreateUserByEmail, linkLineUser } from "../users.ts";
 import type { WebPolicy, WebReservation, WebStatus } from "../store.ts";
 import { makeAuthIds } from "./users_test.ts";
 
@@ -27,20 +27,18 @@ function makeDeps(kv: Deno.Kv, sent: Sent[], nowMs = NOW): NotifyDeps {
   };
 }
 
-/** Adds the owner LINE push route to a deps object (LINE v2 #1). */
+/** Adds the per-user LINE push route to a deps object (LINE v2 #1). */
 function withLine(
   deps: NotifyDeps,
-  ownerEmail: string,
-  pushed: string[],
+  pushed: { to: string; text: string }[],
   fail = false,
 ): NotifyDeps {
   return {
     ...deps,
     line: {
-      ownerEmail,
-      push: (text) => {
+      push: (to, text) => {
         if (fail) return Promise.reject(new Error("line push failed"));
-        pushed.push(text);
+        pushed.push({ to, text });
         return Promise.resolve();
       },
     },
@@ -178,51 +176,58 @@ Deno.test("ignores the ::demo ledger", async () => {
   });
 });
 
-// ⑦ the owner's own ledger is delivered by LINE push — never by mail.
-Deno.test("routes the owner's deadline notification to LINE push", async () => {
+// ⑦ a user with their OWN linked LINE account is pushed to — never mailed.
+Deno.test("pushes to the ledger owner's own linked LINE account", async () => {
   await withKv(async (kv) => {
-    const u = await getOrCreateUserByEmail(kv, "owner@b.jp", makeAuthIds());
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "owner@b.jp", ids);
+    await linkLineUser(kv, u.id, "U-owner", ids);
     await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
     const sent: Sent[] = [];
-    const pushed: string[] = [];
-    const deps = withLine(makeDeps(kv, sent), "owner@b.jp", pushed);
+    const pushed: { to: string; text: string }[] = [];
+    const deps = withLine(makeDeps(kv, sent), pushed);
     assertEquals(await sweepDeadlineNotifications(deps), 1);
     assertEquals(sent.length, 0);
     assertEquals(pushed.length, 1);
-    assertEquals(pushed[0]?.includes("svc-R1"), true);
-    assertEquals(pushed[0]?.includes("plancel で確認: https://plancel.test"), true);
+    assertEquals(pushed[0]?.to, "U-owner");
+    assertEquals(pushed[0]?.text.includes("svc-R1"), true);
+    assertEquals(pushed[0]?.text.includes("plancel で確認: https://plancel.test"), true);
     // Same marker regardless of channel → no second push.
     assertEquals(await sweepDeadlineNotifications(deps), 0);
     assertEquals(pushed.length, 1);
   });
 });
 
-// ⑧ owner matching ignores case and surrounding whitespace.
-Deno.test("matches the owner email case-insensitively", async () => {
+// ⑧ two users, one linked: each reminder goes to its own owner's channel.
+Deno.test("routes per user: linked → LINE, unlinked → email, in one sweep", async () => {
   await withKv(async (kv) => {
-    const u = await getOrCreateUserByEmail(kv, "Owner@B.jp", makeAuthIds());
-    await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
+    const ids = makeAuthIds();
+    const a = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    const b = await getOrCreateUserByEmail(kv, "b@b.jp", ids);
+    await linkLineUser(kv, b.id, "U-b", ids);
+    await putResv(kv, a.ledgerId, "RA", "free24", "candidate", NOW + 36 * H);
+    await putResv(kv, b.ledgerId, "RB", "free24", "candidate", NOW + 36 * H);
     const sent: Sent[] = [];
-    const pushed: string[] = [];
-    const deps = withLine(makeDeps(kv, sent), "  OWNER@b.JP ", pushed);
-    assertEquals(await sweepDeadlineNotifications(deps), 1);
+    const pushed: { to: string; text: string }[] = [];
+    assertEquals(await sweepDeadlineNotifications(withLine(makeDeps(kv, sent), pushed)), 2);
+    assertEquals(sent.length, 1);
+    assertEquals(sent[0]?.email, "a@b.jp");
+    assertEquals(sent[0]?.text.includes("svc-RA"), true);
     assertEquals(pushed.length, 1);
-    assertEquals(sent.length, 0);
+    assertEquals(pushed[0]?.to, "U-b");
+    assertEquals(pushed[0]?.text.includes("svc-RB"), true);
   });
 });
 
-// ⑨ a non-owner ledger keeps the email/console route even when LINE is wired.
-Deno.test("keeps the email route for non-owner users", async () => {
+// ⑨ no LINE channel configured at all → everyone keeps the email route.
+Deno.test("keeps the email route when no LINE channel is wired", async () => {
   await withKv(async (kv) => {
-    const u = await getOrCreateUserByEmail(kv, "other@b.jp", makeAuthIds());
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "other@b.jp", ids);
+    await linkLineUser(kv, u.id, "U-other", ids);
     await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
     const sent: Sent[] = [];
-    const pushed: string[] = [];
-    assertEquals(
-      await sweepDeadlineNotifications(withLine(makeDeps(kv, sent), "owner@b.jp", pushed)),
-      1,
-    );
-    assertEquals(pushed.length, 0);
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
     assertEquals(sent.length, 1);
     assertEquals(sent[0]?.email, "other@b.jp");
   });
@@ -231,16 +236,19 @@ Deno.test("keeps the email route for non-owner users", async () => {
 // ⑩ a failing push leaves the marker unset, so the next sweep retries.
 Deno.test("retries on the next sweep when the LINE push fails", async () => {
   await withKv(async (kv) => {
-    const u = await getOrCreateUserByEmail(kv, "owner@b.jp", makeAuthIds());
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "owner@b.jp", ids);
+    await linkLineUser(kv, u.id, "U-owner", ids);
     await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
     const sent: Sent[] = [];
-    const pushed: string[] = [];
+    const pushed: { to: string; text: string }[] = [];
     const base = makeDeps(kv, sent);
-    assertEquals(await sweepDeadlineNotifications(withLine(base, "owner@b.jp", pushed, true)), 0);
+    assertEquals(await sweepDeadlineNotifications(withLine(base, pushed, true)), 0);
     assertEquals(sent.length, 0);
     assertEquals(pushed.length, 0);
     // Marker never written → the recovered push goes through next sweep.
-    assertEquals(await sweepDeadlineNotifications(withLine(base, "owner@b.jp", pushed)), 1);
+    assertEquals(await sweepDeadlineNotifications(withLine(base, pushed)), 1);
     assertEquals(pushed.length, 1);
+    assertEquals(pushed[0]?.to, "U-owner");
   });
 });

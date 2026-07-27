@@ -1,11 +1,15 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../auth/routes.ts";
 import {
+  consumeLineLinkCode,
   findUserByApiToken,
   findUserByEmail,
+  findUserByLineUserId,
   findUserByUid,
   getOrCreateUserByEmail,
   getUser,
+  LINE_CODE_TTL_MS,
+  linkLineUser,
 } from "../users.ts";
 import { createReservation, listReservations } from "../store.ts";
 import { makeAuthIds } from "./users_test.ts";
@@ -439,6 +443,65 @@ Deno.test("personal API token: issue -> act as user -> rotate invalidates -> rev
   });
 });
 
+// ---- per-user LINE linking (owner 2026-07-27) ----
+
+const CODE_CREATED_MS = Temporal.Instant.from("2026-07-21T00:00:00.000Z").epochMilliseconds;
+
+Deno.test("LINE 連携: code issuance is logged-in only, re-issue invalidates, unlink clears", async () => {
+  await withKv(async (kv) => {
+    // logged out
+    assertEquals((await handleAuthApi(req("POST", "/auth/line/code"), makeDeps(kv))).status, 401);
+
+    const deps = makeDeps(kv, { devUserEmail: "me@example.com" });
+    const before = await (await handleAuthApi(req("GET", "/auth/me"), deps)).json();
+    assertEquals(before.line, { linked: false });
+
+    const first = await handleAuthApi(req("POST", "/auth/line/code"), deps);
+    assertEquals(first.status, 200);
+    const firstBody = await first.json();
+    assertEquals(firstBody.code.length, 8);
+    assertEquals(firstBody.expiresInSec, LINE_CODE_TTL_MS / 1000);
+
+    // re-issuing kills the previous code; only the newest one links
+    const second = (await (await handleAuthApi(req("POST", "/auth/line/code"), deps)).json()).code;
+    assertEquals(await consumeLineLinkCode(kv, firstBody.code, CODE_CREATED_MS), null);
+    const user = await findUserByEmail(kv, "me@example.com");
+    assertEquals(await consumeLineLinkCode(kv, second, CODE_CREATED_MS), user?.id);
+
+    // /auth/me reflects a link but never exposes the LINE userId itself
+    await linkLineUser(kv, user?.id ?? "", "U-me", deps.ids);
+    const linked = await (await handleAuthApi(req("GET", "/auth/me"), deps)).json();
+    assertEquals(linked.line, { linked: true });
+    assertEquals(JSON.stringify(linked).includes("U-me"), false);
+
+    // DELETE /auth/line unlinks (401 without a session)
+    assertEquals((await handleAuthApi(req("DELETE", "/auth/line"), makeDeps(kv))).status, 401);
+    const del = await handleAuthApi(req("DELETE", "/auth/line"), deps);
+    assertEquals(del.status, 200);
+    assertEquals(await findUserByLineUserId(kv, "U-me"), null);
+    const after = await (await handleAuthApi(req("GET", "/auth/me"), deps)).json();
+    assertEquals(after.line, { linked: false });
+  });
+});
+
+Deno.test("LINE 連携: code issuance is rate limited (10 / 15min)", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv, { devUserEmail: "me@example.com" });
+    for (let i = 0; i < 10; i++) {
+      assertEquals((await handleAuthApi(req("POST", "/auth/line/code"), deps)).status, 200);
+    }
+    const blocked = await handleAuthApi(req("POST", "/auth/line/code"), deps);
+    assertEquals(blocked.status, 429);
+    // The password-login limiter has its own bucket — logins are unaffected.
+    await handleAuthApi(req("POST", "/auth/password", { password: "hunter2secret" }), deps);
+    const login = await handleAuthApi(
+      req("POST", "/auth/login", { email: "me@example.com", password: "hunter2secret" }),
+      makeDeps(kv),
+    );
+    assertEquals(login.status, 302);
+  });
+});
+
 Deno.test("admin /auth/me carries userCount and warns at 100 users", async () => {
   await withKv(async (kv) => {
     const ids = makeAuthIds();
@@ -477,7 +540,7 @@ Deno.test("退会: deletes the account + indexes + reservations, and frees a cap
     assertEquals(reg.status, 302);
     const cookie = cookieOf(reg);
 
-    // give the account a uid, an API token, and two reservations
+    // give the account a uid, an API token, a LINE link, and two reservations
     await handleAuthApi(req("POST", "/auth/profile", { uid: "goneuser" }, { cookie }), deps);
     const apiToken =
       (await (await handleAuthApi(req("POST", "/auth/token", undefined, { cookie }), deps)).json())
@@ -486,6 +549,7 @@ Deno.test("退会: deletes the account + indexes + reservations, and frees a cap
     if (user === null) throw new Error("expected the registered user to exist");
     const userId = user.id;
     const ledger = user.ledgerId;
+    await linkLineUser(kv, userId, "U-gone", deps.ids);
     for (const service of ["宿A", "宿B"]) {
       await createReservation(kv, ledger, {
         plan: null,
@@ -531,6 +595,8 @@ Deno.test("退会: deletes the account + indexes + reservations, and frees a cap
     assertEquals(await findUserByEmail(kv, "gone@example.com"), null);
     assertEquals(await findUserByUid(kv, "goneuser"), null);
     assertEquals(await findUserByApiToken(kv, apiToken), null);
+    // the LINE sender must not resolve to a deleted account
+    assertEquals(await findUserByLineUserId(kv, "U-gone"), null);
 
     // reservations are gone
     assertEquals((await listReservations(kv, ledger)).length, 0);

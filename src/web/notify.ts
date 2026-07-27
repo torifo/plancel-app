@@ -2,11 +2,11 @@
  * Web ledger cancellation-deadline notifications (owner 2026-07-25).
  *
  * When a reservation's FREE-cancellation deadline is within the next 24 hours
- * (and still in the future), the ledger owner gets one e-mail so they can
- * decide before free cancellation lapses. Delivery is LINE push when the
- * ledger's email is the configured owner email (`deps.line`, LINE v2 #1), and
- * e-mail/console for everyone else. This is the web-store analogue of
- * the core domain's `fee_boundary_24h` trigger, but it reads the plain
+ * (and still in the future), the ledger owner gets one notification so they can
+ * decide before free cancellation lapses. Delivery is a LINE push to the
+ * ledger owner's OWN linked LINE account (`user.lineUserId`, owner 2026-07-27)
+ * when they have one, and e-mail/console otherwise. This is the web-store
+ * analogue of the core domain's `fee_boundary_24h` trigger, but it reads the plain
  * per-user reservation records (src/web/store.ts) directly — the core
  * notifier (src/notify/) is event-sourced and is NOT reused here.
  *
@@ -53,12 +53,12 @@ export interface NotifyDeps {
   /** Delivery sink (Resend or console) — injected so tests can capture. */
   send(email: string, subject: string, text: string): Promise<void>;
   /**
-   * LINE push route for the single owner (LINE v2 #1). Present only when a
-   * channel token AND an owner email are configured; the owner's ledger is
-   * matched by email (case-insensitive, trimmed) and then bypasses `send`.
-   * Everyone else keeps the email/console route.
+   * LINE push route (LINE v2 #1). Present whenever a channel token is
+   * configured — the target is per user: a ledger owner with a linked LINE
+   * account (`user.lineUserId`) is pushed to and bypasses `send`; everyone
+   * else keeps the email/console route.
    */
-  line?: { ownerEmail: string; push: (text: string) => Promise<void> };
+  line?: { push: (lineUserId: string, text: string) => Promise<void> };
 }
 
 /** Formats an epoch-ms instant as `YYYY/MM/DD(曜) HH:MM JST`. */
@@ -83,8 +83,6 @@ function buildBody(r: WebReservation, deadlineMs: number, baseUrl: string): stri
     `plancel で確認: ${baseUrl}`,
   ].join("\n");
 }
-
-const norm = (email: string) => email.trim().toLowerCase();
 
 /** True when `deadlineMs` is in the future and within the next 24 hours. */
 function withinBoundary(deadlineMs: number, nowMs: number): boolean {
@@ -121,12 +119,13 @@ export async function sweepDeadlineNotifications(deps: NotifyDeps): Promise<numb
       if ((await deps.kv.get(marker)).value !== null) continue; // already notified
 
       const body = buildBody(r, deadlineMs, deps.baseUrl);
-      // Owner ledger → LINE push; everyone else → email/console. Same marker on
-      // both routes: the channel never changes idempotency.
+      // Own LINE linked → push there; everyone else → email/console. Same
+      // marker on both routes: the channel never changes idempotency.
       const line = deps.line;
-      const viaLine = line !== undefined && norm(user.email) === norm(line.ownerEmail);
+      const lineUserId = user.lineUserId;
+      const viaLine = line !== undefined && lineUserId !== null;
       try {
-        if (line !== undefined && viaLine) await line.push(body);
+        if (line !== undefined && lineUserId !== null) await line.push(lineUserId, body);
         else await deps.send(user.email, SUBJECT, body);
       } catch (err) {
         // Leave the marker unset so the next sweep retries this reservation.

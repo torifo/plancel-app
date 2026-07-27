@@ -2,19 +2,28 @@ import { assertEquals, assertNotEquals } from "jsr:@std/assert@^1.0.19";
 import {
   allowMagicSend,
   type AuthIds,
+  consumeLineLinkCode,
   consumeMagicLink,
   createMagicLink,
   createSession,
+  deleteAccount,
   deleteSession,
   findUserByIcsSecret,
+  findUserByLineUserId,
   getGcalEvent,
   getOrCreateUserByEmail,
   getSessionUser,
+  getUser,
+  issueLineLinkCode,
+  LINE_CODE_TTL_MS,
+  linkLineUser,
+  looksLikeLineLinkCode,
   MAGIC_RATE_LIMIT,
   rotateIcsSecret,
   saveOauthState,
   setGcalEvent,
   takeOauthState,
+  unlinkLineUser,
 } from "../users.ts";
 
 export function makeAuthIds(startMs = 1_000_000): AuthIds {
@@ -99,6 +108,114 @@ Deno.test("rotateIcsSecret invalidates the old feed secret", async () => {
     assertNotEquals(next?.icsSecret, u.icsSecret);
     assertEquals(await findUserByIcsSecret(kv, u.icsSecret), null);
     assertEquals((await findUserByIcsSecret(kv, next?.icsSecret ?? ""))?.id, u.id);
+  });
+});
+
+// ---- per-user LINE linking (owner 2026-07-27) ----
+
+/** `makeAuthIds().nowIso()` — the instant every link code is created at. */
+const CODE_CREATED_MS = Temporal.Instant.from("2026-07-21T00:00:00.000Z").epochMilliseconds;
+
+Deno.test("LINE link: round-trips, keeps the reverse index, and is idempotent", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    assertEquals(u.lineUserId, null);
+    assertEquals(await findUserByLineUserId(kv, "U-a"), null);
+
+    assertEquals(await linkLineUser(kv, u.id, "U-a", ids), "linked");
+    assertEquals((await findUserByLineUserId(kv, "U-a"))?.id, u.id);
+    assertEquals((await getUser(kv, u.id))?.lineUserId, "U-a");
+
+    // Same pair again: no error, no change.
+    assertEquals(await linkLineUser(kv, u.id, "U-a", ids), "linked");
+    assertEquals((await findUserByLineUserId(kv, "U-a"))?.id, u.id);
+
+    // Re-linking the same user to a DIFFERENT LINE id moves the index.
+    assertEquals(await linkLineUser(kv, u.id, "U-b", ids), "linked");
+    assertEquals(await findUserByLineUserId(kv, "U-a"), null);
+    assertEquals((await findUserByLineUserId(kv, "U-b"))?.id, u.id);
+
+    assertEquals(await linkLineUser(kv, "ID-nobody", "U-c", ids), "no_user");
+  });
+});
+
+Deno.test("LINE link: a LINE id already linked to another user is rejected", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const a = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    const b = await getOrCreateUserByEmail(kv, "b@b.jp", ids);
+    assertEquals(await linkLineUser(kv, a.id, "U-shared", ids), "linked");
+    assertEquals(await linkLineUser(kv, b.id, "U-shared", ids), "taken");
+    // A refused link changes nothing on either side.
+    assertEquals((await findUserByLineUserId(kv, "U-shared"))?.id, a.id);
+    assertEquals((await getUser(kv, b.id))?.lineUserId, null);
+  });
+});
+
+Deno.test("LINE unlink clears the reverse index", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    await linkLineUser(kv, u.id, "U-a", ids);
+    await unlinkLineUser(kv, u.id, ids);
+    assertEquals(await findUserByLineUserId(kv, "U-a"), null);
+    assertEquals((await getUser(kv, u.id))?.lineUserId, null);
+    // Unlinking twice is a no-op, and the id is free for another user.
+    await unlinkLineUser(kv, u.id, ids);
+    const other = await getOrCreateUserByEmail(kv, "b@b.jp", ids);
+    assertEquals(await linkLineUser(kv, other.id, "U-a", ids), "linked");
+  });
+});
+
+Deno.test("退会 clears the LINE index and any outstanding link code", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    await linkLineUser(kv, u.id, "U-a", ids);
+    const code = await issueLineLinkCode(kv, u.id, ids) ?? "";
+    await deleteAccount(kv, u.id, ids);
+    assertEquals(await findUserByLineUserId(kv, "U-a"), null);
+    assertEquals(await consumeLineLinkCode(kv, code, CODE_CREATED_MS), null);
+  });
+});
+
+Deno.test("LINE link codes are typable, single-use, and expire after 10 min", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    const code = await issueLineLinkCode(kv, u.id, ids) ?? "";
+    assertEquals(code.length, 8);
+    // Unambiguous alphabet: no O/0/I/l/1.
+    assertEquals(/^[A-HJ-NP-Z2-9]{8}$/.test(code), true);
+    assertEquals(looksLikeLineLinkCode(code), true);
+    assertEquals(looksLikeLineLinkCode("確認"), false);
+
+    // Case and stray spacing are forgiven; the code resolves once.
+    const spaced = ` ${code.toLowerCase().slice(0, 4)} ${code.toLowerCase().slice(4)} `;
+    assertEquals(await consumeLineLinkCode(kv, spaced, CODE_CREATED_MS), u.id);
+    assertEquals(await consumeLineLinkCode(kv, code, CODE_CREATED_MS), null); // spent
+
+    // A fresh code past its TTL does not link (and is still consumed).
+    const stale = await issueLineLinkCode(kv, u.id, ids) ?? "";
+    assertEquals(
+      await consumeLineLinkCode(kv, stale, CODE_CREATED_MS + LINE_CODE_TTL_MS + 1),
+      null,
+    );
+    assertEquals(await consumeLineLinkCode(kv, "ABCDEFGH", CODE_CREATED_MS), null); // never issued
+  });
+});
+
+Deno.test("issuing a LINE link code invalidates the previous one", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    const first = await issueLineLinkCode(kv, u.id, ids) ?? "";
+    const second = await issueLineLinkCode(kv, u.id, ids) ?? "";
+    assertNotEquals(first, second);
+    assertEquals(await consumeLineLinkCode(kv, first, CODE_CREATED_MS), null);
+    assertEquals(await consumeLineLinkCode(kv, second, CODE_CREATED_MS), u.id);
+    assertEquals(await issueLineLinkCode(kv, "ID-nobody", ids), null);
   });
 });
 

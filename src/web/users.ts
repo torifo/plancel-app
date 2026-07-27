@@ -8,8 +8,9 @@
  * existing browser token as the user's ledgerId (zero-copy migration).
  *
  * Also owns: sessions (90d), magic-link tokens (15min, single-use, rate
- * limited), OAuth state (10min), iCal feed secrets, and the reservation ⇄
- * Google Calendar event mapping.
+ * limited), OAuth state (10min), iCal feed secrets, the per-user LINE link
+ * (+ its one-time 10min link code), and the reservation ⇄ Google Calendar
+ * event mapping.
  */
 import { z } from "zod";
 import type { WebIds } from "./store.ts";
@@ -36,6 +37,20 @@ export const webUserSchema = z.object({
   displayName: z.string().nullable().default(null),
   /** Unique handle the user picks on マイページ (invite lookup, ^[a-z0-9_-]{3,20}$). */
   uid: z.string().nullable().default(null),
+  /**
+   * Linked LINE userId — the per-user LINE binding (owner 2026-07-27). At most
+   * one web user per LINE id (enforced by the `line_user` index).
+   */
+  lineUserId: z.string().nullable().default(null),
+  /**
+   * The user's outstanding one-time LINE link code, i.e. the key stored at
+   * `["line_link_code", code]`. Held on the record for the same reason
+   * `apiToken` is: KV cannot look a key up by its value, so re-issuing has to
+   * know the previous code in order to invalidate it. Goes stale once the KV
+   * entry's 10-minute TTL lapses — only `issueLineLinkCode` and
+   * `deleteAccount` ever read it, never the link check itself.
+   */
+  lineLinkCode: z.string().nullable().default(null),
   /** Additional login address (e.g. icloud.com) — shares the email index. */
   altEmail: z.string().nullable().default(null),
   /** PBKDF2 hash; null = password login not set up. */
@@ -70,6 +85,8 @@ const OAUTH_STATE = "oauth_state";
 const ICS = "ics_secret";
 const APITOKEN = "apitoken";
 const BY_UID = "webuser_uid";
+const BY_LINE = "line_user";
+const LINE_CODE = "line_link_code";
 const GCAL = "gcal_map";
 // Per-user prefixes cleared on 退会. `gcal_dirty` mirrors sync.ts's DIRTY;
 // shared_in / resv_members are future sharing tables — listing a prefix that
@@ -84,6 +101,7 @@ const WEB_RESV = "resv";
 
 export const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 export const MAGIC_TTL_MS = 15 * 60 * 1000;
+export const LINE_CODE_TTL_MS = 10 * 60 * 1000;
 export const MAGIC_RATE_LIMIT = 3; // per hour per address
 const MAGIC_RATE_WINDOW_MS = 60 * 60 * 1000;
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -146,6 +164,8 @@ export async function getOrCreateUserByEmail(
     apiToken: null,
     displayName: null,
     uid: null,
+    lineUserId: null,
+    lineLinkCode: null,
     altEmail: null,
     passwordHash: opts.passwordHash ?? null,
     emailVerified: opts.emailVerified ?? true,
@@ -324,6 +344,129 @@ export async function revokeApiToken(kv: Deno.Kv, userId: string, ids: AuthIds):
     .commit();
 }
 
+// ---------- LINE linking (per-user, owner 2026-07-27) ----------
+
+/**
+ * Every plancel user has their OWN LINE account, so the LINE binding is a
+ * per-user link (it used to be one env-configured owner). The `line_user`
+ * index is the authorization the webhook reads: a LINE userId resolves to at
+ * most one web user, and that user's ledger is the only one the sender can
+ * touch.
+ */
+export function findUserByLineUserId(kv: Deno.Kv, lineUserId: string): Promise<WebUser | null> {
+  return userIdFromIndex(kv, [BY_LINE, lineUserId]);
+}
+
+/**
+ * Result of a link attempt. `taken` = that LINE id already belongs to a
+ * DIFFERENT web user (the caller reports it rather than stealing the link).
+ */
+export type LinkLineOutcome = "linked" | "taken" | "no_user";
+
+/** Links a LINE userId to a web user. Re-linking the same pair is a no-op. */
+export async function linkLineUser(
+  kv: Deno.Kv,
+  userId: string,
+  lineUserId: string,
+  ids: AuthIds,
+): Promise<LinkLineOutcome> {
+  const cur = await getUser(kv, userId);
+  if (cur === null) return "no_user";
+  if (cur.lineUserId === lineUserId) return "linked";
+  const key = [BY_LINE, lineUserId];
+  const tx = kv.atomic()
+    .check({ key, versionstamp: null }) // fails when another user owns this LINE id
+    .set(key, userId)
+    .set([USER, userId], { ...cur, lineUserId, updated_at: ids.nowIso() });
+  if (cur.lineUserId !== null) tx.delete([BY_LINE, cur.lineUserId]);
+  return (await tx.commit()).ok ? "linked" : "taken";
+}
+
+export async function unlinkLineUser(kv: Deno.Kv, userId: string, ids: AuthIds): Promise<void> {
+  const cur = await getUser(kv, userId);
+  if (cur === null || cur.lineUserId === null) return;
+  await kv.atomic()
+    .delete([BY_LINE, cur.lineUserId])
+    .set([USER, userId], { ...cur, lineUserId: null, updated_at: ids.nowIso() })
+    .commit();
+}
+
+// Unambiguous alphabet: no O/0/I/l/1 — the code is read off a screen and typed
+// into a phone keyboard.
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const CODE_LEN = 8;
+
+const lineCodeSchema = z.object({ userId: z.string(), created_at: z.string() });
+
+/**
+ * Folds the injected random token (32 random bytes hex in production) into
+ * `CODE_LEN` characters of the typable alphabet. Entropy comes only from
+ * `ids.randomToken` so tests stay deterministic; ~40 bits over a 10-minute
+ * single-use window is far beyond guessing through a chat channel.
+ */
+function lineLinkCodeFrom(token: string): string {
+  let out = "";
+  for (let i = 0; i < CODE_LEN; i++) {
+    const a = token.charCodeAt((i * 2) % token.length);
+    const b = token.charCodeAt((i * 2 + 1) % token.length);
+    out += CODE_ALPHABET[(a * 257 + b) % CODE_ALPHABET.length];
+  }
+  return out;
+}
+
+/** Accepts what a human types: casing, spaces and hyphens are all forgiven. */
+export function normalizeLineLinkCode(text: string): string {
+  return text.trim().toUpperCase().replaceAll(/[\s-]/g, "");
+}
+
+/** True when the text could be a link code at all (cheap pre-check). */
+export function looksLikeLineLinkCode(text: string): boolean {
+  const code = normalizeLineLinkCode(text);
+  return code.length === CODE_LEN && [...code].every((c) => CODE_ALPHABET.includes(c));
+}
+
+/**
+ * Issues the user's one-time LINE link code, invalidating the previous one.
+ * The LINE `userId` in a webhook event is never trusted as proof of identity —
+ * this code, typed into the chat from a logged-in session, is.
+ */
+export async function issueLineLinkCode(
+  kv: Deno.Kv,
+  userId: string,
+  ids: AuthIds,
+): Promise<string | null> {
+  const cur = await getUser(kv, userId);
+  if (cur === null) return null;
+  const code = lineLinkCodeFrom(ids.randomToken());
+  const tx = kv.atomic()
+    .set([LINE_CODE, code], { userId, created_at: ids.nowIso() }, { expireIn: LINE_CODE_TTL_MS })
+    .set([USER, userId], { ...cur, lineLinkCode: code, updated_at: ids.nowIso() });
+  if (cur.lineLinkCode !== null && cur.lineLinkCode !== code) {
+    tx.delete([LINE_CODE, cur.lineLinkCode]);
+  }
+  await tx.commit();
+  return code;
+}
+
+/**
+ * Single-use: deletes the code on read and returns its userId; null when
+ * unknown or expired. KV's `expireIn` is the primary TTL; `created_at` is
+ * re-checked against the injected clock so expiry is deterministic in tests
+ * (same belt-and-braces as `consumeMagicLink`).
+ */
+export async function consumeLineLinkCode(
+  kv: Deno.Kv,
+  code: string,
+  nowMs: number,
+): Promise<string | null> {
+  const key = [LINE_CODE, normalizeLineLinkCode(code)];
+  const parsed = lineCodeSchema.safeParse((await kv.get(key)).value);
+  if (!parsed.success) return null;
+  await kv.delete(key);
+  const createdMs = Temporal.Instant.from(parsed.data.created_at).epochMilliseconds;
+  return createdMs + LINE_CODE_TTL_MS > nowMs ? parsed.data.userId : null;
+}
+
 // ---------- account deletion (退会, owner 2026-07-25) ----------
 
 /**
@@ -384,6 +527,10 @@ export async function deleteAccount(
   if (user.uid !== null) await kv.delete([BY_UID, user.uid]);
   await kv.delete([ICS, user.icsSecret]);
   if (user.apiToken !== null) await kv.delete([APITOKEN, user.apiToken]);
+  // The LINE link must go with the account: leaving the reverse index behind
+  // would let that LINE sender resolve to a deleted user.
+  if (user.lineUserId !== null) await kv.delete([BY_LINE, user.lineUserId]);
+  if (user.lineLinkCode !== null) await kv.delete([LINE_CODE, user.lineLinkCode]);
 }
 
 // ---------- sessions ----------

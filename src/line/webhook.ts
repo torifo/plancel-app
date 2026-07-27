@@ -4,7 +4,12 @@
  *
  * Flow per event:
  *   - signature invalid            -> 401, nothing processed
- *   - sender not in allowlist      -> ignored (200; personal service, SDD §7)
+ *   - sender resolution            -> the sender's LINE userId is looked up in
+ *                        the per-user link index (`findUserByLineUserId`); the
+ *                        resolved user's ledger is the ONLY one this event can
+ *                        read or write. An unlinked sender can only complete a
+ *                        link (by sending a code issued from the web app) —
+ *                        nothing else is processed for them.
  *   - text 「確認」/「予定」/「一覧」 -> WEB-ledger summary + action Quick Reply
  *                        (only when `deps.web` is wired — see web-commands.ts)
  *   - text/image message           -> common parse pipeline (runParseChain)
@@ -34,14 +39,16 @@ import { missingFieldQuestions, runParseChain, validateParsedOutput } from "../p
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
 import { logger, newCorrelationId } from "../lib/log.ts";
 import { verifyLineSignature } from "./signature.ts";
+import { findUserByLineUserId, type WebUser } from "../web/users.ts";
 import {
   applyWebAction,
   buildCheckReply,
   isCheckCommand,
   type LineWebDeps,
-  NO_WEB_OWNER_TEXT,
+  LINK_GUIDE_TEXT,
   parseWebPostback,
   registerWebReservation,
+  tryLinkFromMessage,
 } from "./web-commands.ts";
 import type {
   LineMessagingClient,
@@ -53,20 +60,33 @@ import type {
 
 export interface LineWebhookDeps {
   channelSecret: string;
-  /** LINE userIds allowed to use the bot (personal service — usually one). */
+  /**
+   * LEGACY allowlist (`LINE_ALLOWED_USER_IDS`, kept for back-compat). Per-user
+   * linking is the authorization now, so this set can NEVER block a linked
+   * sender; a non-empty set only restricts senders that are not linked yet.
+   * Standalone mode (no `web`) has no link index, so there it still gates
+   * everything, as before. Remove the env var in production.
+   */
   allowedUserIds: ReadonlySet<string>;
   ctx: ToolContext;
   parsers: Parser[];
   chainConfig: ParserChainConfig;
   client: LineMessagingClient;
   /**
-   * Access to the owner's WEB ledger (LINE v2 #2/#3). Optional: without it
-   * 「確認」falls through to the parse pipeline exactly as before, and
-   * `webact|` postbacks are ignored (src/line/main.ts standalone).
+   * Access to the WEB ledgers + the LINE link index (LINE v2 #2/#3). Optional:
+   * without it 「確認」falls through to the parse pipeline exactly as before,
+   * `webact|` postbacks are ignored, and the core ledger is the sink
+   * (src/line/main.ts standalone).
    */
   web?: LineWebDeps;
   /** Sink for structured logs; defaults to console.log via logger(). */
   logWrite?: (line: string) => void;
+}
+
+/** The one ledger an event may touch: the sender's own (null = core sink). */
+interface WebCtx {
+  deps: LineWebDeps;
+  user: WebUser;
 }
 
 export interface LineWebhookResult {
@@ -150,26 +170,25 @@ function summaryText(reservation: Reservation): string {
 }
 
 /**
- * Outcome of registering a parse output: the reply summary on success, or why
- * it could not be registered (`invalid` = schema/missing fields, `no-owner` =
- * the web ledger the owner would be written to does not exist yet).
+ * Outcome of registering a parse output: the reply summary on success, or
+ * `ok: false` when the output does not satisfy `reservationInputSchema`
+ * (missing/invalid fields).
  */
-type Registration =
-  | { ok: true; summary: string }
-  | { ok: false; reason: "invalid" | "no-owner" };
+type Registration = { ok: true; summary: string } | { ok: false };
 
 /**
  * Registers a validated parse output as a reservation (source: line).
  *
- * Sink selection (LINE v2 #4): when `deps.web` is wired the reservation lands
- * in the OWNER'S WEB LEDGER as a candidate, so it shows up in the web UI the
- * owner actually uses. Without it (standalone src/line/main.ts, MCP-local mode)
- * the core event-sourced ledger stays the sink, unchanged. Validation is the
- * same `reservationInputSchema` in both cases, so a parse output that is too
- * thin is rejected identically either way.
+ * Sink selection (LINE v2 #4): with a resolved `web` context the reservation
+ * lands in THAT SENDER'S WEB LEDGER as a candidate, so it shows up in the web
+ * UI they actually use. Without it (standalone src/line/main.ts, MCP-local
+ * mode) the core event-sourced ledger stays the sink, unchanged. Validation is
+ * the same `reservationInputSchema` in both cases, so a parse output that is
+ * too thin is rejected identically either way.
  */
 async function registerOutput(
   deps: LineWebhookDeps,
+  web: WebCtx | null,
   output: Record<string, unknown>,
   jobId: string,
 ): Promise<Registration> {
@@ -178,12 +197,10 @@ async function registerOutput(
     source: "line",
     raw_input_ref: jobId,
   });
-  if (!parsed.success) return { ok: false, reason: "invalid" };
+  if (!parsed.success) return { ok: false };
 
-  const web = deps.web;
-  if (web !== undefined) {
-    const registered = await registerWebReservation(web, parsed.data);
-    if (registered === null) return { ok: false, reason: "no-owner" };
+  if (web !== null) {
+    const registered = await registerWebReservation(web.deps, web.user, parsed.data);
     return { ok: true, summary: registered.summaryText };
   }
 
@@ -214,14 +231,35 @@ export async function handleLineWebhook(
   const handled: string[] = [];
   for (const event of body.events ?? []) {
     const userId = event.source?.userId;
-    if (userId === undefined || !deps.allowedUserIds.has(userId)) {
+    if (userId === undefined) {
+      handled.push("ignored:no-sender");
+      continue;
+    }
+    // Per-user link = the authorization. In standalone mode (no `web`) there is
+    // no link index, so the legacy allowlist stays the ONLY gate, including its
+    // fail-closed empty case. With `web` wired it can only narrow who may
+    // ATTEMPT a link — it never blocks a sender who is already linked.
+    const sender = deps.web !== undefined ? await findUserByLineUserId(deps.web.kv, userId) : null;
+    const gated = deps.web === undefined || deps.allowedUserIds.size > 0;
+    if (sender === null && gated && !deps.allowedUserIds.has(userId)) {
       handled.push("ignored:not-allowed");
       continue;
     }
-    if (event.type === "message" && event.replyToken !== undefined) {
-      handled.push(await handleMessage(event, deps, log));
-    } else if (event.type === "postback" && event.replyToken !== undefined) {
-      handled.push(await handlePostback(event, deps));
+    const web: WebCtx | null = deps.web !== undefined && sender !== null
+      ? { deps: deps.web, user: sender }
+      : null;
+    if (event.replyToken === undefined) {
+      handled.push(`ignored:${event.type}`);
+      continue;
+    }
+    // A wired web surface with an unresolved sender means "not linked yet":
+    // the only thing such an event can do is complete the link.
+    if (deps.web !== undefined && web === null) {
+      handled.push(await handleUnlinked(event, deps, deps.web, userId, log));
+    } else if (event.type === "message") {
+      handled.push(await handleMessage(event, deps, web, log));
+    } else if (event.type === "postback") {
+      handled.push(await handlePostback(event, deps, web));
     } else {
       handled.push(`ignored:${event.type}`);
     }
@@ -229,9 +267,34 @@ export async function handleLineWebhook(
   return { status: 200, handled };
 }
 
+/**
+ * Everything an unlinked LINE sender gets: a link when they send an
+ * outstanding code, guidance otherwise. No ParseJob, no reservation, no
+ * ledger read — an unknown sender must not be able to make the app do work.
+ */
+async function handleUnlinked(
+  event: LineWebhookEvent,
+  deps: LineWebhookDeps,
+  web: LineWebDeps,
+  lineUserId: string,
+  log: ReturnType<typeof logger>,
+): Promise<string> {
+  const replyToken = event.replyToken as string;
+  if (event.type !== "message" || event.message?.type !== "text") {
+    await deps.client.reply(replyToken, [{ type: "text", text: LINK_GUIDE_TEXT }]);
+    return "line:guide";
+  }
+  const attempt = await tryLinkFromMessage(web, lineUserId, event.message.text);
+  // The web userId only: the LINE id is the messaging platform's identifier.
+  if (attempt.kind === "linked") log.info("line link completed", { userId: attempt.user.id });
+  await deps.client.reply(replyToken, [attempt.reply]);
+  return `line:${attempt.kind}`;
+}
+
 async function handleMessage(
   event: LineWebhookEvent,
   deps: LineWebhookDeps,
+  web: WebCtx | null,
   log: ReturnType<typeof logger>,
 ): Promise<string> {
   const replyToken = event.replyToken as string;
@@ -239,12 +302,11 @@ async function handleMessage(
   const correlation_id = newCorrelationId();
 
   // Web-ledger check command takes precedence over the parse pipeline.
-  const web = deps.web;
   if (
-    web !== undefined && message?.type === "text" && message.text !== undefined &&
+    web !== null && message?.type === "text" && message.text !== undefined &&
     isCheckCommand(message.text)
   ) {
-    await deps.client.reply(replyToken, [await buildCheckReply(web)]);
+    await deps.client.reply(replyToken, [await buildCheckReply(web.deps, web.user)]);
     return "web:check";
   }
 
@@ -273,14 +335,10 @@ async function handleMessage(
   log.info("parse job created", { job_id: job.id, status: job.status, correlation_id });
 
   if (job.status === "parsed") {
-    const registered = await registerOutput(deps, resolvedOutput(job), job.id);
+    const registered = await registerOutput(deps, web, resolvedOutput(job), job.id);
     if (registered.ok) {
       await deps.client.reply(replyToken, [{ type: "text", text: registered.summary }]);
       return "registered";
-    }
-    if (registered.reason === "no-owner") {
-      await deps.client.reply(replyToken, [{ type: "text", text: NO_WEB_OWNER_TEXT }]);
-      return "web:no-owner";
     }
     await deps.client.reply(replyToken, [missingMessage(job)]);
     return "needs_review";
@@ -302,6 +360,7 @@ async function handleMessage(
 async function handlePostback(
   event: LineWebhookEvent,
   deps: LineWebhookDeps,
+  web: WebCtx | null,
 ): Promise<string> {
   const replyToken = event.replyToken as string;
   const data = event.postback?.data ?? "";
@@ -309,9 +368,8 @@ async function handlePostback(
   // Web-ledger action (LINE v2 #3) — a separate namespace from `resolve|`.
   const webAct = parseWebPostback(data);
   if (webAct !== null) {
-    const web = deps.web;
-    if (web === undefined) return "ignored:postback";
-    const reply = await applyWebAction(web, webAct.action, webAct.id);
+    if (web === null) return "ignored:postback";
+    const reply = await applyWebAction(web.deps, web.user, webAct.action, webAct.id);
     await deps.client.reply(replyToken, [reply]);
     return `web:${webAct.action}`;
   }
@@ -354,13 +412,9 @@ async function handlePostback(
     return "postback:still-missing";
   }
 
-  const registered = await registerOutput(deps, output, updated.id);
+  const registered = await registerOutput(deps, web, output, updated.id);
   if (!registered.ok) {
     await deps.ctx.store.putParseJob(updated);
-    if (registered.reason === "no-owner") {
-      await deps.client.reply(replyToken, [{ type: "text", text: NO_WEB_OWNER_TEXT }]);
-      return "postback:no-owner";
-    }
     await deps.client.reply(replyToken, [missingMessage(updated)]);
     return "postback:invalid-output";
   }

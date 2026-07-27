@@ -49,7 +49,7 @@ plancel と opulse（現 opulse-monitor）は **1 つの org に軽量2アプリ
   | `GET /manifest.webmanifest`  | PWA manifest（インストール名・テーマ・アイコン）               |
   | `GET /sw.js`                 | Service Worker（no-cache、明示更新・オフラインshell）          |
   | `GET /icons/*`               | PWAアイコン（192/512px・maskable、ブラウザキャッシュ1日）      |
-  | `/auth/*`                    | ログイン・マイページ・API トークン・カレンダー連携（§4）       |
+  | `/auth/*`                    | ログイン・マイページ・API トークン・カレンダー/LINE 連携（§4） |
   | `GET /calendar/<secret>.ics` | 全員向け iCal 購読フィード（§5）                               |
   | `POST /api/parse`            | 貼り付けメール／画像の取り込み（**ログイン必須**・401 で拒否） |
   | `/api/reservations…`         | 予約 CRUD（ログインまたは API トークン必須）                   |
@@ -105,7 +105,6 @@ TOKEN/SECRET/KEY を含む名前は Deploy が自動で secret 扱いにする�
 | `PLANCEL_MAX_USERS`                         | 任意         | 開放サインアップ上限（既定 50、`0` で無制限）                                                                                               |
 | `PLANCEL_ALLOWED_EMAILS`                    | 任意         | 定員を無視して作成できる保証アドレス（カンマ区切り）                                                                                        |
 | `PLANCEL_ADMIN_EMAILS`                      | 任意         | 管理者アドレス。`/auth/me` に userCount と 100人警告が付く。予約語 uid を取れるのもこのアカウントのみ                                       |
-| `PLANCEL_LINE_OWNER_EMAIL`                  | 任意         | Web台帳の期限リマインドを LINE push で受ける web アカウントの email。省略時は `PLANCEL_ADMIN_EMAILS` の先頭                                 |
 | `PLANCEL_DEV_USER`                          | ローカルのみ | OAuth を踏まず、全リクエストをこの email のユーザーとして扱う（本番では設定しない）                                                         |
 | `PLANCEL_ADMIN_TOKEN`                       | 任意         | 本番スモーク用。`x-plancel-admin` ヘッダと一致すれば `x-plancel-token` を台帳として直接使える                                               |
 | `RESEND_API_KEY` / `PLANCEL_EMAIL_FROM`     | 任意         | **メールログイン（マジックリンク）**の前提。両方揃うと `/auth/email` が有効化。未設定ならマジックリンクは休眠（コードは残るが送信されない） |
@@ -118,8 +117,8 @@ TOKEN/SECRET/KEY を含む名前は Deploy が自動で secret 扱いにする�
 | `GEMINI_API_KEY`            | ◯    | 二次パーサー + 画像（Gemini）                                                                                       |
 | `LINE_CHANNEL_SECRET`       | 任意 | webhook 署名検証（未設定なら webhook は 503）。**設定済み（2026-07-26 開通）**                                      |
 | `LINE_CHANNEL_ACCESS_TOKEN` | 任意 | 返信・push・画像取得。長期トークン（Messaging API タブで発行）。**設定済み**                                        |
-| `LINE_ALLOWED_USER_IDS`     | 任意 | 許可 userId（カンマ区切り）。オーナーの userId はチャネル基本設定タブ最下部「あなたのユーザーID」。**設定済み**     |
-| `PLANCEL_OWNER_USER_ID`     | 任意 | cron 通知の push 先。省略時は許可リストの先頭                                                                       |
+| `LINE_ALLOWED_USER_IDS`     | **旧** | **レガシー（2026-07-27）。ユーザー毎の LINE 連携（§4）が認可になったので不要 — 本番からは削除する。** 残した場合、**未連携**の送信者だけを絞る追加制限として働き、連携済みユーザーは絶対にブロックしない（`deno task line` 単体モードのみ従来どおり唯一の許可リスト） |
+| `PLANCEL_OWNER_USER_ID`     | 任意 | **コア台帳** cron 通知（`selectNotifier`）の push 先。省略時は許可リストの先頭。Web台帳の期限リマインドは各ユーザー自身の連携済み LINE へ飛ぶので、この変数は関係ない |
 | `PLANCEL_EMAIL_TO`          | 任意 | LINE 未設定時の Email 通知先（`RESEND_API_KEY` + `PLANCEL_EMAIL_FROM` と合わせて cron 通知の Email フォールバック） |
 
 > `RESEND_API_KEY` + `PLANCEL_EMAIL_FROM` はマジックリンク送信と cron の Email 通知を兼ねる。
@@ -154,6 +153,14 @@ TOKEN/SECRET/KEY を含む名前は Deploy が自動で secret 扱いにする�
   - **パスワード設定/変更**（`POST /auth/password`）: Google
     アカウントにパスワードログインを足せる。
   - **パーソナル API トークン**（`POST/DELETE /auth/token`、§6 MCP 用）。
+  - **LINE 連携**（ユーザー毎、2026-07-27）: `POST /auth/line/code` が**8文字の連携コード**
+    （曖昧な O/0/I/l/1 を除く英数字、**10分間有効・1回限り**、発行し直すと前のコードは即無効）を
+    返し、それを LINE のトークに送ると連携が完了する。`DELETE /auth/line` で解除。`GET /auth/me`
+    は `line: { linked: true|false }` だけを返す（LINE userId 自体はクライアントに出さない）。
+    コード発行は 15分で10回まで（パスワードログインと同じリミッタ・バケットは別）。
+    LINE の `userId` を身分証明として信用せず、**ログイン済みセッションから出したコードだけ**を
+    信用する設計。KV: `["line_user", <LINE userId>] → userId`（逆引き・1 LINE = 最大1アカウント）、
+    `["line_link_code", <code>] → { userId, created_at }`（`expireIn` 10分）。退会時は両方削除。
 
 ## 5. カレンダー連携（2層・キューなし）
 
@@ -189,9 +196,9 @@ Claude Desktop 等から本番 Web 台帳を直接操作できる。
   カレンダー連携画面で発行するパーソナル API トークン（`x-plancel-token`）。Claude で作った予約が
   家族の見る台帳に入り、確定はカレンダーにも流れる。
 - **local core モード**: env 無しなら従来どおりローカル KV の core ストアを操作する。
-- **原則**: 「GUI でできることは MCP でもできる」を目指す。ただし**uid 確定とアカウント連携/マージは
-  GUI 専用**（アイデンティティ確定は人手のみ）で MCP には出さない。キャンセル規定テンプレは例外では
-  ないので MCP にも出す（上記4ツール）。
+- **原則**: 「GUI でできることは MCP でもできる」を目指す。ただし**uid 確定・アカウント連携/マージ・
+  LINE 連携コードの発行は GUI 専用**（アイデンティティ確定は人手のみ）で MCP には出さない。
+  キャンセル規定テンプレはこの例外に当たらないので MCP にも出す（上記4ツール）。
 
 Claude Desktop の設定例（`claude_desktop_config.json`）:
 
@@ -239,6 +246,9 @@ Claude Desktop の設定例（`claude_desktop_config.json`）:
    Branch）まで反映されない**。 curl での素の POST /webhook は 401（署名なし）が正常。未設定サインは
    503。 LINE ConsoleによるWebhook検証までは成功済み。Web台帳の期限通知、確認・限定更新・追加も
    コード上はWeb台帳へ統合済みだが、再デプロイ後のLINE実機E2Eは未確認（§9）。
+   **2026-07-27: LINE はユーザー毎連携に移行。`PLANCEL_LINE_OWNER_EMAIL` は削除し（コードは読まない）、
+   `LINE_ALLOWED_USER_IDS` も削除する。既に連携済みだったオーナーは、初回だけマイページで連携コードを
+   発行して LINE に送り直す（旧 env ベースの紐付けは KV に残らないため移行データは無い）。**
 
 ## 8. オーナー側の外部作業（一度きり）
 
@@ -258,7 +268,10 @@ Claude Desktop の設定例（`claude_desktop_config.json`）:
 - **MCP**: マイページで API トークン発行 → env 設定 → Claude から予約操作が本番台帳に入る。
 - **cron**: Deploy のログで 15分毎の `tick end`（`failed:0`）と、必要時 `gcal sweep repaired`
   を確認。
-- **LINE**: 実機でテキスト/画像登録 → Web台帳反映 → Quick Replyで確定/キャンセル済みを確認。
+- **LINE**: 未連携のトークに何か送ると連携案内が返る → マイページで連携コード発行 → コードを送って
+  連携完了（返信に自分のアカウント名が出る）→ テキスト/画像登録が**自分の**Web台帳に入る →
+  Quick Replyで確定/キャンセル済み → 期限リマインドが自分のLINEに届く。
+  2人目のアカウントを連携して、互いの予約が見えないことも確認する。
 - **Resend**: ドメイン検証後に実メールを1通送信。
 
 ## 10. ロールバック / 退避

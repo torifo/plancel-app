@@ -18,8 +18,11 @@
  * All logic lives in tested modules (webhook.ts, tick.ts, notifier.ts); this
  * file is only the thin `import.meta.main` wiring, like cron/main.ts and
  * line/main.ts. Env:
- *   LINE_CHANNEL_SECRET / LINE_CHANNEL_ACCESS_TOKEN / LINE_ALLOWED_USER_IDS
- *   PLANCEL_OWNER_USER_ID (push target; defaults to first allowed id)
+ *   LINE_CHANNEL_SECRET / LINE_CHANNEL_ACCESS_TOKEN
+ *   LINE_ALLOWED_USER_IDS (LEGACY: per-user linking is the authorization now;
+ *     a non-empty set only restricts senders that are not linked yet)
+ *   PLANCEL_OWNER_USER_ID (core-ledger cron push target, see notifier.ts;
+ *     web-ledger reminders go to each user's OWN linked LINE account)
  *   RESEND_API_KEY / PLANCEL_EMAIL_FROM / PLANCEL_EMAIL_TO (email fallback)
  *   GROQ_API_KEY / GEMINI_API_KEY (parsers) · PORT (default 8000)
  *   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (Google login + calendar push)
@@ -28,8 +31,6 @@
  *   PLANCEL_MAX_USERS (open-signup cap, default 50; 0 = unlimited)
  *   PLANCEL_ALLOWED_EMAILS (comma-separated; always allowed past the cap)
  *   PLANCEL_ADMIN_EMAILS (comma-separated; /auth/me carries the 100-user warning)
- *   PLANCEL_LINE_OWNER_EMAIL (web account whose deadline reminders go to LINE
- *     push; defaults to the first PLANCEL_ADMIN_EMAILS entry)
  *   (RESEND_API_KEY + PLANCEL_EMAIL_FROM also power magic-link login)
  */
 import { SystemClock } from "../core/clock/mod.ts";
@@ -76,14 +77,17 @@ if (import.meta.main) {
   const lineClient = lineToken !== undefined
     ? createLineClient({ channelAccessToken: lineToken })
     : null;
+  // LEGACY (owner 2026-07-27): linking a LINE account to a web account is the
+  // authorization now, so this set can only restrict senders that are NOT
+  // linked yet. Leave it empty / remove it from the production env.
   const allowedUserIds = new Set(
     (env.get("LINE_ALLOWED_USER_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   );
   const webhookDeps: LineWebhookDeps | null = channelSecret !== undefined && lineClient !== null
     ? { channelSecret, allowedUserIds, ctx, parsers, chainConfig, client: lineClient }
     : null;
-  // `web` (the owner's WEB ledger surface) is attached further down, once the
-  // ledger/sync/owner-email wiring below exists.
+  // `web` (the per-user WEB ledger surface) is attached further down, once the
+  // ledger/sync wiring below exists.
   log.info("webhook configured", { enabled: webhookDeps !== null });
 
   // Web UI served at `/` (read once at startup; the repo file ships with the deploy).
@@ -202,29 +206,23 @@ if (import.meta.main) {
       return Promise.resolve();
     };
   const webNotifyBaseUrl = env.get("PLANCEL_BASE_URL") ?? "https://plancel-app.torifo.deno.net";
-  // LINE v2 #1: the owner reads deadline reminders in LINE, not mail. Needs a
-  // channel token, a push target, and the owner's web-account email; any one
-  // missing → the email/console route is unchanged for everybody.
-  const ownerUserId = env.get("PLANCEL_OWNER_USER_ID") ?? [...allowedUserIds][0];
-  const lineOwnerEmail = env.get("PLANCEL_LINE_OWNER_EMAIL") ??
-    (env.get("PLANCEL_ADMIN_EMAILS") ?? "").split(",").map((s) => s.trim()).filter(Boolean)[0];
-  const webNotifyLine = lineClient !== null && ownerUserId !== undefined &&
-      lineOwnerEmail !== undefined
+  // LINE v2 #1: each user reads their own deadline reminders in LINE, not mail.
+  // Needs only the channel token — the push target is the ledger owner's own
+  // linked LINE account; users without a link keep the email/console route.
+  const webNotifyLine = lineClient !== null
     ? {
-      ownerEmail: lineOwnerEmail,
-      push: (text: string) => lineClient.push(ownerUserId, [{ type: "text" as const, text }]),
+      push: (lineUserId: string, text: string) =>
+        lineClient.push(lineUserId, [{ type: "text" as const, text }]),
     }
     : null;
   log.info("web deadline notify channel", { line: webNotifyLine !== null });
   // LINE v2 #2/#3: 「確認」and the confirm / cancelled-it Quick Replies operate
-  // on the owner's WEB ledger, through the same store functions + calendar-sync
-  // hook the HTTP API uses. Needs the owner email; otherwise LINE stays
-  // intake-only (「確認」falls through to the parse pipeline).
-  if (webhookDeps !== null && lineOwnerEmail !== undefined) {
+  // on the SENDER'S OWN WEB ledger (resolved from their LINE link), through the
+  // same store functions + calendar-sync hook the HTTP API uses.
+  if (webhookDeps !== null) {
     webhookDeps.web = {
       kv: store.kv,
-      ownerEmail: lineOwnerEmail,
-      ids: webIds,
+      ids: authIds,
       nowMs: () => clock.now().epochMilliseconds,
       onMutate: (user, resvId) => {
         if (user.google === null) return;

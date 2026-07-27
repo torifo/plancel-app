@@ -17,7 +17,7 @@ notified **right before each fee boundary** with the concrete amount at stake. p
 ```sh
 deno task seed        # load demo data
 deno task scenario    # one-command E2E: confirm → advance 3 days → list notifications
-deno task test        # 465 tests — completes with zero external connections
+deno task test        # 514 tests — completes with zero external connections
 deno task verify      # fmt + check + lint + test + replay in one go
 ```
 
@@ -53,7 +53,7 @@ core is deterministically testable offline.
 | `src/notify/` | Pure fire-decision + idempotent Outbox + Notifier (Console / LINE / Email=Resend)                                                          |
 | `src/mcp/`    | Entry point for Claude (stdio, 11 tools + flag-gated debug tools). No parsing intelligence                                                 |
 | `src/parse/`  | Validation-driven fallback parser chain (Groq / Gemini + Mock), PII masking, replay regression harness                                     |
-| `src/line/`   | LINE Bot webhook (signature check, userId allowlist, one-tap Quick Reply review) + LINE notifier                                           |
+| `src/line/`   | LINE Bot webhook (signature check, per-user LINE link resolving the sender, one-tap Quick Reply review) + LINE notifier                    |
 | `src/cron/`   | Thin 15-minute boundary check (Deno Deploy `Deno.cron` / VPS systemd timer)                                                                |
 | `src/web/`    | Web ledger, authentication, sharing, iCal / Google Calendar sync, Web API, and PWA asset serving                                           |
 | `src/deploy/` | Unified Deno Deploy wiring for Web, LINE, and cron                                                                                         |
@@ -70,7 +70,7 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
   interface)
 - **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (live in production
   since 2026-07-26; signature path device-verified)
-- **Tests**: 465 via `deno test`, shared contract suite across both Store implementations,
+- **Tests**: 514 via `deno test`, shared contract suite across both Store implementations,
   one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)
@@ -87,10 +87,13 @@ with ◯◯".
 **MVP-1 (L0–L3), the parser foundation (L4), and L5 (real LLM / LINE / Email) are implemented. The
 Deno Deploy service runs the web UI, authentication, sharing, Google Calendar integration, the Web
 API used by remote MCP, and the LINE webhook.** The web UI is PWA-enabled: My Page offers explicit
-installation, manual update checks, and one-tap application of a waiting version. LINE support
-includes core- and web-ledger deadline notifications plus web-ledger "check" (`確認`/`予定`/`一覧`),
-narrow "update" (Quick Reply confirm / report-cancelled), and "add" (register parsed text/image
-input as a candidate). Web-ledger actions use the same functions as the Web API, including atomic
+installation, manual update checks, and one-tap application of a waiting version. LINE is bound
+**per user**: My Page issues an 8-character, 10-minute link code (`POST /auth/line/code`,
+`DELETE /auth/line`) that the user sends into the LINE chat. Support then includes core- and
+web-ledger deadline notifications plus web-ledger "check" (`確認`/`予定`/`一覧`), narrow "update"
+(Quick Reply confirm / report-cancelled), and "add" (register parsed text/image input as a
+candidate) — **all scoped to the sender's own ledger**; an unlinked chat only gets linking guidance.
+Web-ledger actions use the same functions as the Web API, including atomic
 plan confirmation, sibling auto-`to_cancel`, invalid reconfirmation rejection, and calendar sync.
 The event-sourced core ledger remains available to standalone/local LINE and MCP modes.
 
@@ -102,7 +105,8 @@ remote MCP operations, and sustained cron execution remain open in
 update acceptance.
 
 External-connection env vars: `GROQ_API_KEY` / `GEMINI_API_KEY` (parsers), `LINE_CHANNEL_SECRET` /
-`LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALLOWED_USER_IDS` (`deno task line`), `RESEND_API_KEY`
-(EmailNotifier; from/to are constructor-injected).
+`LINE_CHANNEL_ACCESS_TOKEN`, `LINE_ALLOWED_USER_IDS` (**legacy** — per-user linking is the
+authorization now, so production does not need it; still required by the standalone
+`deno task line`), `RESEND_API_KEY` (EmailNotifier; from/to are constructor-injected).
 
 Phase 1 is personal + family use on a **¥0 budget** (free tiers only). Public release is Phase 2.

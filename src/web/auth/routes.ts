@@ -18,6 +18,8 @@
  *   DELETE /auth/account {confirm} 退会 — delete the account and all its data
  *   POST /auth/adopt {token}     adopt a pre-login browser-token ledger
  *   POST /auth/ics/rotate        rotate the iCal feed secret
+ *   POST /auth/line/code         issue a one-time LINE link code (10min)
+ *   DELETE /auth/line            unlink this account's LINE
  */
 import { z } from "zod";
 import { listReservations } from "../store.ts";
@@ -39,6 +41,8 @@ import {
   getSessionUser,
   getUser,
   issueApiToken,
+  issueLineLinkCode,
+  LINE_CODE_TTL_MS,
   linkGoogle,
   MIN_PUBLIC_UID_LEN,
   normalizeEmail,
@@ -51,6 +55,7 @@ import {
   setUid,
   takeOauthState,
   uidSchema,
+  unlinkLineUser,
   updateUser,
   type WebUser,
 } from "../users.ts";
@@ -251,13 +256,18 @@ const profileSchema = z.object({
   altEmail: z.string().email().optional(),
 });
 
-/** Failed password logins per address: 10 tries / 15 min. */
+/** 10 tries / 15 min per bucket. */
 const PW_RATE = "pwrate";
 const PW_RATE_LIMIT = 10;
 const PW_RATE_WINDOW_MS = 15 * 60 * 1000;
 
-async function pwAttemptAllowed(kv: Deno.Kv, email: string): Promise<boolean> {
-  const key = [PW_RATE, normalizeEmail(email)];
+/**
+ * Counting rate limiter shared by the routes that must not be hammered:
+ * password logins (bucket = the address tried) and LINE link-code issuance
+ * (bucket = the account id, so the two never starve each other).
+ */
+async function attemptAllowed(kv: Deno.Kv, bucket: string): Promise<boolean> {
+  const key = [PW_RATE, normalizeEmail(bucket)];
   const cur = (await kv.get<{ count: number }>(key)).value;
   const count = cur?.count ?? 0;
   if (count >= PW_RATE_LIMIT) return false;
@@ -401,6 +411,9 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
       googleError: user.google?.error ?? null,
       icsPath: `/calendar/${user.icsSecret}.ics`,
       hasApiToken: user.apiToken !== null,
+      // Only whether a LINE account is linked — the raw LINE userId is an
+      // identifier for the messaging platform and never leaves the server.
+      line: { linked: user.lineUserId !== null },
       displayName: user.displayName,
       uid: user.uid,
       altEmail: user.altEmail,
@@ -431,7 +444,7 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     const parsed = loginSchema.safeParse(await readJson(req));
     if (!parsed.success) return json({ error: "invalid" }, 400);
     const identifier = parsed.data.email.trim().toLowerCase();
-    if (!await pwAttemptAllowed(deps.kv, identifier)) {
+    if (!await attemptAllowed(deps.kv, identifier)) {
       return json({ error: "rate limited" }, 429);
     }
     const user = identifier.includes("@")
@@ -504,6 +517,28 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     const user = await requestUser(req, deps);
     if (user === null) return json({ error: "not logged in" }, 401);
     await revokeApiToken(deps.kv, user.id, deps.ids);
+    return json({ ok: true });
+  }
+
+  // LINE 連携 (per-user, owner 2026-07-27): POST issues a short code the user
+  // types into the LINE chat — the webhook trusts that code, never a LINE
+  // userId claimed elsewhere. DELETE drops the link. Issuing a code is a
+  // GUI-only flow like uid claiming and account linking, so it is not exposed
+  // over MCP.
+  if (path === "/auth/line/code" && req.method === "POST") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    if (!await attemptAllowed(deps.kv, `linecode:${user.id}`)) {
+      return json({ error: "rate limited" }, 429);
+    }
+    const code = await issueLineLinkCode(deps.kv, user.id, deps.ids);
+    if (code === null) return json({ error: "not logged in" }, 401);
+    return json({ code, expiresInSec: LINE_CODE_TTL_MS / 1000 });
+  }
+  if (path === "/auth/line" && req.method === "DELETE") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    await unlinkLineUser(deps.kv, user.id, deps.ids);
     return json({ ok: true });
   }
 

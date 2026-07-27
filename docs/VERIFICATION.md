@@ -19,13 +19,14 @@
 ```sh
 deno task check     # 型 + Date直呼び禁止lint → "no_direct_date_check: OK"
 deno lint           # 0 problems
-deno task test      # 465 passed | 0 failed
+deno task test      # 514 passed | 0 failed
 deno task verify    # fmt check + 上記検査 + replayを一括実行
 ```
 
 テストが検証している主なもの: 状態遷移・quota 一括遷移（VirtualClock）/ policy 境界計算 / Outbox
 冪等・リトライ / MCP ツール入出力 / パーサーチェーン 3 経路（フォールバック・食い違い・全段失敗）/
-Groq・Gemini パーサー（stub fetch）/ LINE webhook（署名・許可リスト・Quick Reply 解決・画像）/
+Groq・Gemini パーサー（stub fetch）/ LINE webhook（署名・ユーザー毎連携での送信者解決と台帳の分離・
+連携コードの発行/単回性/期限・未連携時の案内・Quick Reply 解決・画像）/
 Email(Resend) Notifier / **年推論プロンプト（JST 日付注入）と 2 年先警告**。 PWA manifest / Service
 Worker / アイコン配信、API/Authをキャッシュしないこと、明示更新メッセージ。 施設ごとのキャンセル
 規定テンプレ（施設名の正規化・`unknown` 拒否・上書き・削除の冪等性・台帳間の非公開性）。
@@ -108,6 +109,11 @@ curl -s http://localhost:18091/healthz    # → ok
 `--unstable-cron` はタスクに含めてある（Deploy 上はフラグ不要）。デプロイ手順は
 [`DEPLOY.md`](./DEPLOY.md)。
 
+> 統合エントリポイントでは Web 台帳が繋がるため、送信者は**ユーザー毎の LINE 連携**で解決される
+> （`LINE_ALLOWED_USER_IDS` はレガシー・未連携者を絞る追加制限のみ）。未連携の userId で送ると
+> 200 + 連携案内が返り、ParseJob も予約も作られない。`deno task line` 単体モードは連携インデックスを
+> 持たないので、従来どおり許可リストが唯一の認可。
+
 ### 1.7 MCP サーバー（任意）
 
 ```sh
@@ -128,15 +134,17 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 - [x] 本番read-only smoke（2026-07-26）: `GET /healthz` = 200 `ok`、未ログイン `GET /auth/me` = 401
 - [x] デプロイ後: LINE webhook URL 設定（2026-07-26 完了: env 設定→再デプロイで 503→401、LINE
       console「検証」成功。プロバイダー plancel / channel 2010848177 / Bot @791wbdma）
+- [ ] デプロイ後: LINE をユーザー毎に連携（マイページで連携コード発行 → トークに送信 →
+      返信に自分のアカウント名が出る。未連携のトークには連携案内だけが返る）
 - [ ] デプロイ後: LINE 実機でテキスト/画像登録と Quick Reply ワンタップ（Task 6.2 done-when —
-      友だち追加してトークから送信。登録先はオーナーの Web 台帳＝Web UI
-      に候補として出る。ROADMAP「LINE v2」#4）
+      友だち追加してトークから送信。登録先は**送信者自身の** Web 台帳＝Web UI
+      に候補として出る。ROADMAP「LINE v2」#4）。2アカウント連携して、互いの予約が見えないことも確認
 - [ ] デプロイ後: Resend ドメイン検証 → 実送信 1 通（Task 6.3 done-when）
 
 ## 2. ドキュメント整合チェック（既存ドキュメントの検証）
 
 ドキュメントの「実装状態を主張する記述」と実体の照合表。**コード・テスト数・タスク状態を変えたら該当行を更新すること**。
-2026-07-26 監査時の結果: README・tasks・本ガイドのテスト数を440へ統一し、コード実装済みと
+2026-07-27 時点: README・tasks・本ガイドのテスト数を514へ統一（ユーザー毎LINE連携の追加分を含む）。コード実装済みと
 本番実機acceptance未完了を分けて記載。
 
 | ドキュメント         | 照合する主張                                         | 実体（確認コマンド）                                                                      |

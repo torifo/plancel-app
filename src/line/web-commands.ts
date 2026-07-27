@@ -1,7 +1,7 @@
 /**
  * LINE ⇄ WEB ledger check / narrow update / add (LINE v2 #2 + #3 + #4).
  *
- * The owner reads, adds to, and narrowly updates the WEB ledger
+ * Each user reads, adds to, and narrowly updates their OWN WEB ledger
  * (src/web/store.ts) from LINE chat — the core event-sourced ledger is only the
  * standalone/MCP-local sink now (LINE v2 #4, closed):
  *   - 「確認」/「予定」/「一覧」  → summary of upcoming reservations + Quick Reply
@@ -15,9 +15,12 @@
  * Display math and the parsed-policy conversion reuse src/web/policy.ts — the
  * single source the web UI mirrors.
  *
- * The owner's ledger is resolved by email (PLANCEL_LINE_OWNER_EMAIL, default =
- * first PLANCEL_ADMIN_EMAILS) exactly like the deadline reminders. No direct
- * system-clock reads — "now" is injected via `nowMs` (FR-008).
+ * WHOSE ledger (owner 2026-07-27): every function here takes the ledger owner
+ * as an argument — the webhook resolves it from the SENDER'S LINE link
+ * (`findUserByLineUserId`), so nothing here can reach another user's ledger.
+ * One person may own several accounts, so every reply names the account it
+ * acted on. No direct system-clock reads — "now" is injected via `nowMs`
+ * (FR-008).
  */
 import {
   cancelReservation,
@@ -25,25 +28,40 @@ import {
   createReservation,
   getReservation,
   listReservations,
-  type WebIds,
   type WebReservation,
   WebTransitionError,
 } from "../web/store.ts";
 import type { CancellationPolicyOrUnknown } from "../core/schema/mod.ts";
-import { findUserByEmail, type WebUser } from "../web/users.ts";
+import {
+  type AuthIds,
+  consumeLineLinkCode,
+  getUser,
+  LINE_CODE_TTL_MS,
+  linkLineUser,
+  looksLikeLineLinkCode,
+  type WebUser,
+} from "../web/users.ts";
 import { freeDeadlineMs, fromCoreStages, isAlwaysFree, maxLossYen } from "../web/policy.ts";
 import type { LineQuickReplyItem, LineTextMessage } from "./types.ts";
 
-/** Access to the owner's WEB ledger, injected into the webhook (optional). */
+/** Access to the WEB ledgers, injected into the webhook (optional). */
 export interface LineWebDeps {
   kv: Deno.Kv;
-  /** The web account whose ledger LINE speaks for (matched case-insensitively). */
-  ownerEmail: string;
-  ids: WebIds;
+  /** AuthIds (not just WebIds): linking writes user records, like /auth/* does. */
+  ids: AuthIds;
   /** Snapshot source for "now" (epoch ms) — injected via the Clock (FR-008). */
   nowMs(): number;
   /** Same post-mutation hook the web API passes (Google Calendar sync). */
   onMutate?: (user: WebUser, resvId: string) => void;
+}
+
+/**
+ * How a reply names the ledger it acted on. One person may own several
+ * accounts, so a bare 「登録しました」 would be ambiguous.
+ */
+export function accountLabel(user: WebUser): string {
+  if (user.uid !== null) return `@${user.uid}`;
+  return user.displayName ?? user.email;
 }
 
 /** Postback namespace for web-ledger actions (`resolve|` stays parse-only). */
@@ -158,23 +176,26 @@ function footer(active: WebReservation[], nowMs: number): string {
 
 const text = (t: string): LineTextMessage => ({ type: "text", text: t });
 
-/** Summary of the owner's active web-ledger reservations + action Quick Reply. */
-export async function buildCheckReply(deps: LineWebDeps): Promise<LineTextMessage> {
-  const owner = await findUserByEmail(deps.kv, deps.ownerEmail);
-  if (owner === null) {
-    return text(NO_WEB_OWNER_TEXT);
-  }
+/** Summary of THIS user's active web-ledger reservations + action Quick Reply. */
+export async function buildCheckReply(
+  deps: LineWebDeps,
+  owner: WebUser,
+): Promise<LineTextMessage> {
+  const label = accountLabel(owner);
   const all = await listReservations(deps.kv, owner.ledgerId);
   const active = all.filter((r) => r.status !== "cancelled");
   if (active.length === 0) {
-    return text("Web台帳に予約はまだありません。予約メールやスクショを送れば登録できます。");
+    return text(
+      `${label} のWeb台帳に予約はまだありません。予約メールやスクショを送れば登録できます。`,
+    );
   }
 
   const shown = active.slice(0, MAX_LINES);
   const body = shown.map(line);
   if (active.length > shown.length) body.push(`…ほか${active.length - shown.length}件`);
   const message = text(
-    [`Web台帳の予約 ${active.length}件`, ...body, "", footer(active, deps.nowMs())].join("\n"),
+    [`${label} のWeb台帳の予約 ${active.length}件`, ...body, "", footer(active, deps.nowMs())]
+      .join("\n"),
   );
   const items = quickReplyItems(active);
   return items.length > 0 ? { ...message, quickReply: { items } } : message;
@@ -184,18 +205,22 @@ const STALE =
   "この予約は見つかりませんでした。すでに処理済みかもしれません。「確認」で最新の一覧を出せます。";
 
 /**
- * Applies a Quick Reply action to the owner's web ledger through the SAME
+ * Applies a Quick Reply action to THIS user's web ledger through the SAME
  * store functions the HTTP API uses, then fires `onMutate` for the acted
  * reservation only (mirroring the API, which syncs the acted id).
+ *
+ * The id is read from postback data, i.e. from the client — it is only ever
+ * looked up inside `owner`'s ledger, so a stale or foreign id resolves to
+ * nothing instead of mutating someone else's reservation.
  */
 export async function applyWebAction(
   deps: LineWebDeps,
+  owner: WebUser,
   action: WebAction,
   id: string,
 ): Promise<LineTextMessage> {
-  const owner = await findUserByEmail(deps.kv, deps.ownerEmail);
-  if (owner === null) return text(STALE);
   const ledger = owner.ledgerId;
+  const label = accountLabel(owner);
   const before = await getReservation(deps.kv, ledger, id);
   if (before === null) return text(STALE);
 
@@ -203,7 +228,7 @@ export async function applyWebAction(
     const r = await cancelReservation(deps.kv, ledger, id, deps.ids);
     if (r === null) return text(STALE);
     deps.onMutate?.(owner, id);
-    return text(`キャンセル済みにしました: ${r.service}。「確認」で一覧`);
+    return text(`キャンセル済みにしました: ${r.service}（${label}）。「確認」で一覧`);
   }
 
   // Count the plan siblings settleSiblings() is about to flip, before the write.
@@ -222,7 +247,7 @@ export async function applyWebAction(
   if (r === null) return text(STALE);
   deps.onMutate?.(owner, id);
   const note = siblings > 0 ? ` — 同プランの残り${siblings}件を要キャンセルにしました。` : "";
-  return text(`確定しました: ${r.service}${note}「確認」で一覧`);
+  return text(`確定しました: ${r.service}（${label}）${note}「確認」で一覧`);
 }
 
 // ---- Registration into the web ledger (LINE v2 #4) ----
@@ -241,19 +266,16 @@ export interface WebRegistrationInput {
 }
 
 /**
- * Registers a parsed reservation as a CANDIDATE in the owner's web ledger,
+ * Registers a parsed reservation as a CANDIDATE in THIS user's web ledger,
  * through the same `createReservation` the HTTP API calls (and firing the same
  * `onMutate` hook it fires on create, unconditionally — the sync itself decides
- * what a candidate means). Returns null when the owner's ledger cannot be
- * resolved, so the caller can say so instead of silently dropping the parse.
+ * what a candidate means).
  */
 export async function registerWebReservation(
   deps: LineWebDeps,
+  owner: WebUser,
   output: WebRegistrationInput,
-): Promise<{ id: string; summaryText: string } | null> {
-  const owner = await findUserByEmail(deps.kv, deps.ownerEmail);
-  if (owner === null) return null;
-
+): Promise<{ id: string; summaryText: string }> {
   // Arbitrary parsed stages are preserved as-is (src/web/policy.ts); only a
   // policy with no % expression at all stays "unknown" for the owner to fill in.
   const policy = fromCoreStages(output.cancellation_policy);
@@ -273,10 +295,73 @@ export async function registerWebReservation(
   const note = policy === "unknown" ? "（キャンセル規定は不明のためWebで補完してください）" : "";
   return {
     id: r.id,
-    summaryText: `登録しました: ${r.service} / ${when} — Web台帳に候補として入りました${note}`,
+    summaryText: `登録しました: ${r.service} / ${when} — ${
+      accountLabel(owner)
+    } のWeb台帳に候補として入りました${note}`,
   };
 }
 
-/** Reply when the LINE owner has no web account yet (nothing to register into). */
-export const NO_WEB_OWNER_TEXT =
-  "LINEに紐づくWeb台帳のアカウントが見つかりませんでした。先にWebでログインしてください。";
+// ---- Per-user linking (owner 2026-07-27) ----
+
+/**
+ * Production URL, hard-coded on purpose: a LINE reply has to be actionable on
+ * its own, and the webhook has no request origin to derive it from.
+ */
+const APP_URL = "https://plancel-app.torifo.deno.net";
+const CODE_MINUTES = LINE_CODE_TTL_MS / 60_000;
+
+/** Reply for a LINE account with no plancel link yet. */
+export const LINK_GUIDE_TEXT = [
+  "このLINEアカウントはまだ plancel のアカウントと連携されていません。",
+  `1. ${APP_URL} をブラウザで開いてログイン`,
+  "2. マイページの「LINE連携」で連携コードを発行",
+  "3. そのコードをこのトークに送る",
+  `（コードは8文字・${CODE_MINUTES}分間有効。連携するまで予約は登録できません）`,
+].join("\n");
+
+/** Reply when the sent text looked like a code but no longer resolves. */
+export const LINK_CODE_UNKNOWN_TEXT = [
+  "連携コードが確認できませんでした。",
+  `期限切れ（${CODE_MINUTES}分）か入力ミスの可能性があります。`,
+  `${APP_URL} のマイページで新しいコードを発行して、もう一度送ってください。`,
+].join("\n");
+
+/** Reply when the code's account is already linked to a different LINE. */
+export const LINK_TAKEN_TEXT =
+  "このLINEアカウントは別の plancel アカウントに連携済みです。Webのマイページで連携を解除してから、もう一度お試しください。";
+
+/** What a message from an unlinked LINE sender resulted in. */
+export type LinkAttempt =
+  | { kind: "linked"; user: WebUser; reply: LineTextMessage }
+  | { kind: "bad-code" | "taken" | "guide"; reply: LineTextMessage };
+
+/**
+ * Resolves a message from an UNLINKED LINE sender. The only thing such a
+ * message can do is complete a link, and only by carrying a code issued from a
+ * logged-in session — the LINE userId itself proves nothing. Nothing is ever
+ * written to a ledger from here.
+ */
+export async function tryLinkFromMessage(
+  deps: LineWebDeps,
+  lineUserId: string,
+  messageText: string | undefined,
+): Promise<LinkAttempt> {
+  if (messageText === undefined || !looksLikeLineLinkCode(messageText)) {
+    return { kind: "guide", reply: text(LINK_GUIDE_TEXT) };
+  }
+  const userId = await consumeLineLinkCode(deps.kv, messageText, deps.nowMs());
+  if (userId === null) return { kind: "bad-code", reply: text(LINK_CODE_UNKNOWN_TEXT) };
+  const outcome = await linkLineUser(deps.kv, userId, lineUserId, deps.ids);
+  if (outcome === "taken") return { kind: "taken", reply: text(LINK_TAKEN_TEXT) };
+  const user = await getUser(deps.kv, userId);
+  if (user === null) return { kind: "bad-code", reply: text(LINK_CODE_UNKNOWN_TEXT) };
+  return {
+    kind: "linked",
+    user,
+    reply: text(
+      `LINE連携が完了しました: ${
+        accountLabel(user)
+      } のWeb台帳につながりました。「確認」で予約一覧、予約メールやスクショを送れば登録できます。`,
+    ),
+  };
+}

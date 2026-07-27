@@ -150,7 +150,7 @@
 ## Progress
 
 - **実装タスク: 20/20 完了**（Wave 1〜8。Task 6.2/6.3 はコード完了として集計）
-- **自動検証（2026-07-26）**: 440 tests green / scenario OK / replay 9/9 identical
+- **自動検証（2026-07-27）**: 514 tests green / scenario OK / replay 9/9 identical
 - **本番で確認済み**: Deno Deploy稼働、LINE env反映、署名なしwebhookの401、LINE
   ConsoleのWebhook検証成功
 - **未完了の外部acceptance**: LINE実機のテキスト/画像登録とQuick
@@ -179,8 +179,10 @@
   で起動）。署名検証（HMAC-SHA256・定数時間比較）/ userId 許可リスト / text・画像→共通パイプライン /
   FieldConflict の Quick Reply ワンタップ解決（解決状態は conflicts の絞り込みで永続化、attempts
   は不変）/ 欠損は質問を返して再送依頼 / LINENotifier（Outbox 契約: 失敗 reject でリトライ）。**残:
-  デプロイ後の実機確認（done-when）**。LINE_CHANNEL_SECRET / LINE_CHANNEL_ACCESS_TOKEN /
-  LINE_ALLOWED_USER_IDS が必要
+  デプロイ後の実機確認（done-when）**。LINE_CHANNEL_SECRET / LINE_CHANNEL_ACCESS_TOKEN が必要。
+  LINE_ALLOWED_USER_IDS は**レガシー**（2026-07-27 にユーザー毎の LINE 連携が認可になった。統合
+  エントリポイントでは未連携者を絞る追加制限のみで、連携済みユーザーはブロックしない。`deno task line`
+  単体モードだけは連携インデックスを持たないため従来どおり必須）
 - Task 6.3 コード実装済み（2026-07-10）: `src/notify/email-notifier.ts`（Resend、トリガー別件名）+
   テスト2件。ADR-10 追記・README（EN/JA）更新済み。**残: RESEND_API_KEY +
   送信元ドメイン検証後の実送信確認**。cronは`selectNotifier`でLINE > Email > Consoleへ配線済み
