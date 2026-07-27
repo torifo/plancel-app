@@ -17,7 +17,7 @@ notified **right before each fee boundary** with the concrete amount at stake. p
 ```sh
 deno task seed        # load demo data
 deno task scenario    # one-command E2E: confirm → advance 3 days → list notifications
-deno task test        # 440 tests — completes with zero external connections
+deno task test        # 458 tests — completes with zero external connections
 deno task verify      # fmt + check + lint + test + replay in one go
 ```
 
@@ -27,8 +27,15 @@ Existing tools manage confirmed bookings. plancel covers the window **while cand
 
 - 🔀 **Exclusive candidate groups (Plans)** — the moment one is confirmed, the rest auto-transition
   to `to_cancel`. This transition is the core of the product.
-- 💸 **Staged cancellation fees as data** — "free until 7 days out → 30% → 50% → 100%" stored as an
-  array; 24h before each boundary you get "free if you cancel now / ¥5,400 from tomorrow".
+- 💸 **Staged cancellation fees as data** — ANY stage table, not a fixed set of presets: "free until
+  5 days out → 30% until 3 days → 100% on the day" is stored as an array (hour-granular boundaries,
+  up to 8 stages). `src/web/policy.ts` is the single source for the model and the deadline/loss math
+  that the ledger, the LINE summary, the calendar descriptions and the web UI all read. 24h before
+  each boundary you get "free if you cancel now / ¥5,400 from tomorrow".
+- 🗓 **One-gesture policy entry** — the web form offers 不明 / いつでも無料 / 前日まで無料 /
+  期限つき (deadline in days): type the free-cancel deadline as a number of days (5, 10, 14 …) and
+  optionally add 「3日前まで30%」 rows. A table matching a preset is stored under the preset name, so
+  older records stay compatible.
 - 🤷 **Register with unknown policies** — minimal insert friction; a daily digest nudges you to fill
   them in later.
 - 🔍 **Every core-ledger state is explainable** — append-only event log with caused_by chains and no
@@ -63,7 +70,7 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
   interface)
 - **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (live in production
   since 2026-07-26; signature path device-verified)
-- **Tests**: 440 via `deno test`, shared contract suite across both Store implementations,
+- **Tests**: 458 via `deno test`, shared contract suite across both Store implementations,
   one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)
