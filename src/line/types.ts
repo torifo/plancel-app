@@ -21,14 +21,19 @@ export interface LineWebhookEvent {
   postback?: { data?: string };
 }
 
+/**
+ * The two Quick Reply actions plancel sends. `postback` drives one-tap ledger
+ * updates; `message` makes the tap send a plain text, i.e. exactly what a rich
+ * menu button sends — so both surfaces land on the one command table
+ * (src/line/web-commands.ts) instead of two parallel dispatchers.
+ */
+export type LineQuickReplyAction =
+  | { type: "postback"; label: string; data: string; displayText?: string }
+  | { type: "message"; label: string; text: string };
+
 export interface LineQuickReplyItem {
   type: "action";
-  action: {
-    type: "postback";
-    label: string;
-    data: string;
-    displayText?: string;
-  };
+  action: LineQuickReplyAction;
 }
 
 export interface LineTextMessage {

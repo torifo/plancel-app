@@ -10,8 +10,11 @@
  *                        read or write. An unlinked sender can only complete a
  *                        link (by sending a code issued from the web app) —
  *                        nothing else is processed for them.
- *   - text 「確認」/「予定」/「一覧」 -> WEB-ledger summary + action Quick Reply
- *                        (only when `deps.web` is wired — see web-commands.ts)
+ *   - text matching a COMMAND      -> that command's WEB-ledger reply + the
+ *                        command Quick Reply (only when `deps.web` is wired —
+ *                        the table lives in web-commands.ts and is what the
+ *                        LINE rich menu's buttons send)
+ *   - short text matching none     -> the command list, NOT the parse pipeline
  *   - text/image message           -> common parse pipeline (runParseChain)
  *       parsed        -> reservation registered (WEB ledger when `deps.web` is
  *                        wired — LINE v2 #4 — else the core domain layer),
@@ -42,10 +45,12 @@ import { verifyLineSignature } from "./signature.ts";
 import { findUserByLineUserId, type WebUser } from "../web/users.ts";
 import {
   applyWebAction,
-  buildCheckReply,
-  isCheckCommand,
+  buildCommandReply,
+  buildUnknownCommandReply,
   type LineWebDeps,
   LINK_GUIDE_TEXT,
+  looksLikeMistypedCommand,
+  matchCommand,
   parseWebPostback,
   registerWebReservation,
   tryLinkFromMessage,
@@ -301,13 +306,20 @@ async function handleMessage(
   const message = event.message;
   const correlation_id = newCorrelationId();
 
-  // Web-ledger check command takes precedence over the parse pipeline.
-  if (
-    web !== null && message?.type === "text" && message.text !== undefined &&
-    isCheckCommand(message.text)
-  ) {
-    await deps.client.reply(replyToken, [await buildCheckReply(web.deps, web.user)]);
-    return "web:check";
+  // Commands take precedence over the parse pipeline, and short text that
+  // matches none is answered with the command list rather than sent to the
+  // parsers — a mistyped menu word must not dead-end in 「読み取れませんでした」.
+  // Images and longer text keep going to the parse pipeline untouched.
+  if (web !== null && message?.type === "text" && message.text !== undefined) {
+    const command = matchCommand(message.text);
+    if (command !== null) {
+      await deps.client.reply(replyToken, [await buildCommandReply(web.deps, web.user, command)]);
+      return `web:${command}`;
+    }
+    if (looksLikeMistypedCommand(message.text)) {
+      await deps.client.reply(replyToken, [buildUnknownCommandReply()]);
+      return "web:unknown-command";
+    }
   }
 
   let input: ParseInput;

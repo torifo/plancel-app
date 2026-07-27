@@ -6,7 +6,7 @@ import type { ParserChainConfig } from "../../parse/mod.ts";
 import type { ToolContext } from "../../mcp/context.ts";
 import { signLineBody } from "../signature.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../webhook.ts";
-import type { LineMessagingClient, LineTextMessage } from "../types.ts";
+import type { LineMessagingClient, LineQuickReplyItem, LineTextMessage } from "../types.ts";
 import type { LineWebDeps } from "../web-commands.ts";
 import type { CancellationPolicyOrUnknown } from "../../core/schema/mod.ts";
 import {
@@ -79,6 +79,18 @@ function textEvent(text: string, userId = OWNER) {
     source: { type: "user", userId },
     message: { id: "m1", type: "text", text },
   };
+}
+
+/** Postback payload of a Quick Reply item ("" for the command menu's message actions). */
+function postbackData(item: LineQuickReplyItem | undefined): string {
+  return item?.action.type === "postback" ? item.action.data : "";
+}
+
+/** The texts the command Quick Reply items would send — i.e. the offered menu. */
+function menuTexts(message: LineTextMessage | undefined): string[] {
+  return (message?.quickReply?.items ?? []).flatMap((i) =>
+    i.action.type === "message" ? [i.action.text] : []
+  );
 }
 
 async function post(deps: LineWebhookDeps, events: unknown[]) {
@@ -158,7 +170,7 @@ Deno.test("webhook: field conflict -> Quick Reply; postback one-tap -> registere
   assertStringIncludes(quick?.text ?? "", "starts_at");
   const items = quick?.quickReply?.items ?? [];
   assertEquals(items.length, 2);
-  const data = items[1]?.action.data ?? "";
+  const data = postbackData(items[1]);
   assertStringIncludes(data, "resolve|");
   assertStringIncludes(data, "|starts_at|1");
 
@@ -330,23 +342,261 @@ Deno.test("webhook: 「確認」 -> web-ledger summary + action Quick Reply", as
     // Cancelled reservations are out of the summary entirely.
     assertEquals(body.includes("翠嶺館"), false);
     const items = msg?.quickReply?.items ?? [];
-    assertEquals(items.length, 1);
-    assertEquals(items[0]?.action.data, `webact|confirm|${a.id}`);
+    assertEquals(postbackData(items[0]), `webact|confirm|${a.id}`);
     assertStringIncludes(items[0]?.action.label ?? "", "確定:");
+    // The per-reservation action comes first, then the rest of the command menu.
+    assertEquals(menuTexts(msg), ["締切", "今日", "今週", "使い方"]);
   });
 });
 
-Deno.test("webhook: empty web ledger -> friendly one-liner, no Quick Reply", async () => {
+Deno.test("webhook: empty web ledger -> friendly one-liner, still navigable", async () => {
   await withKv(async (kv) => {
     const { web } = await makeWebDeps(kv);
     const { deps, replies } = makeDeps({ web });
     const result = await post(deps, [textEvent("一覧")]);
     assertEquals(result.handled, ["web:check"]);
-    assertStringIncludes(
-      replies[0]?.messages[0]?.text ?? "",
-      "@owner のWeb台帳に予約はまだありません",
-    );
-    assertEquals(replies[0]?.messages[0]?.quickReply, undefined);
+    const msg = replies[0]?.messages[0];
+    assertStringIncludes(msg?.text ?? "", "@owner のWeb台帳に予約はまだありません");
+    // No reservation to act on, but the menu is still there.
+    assertEquals(menuTexts(msg), ["締切", "今日", "今週", "使い方"]);
+    assertEquals((msg?.quickReply?.items ?? []).filter((i) => postbackData(i) !== ""), []);
+  });
+});
+
+// ---- Rich-menu commands (owner 2026-07-28) ----
+//
+// A rich-menu button can only send a fixed text, so every menu word must get
+// its own reply here — falling through to the parse pipeline is a dead end.
+
+/** The full command menu, in order — what a reply offers when it excludes none. */
+const FULL_MENU = ["確認", "締切", "今日", "今週", "使い方"];
+
+Deno.test("webhook: 使い方 -> compact how-to + command Quick Reply", async () => {
+  await withKv(async (kv) => {
+    const { web } = await makeWebDeps(kv);
+    const { deps, replies } = makeDeps({ web });
+    const result = await post(deps, [textEvent("使い方")]);
+
+    assertEquals(result.handled, ["web:help"]);
+    const msg = replies[0]?.messages[0];
+    const body = msg?.text ?? "";
+    assertStringIncludes(body, "plancel は予約のキャンセル期限を見張って");
+    assertStringIncludes(body, "・確認：予約の一覧と次の締切");
+    assertStringIncludes(body, "予約確認メールの本文かスクショ");
+    assertStringIncludes(body, "https://plancel-app.torifo.deno.net/#help");
+    // A chat bubble, not a manual.
+    assertEquals(body.split("\n").length <= 10, true, body);
+    assertEquals(menuTexts(msg), ["確認", "締切", "今日", "今週"]);
+  });
+});
+
+Deno.test("webhook: 連携 -> names the bound account and how to unlink", async () => {
+  await withKv(async (kv) => {
+    const { web } = await makeWebDeps(kv);
+    const { deps, replies } = makeDeps({ web });
+    const result = await post(deps, [textEvent("設定")]);
+
+    assertEquals(result.handled, ["web:link"]);
+    const msg = replies[0]?.messages[0];
+    assertStringIncludes(msg?.text ?? "", "このトークは @owner のWeb台帳につながっています");
+    assertStringIncludes(msg?.text ?? "", "https://plancel-app.torifo.deno.net/#link");
+    assertEquals(menuTexts(msg), FULL_MENU);
+  });
+});
+
+/** Seeds one reservation in the owner's ledger with the fields a test cares about. */
+function seedResv(
+  kv: Deno.Kv,
+  ledgerId: string,
+  webIds: AuthIds,
+  fields: { service: string; startsAt: string; amount?: number; policy?: "free24" | "staged" },
+) {
+  return createReservation(kv, ledgerId, {
+    plan: null,
+    service: fields.service,
+    startsAt: fields.startsAt,
+    amount: fields.amount ?? null,
+    location: null,
+    policy: fields.policy ?? "free24",
+    confirmed: false,
+  }, webIds);
+}
+
+Deno.test("webhook: 締切 lists only the deadlines inside 7 days, soonest first", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds } = await makeWebDeps(kv);
+    // now = 2026-08-01T00:00 JST, so the window closes 2026-08-08T00:00 JST.
+    // staged = free until 168h before start; free24 = until 24h before.
+    await seedResv(kv, owner.ledgerId, webIds, {
+      service: "宿A",
+      startsAt: "2026-08-08T15:00:00+09:00",
+      policy: "free24", // deadline 8/7
+    });
+    await seedResv(kv, owner.ledgerId, webIds, {
+      service: "宿B",
+      startsAt: "2026-08-10T15:00:00+09:00",
+      amount: 30000,
+      policy: "staged", // deadline 8/3
+    });
+    await seedResv(kv, owner.ledgerId, webIds, {
+      service: "宿C",
+      startsAt: "2026-09-01T15:00:00+09:00",
+      policy: "staged", // deadline 8/25 — outside the window
+    });
+
+    const { deps, replies } = makeDeps({ web });
+    assertEquals((await post(deps, [textEvent("締切")])).handled, ["web:deadline"]);
+
+    const msg = replies[0]?.messages[0];
+    const body = msg?.text ?? "";
+    assertStringIncludes(body, "@owner の無料キャンセル期限（7日以内）2件");
+    assertStringIncludes(body, "8/3(月) 宿B — 過ぎると最大¥30,000");
+    assertStringIncludes(body, "8/7(金) 宿A — 金額未登録");
+    assertEquals(body.indexOf("宿B") < body.indexOf("宿A"), true, body);
+    assertEquals(body.includes("宿C"), false);
+    assertEquals(menuTexts(msg), ["確認", "今日", "今週", "使い方"]);
+  });
+});
+
+Deno.test("webhook: 締切 with nothing inside 7 days says so and names the next one", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds } = await makeWebDeps(kv);
+    await seedResv(kv, owner.ledgerId, webIds, {
+      service: "宿C",
+      startsAt: "2026-09-01T15:00:00+09:00",
+      policy: "staged", // deadline 8/25
+    });
+
+    const { deps, replies } = makeDeps({ web });
+    assertEquals((await post(deps, [textEvent("期限")])).handled, ["web:deadline"]);
+    const body = replies[0]?.messages[0]?.text ?? "";
+    assertStringIncludes(body, "@owner に7日以内の無料キャンセル期限はありません。");
+    assertStringIncludes(body, "次の期限は 8/25(火)「宿C」です。");
+  });
+});
+
+Deno.test("webhook: 今日/今週 windows are JST calendar days, not UTC ones", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds } = await makeWebDeps(kv);
+    // now = 2026-07-31T15:00Z = 2026-08-01T00:00 JST. Both reservations below
+    // fall on the SAME UTC day (2026-08-01) but on DIFFERENT JST days, so a
+    // UTC-day window would put both in 「今日」.
+    await seedResv(kv, owner.ledgerId, webIds, {
+      service: "宵の宿",
+      startsAt: "2026-08-01T23:00:00+09:00", // 2026-08-01T14:00Z — JST 8/1
+    });
+    await seedResv(kv, owner.ledgerId, webIds, {
+      service: "翌朝の宿",
+      startsAt: "2026-08-02T01:00:00+09:00", // 2026-08-01T16:00Z — JST 8/2
+    });
+    await seedResv(kv, owner.ledgerId, webIds, {
+      service: "先の宿",
+      startsAt: "2026-08-20T15:00:00+09:00", // beyond the 7-day window
+    });
+
+    const { deps, replies } = makeDeps({ web });
+    assertEquals((await post(deps, [textEvent("今日")])).handled, ["web:today"]);
+    const today = replies[0]?.messages[0];
+    assertStringIncludes(today?.text ?? "", "@owner の今日の予定 1件");
+    assertStringIncludes(today?.text ?? "", "8/1(土) 23:00 宵の宿 [候補]");
+    assertEquals((today?.text ?? "").includes("翌朝の宿"), false);
+    assertEquals(menuTexts(today), ["確認", "締切", "今週", "使い方"]);
+
+    assertEquals((await post(deps, [textEvent("今週")])).handled, ["web:week"]);
+    const week = replies[1]?.messages[0]?.text ?? "";
+    assertStringIncludes(week, "@owner のこれから7日間の予定 2件");
+    assertStringIncludes(week, "8/2(日) 01:00 翌朝の宿");
+    assertEquals(week.includes("先の宿"), false);
+  });
+});
+
+Deno.test("webhook: unrecognised SHORT text -> command list, no ParseJob", async () => {
+  await withKv(async (kv) => {
+    const { web } = await makeWebDeps(kv);
+    const { deps, ctx, replies } = makeDeps({ web });
+    deps.parsers = [MockParser("p1", new Map())]; // would fail if it ran
+
+    const result = await post(deps, [textEvent("よてい表")]);
+
+    assertEquals(result.handled, ["web:unknown-command"]);
+    const msg = replies[0]?.messages[0];
+    const body = msg?.text ?? "";
+    assertStringIncludes(body, "コマンドとして読み取れませんでした");
+    assertStringIncludes(body, "確認／締切／今日／今週／連携／使い方");
+    assertStringIncludes(body, "https://plancel-app.torifo.deno.net/#import");
+    // NOT the parse-failure dead end, and the parsers were never reached.
+    assertEquals(body.includes("店名と日時がわかる形で"), false);
+    assertEquals(await ctx.store.listParseJobs(), []);
+    assertEquals(menuTexts(msg), FULL_MENU);
+  });
+});
+
+Deno.test("webhook: text past the command threshold still parses and registers", async () => {
+  await withKv(async (kv) => {
+    const { web, owner } = await makeWebDeps(kv);
+    // 13 chars — one past MAX_COMMAND_GUESS_CHARS, so the pipeline still runs.
+    const text = "8/1 19時に〇〇を予約";
+    assertEquals(text.length, 13);
+    const { deps, ctx, replies } = makeDeps({ web });
+    deps.parsers = [MockParser(
+      "p1",
+      new Map([[text, {
+        raw_response: "{}",
+        output: { service_name: "〇〇", starts_at: "2026-08-01T19:00:00+09:00" },
+      }]]),
+    )];
+
+    assertEquals((await post(deps, [textEvent(text)])).handled, ["registered"]);
+    assertEquals((await ctx.store.listParseJobs())[0]?.status, "parsed");
+    assertEquals((await listReservations(kv, owner.ledgerId)).length, 1);
+    assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "登録しました: 〇〇");
+  });
+});
+
+Deno.test("webhook: an unlinked sender's 使い方/締切 gets link guidance only", async () => {
+  await withKv(async (kv) => {
+    const { web } = await makeWebDeps(kv);
+    const { deps, ctx, replies } = makeDeps({
+      web,
+      allowedUserIds: new Set([OWNER, "U-nolink"]),
+    });
+
+    const result = await post(deps, [textEvent("使い方", "U-nolink"), {
+      ...textEvent("締切", "U-nolink"),
+      replyToken: "reply-2",
+    }]);
+
+    assertEquals(result.handled, ["line:guide", "line:guide"]);
+    for (const reply of replies) {
+      const body = reply.messages[0]?.text ?? "";
+      assertStringIncludes(body, "まだ plancel のアカウントと連携されていません");
+      // No command list and no ledger figures leak to an unknown sender.
+      assertEquals(body.includes("使えるコマンド"), false);
+      assertEquals(body.includes("無料キャンセル期限"), false);
+      assertEquals(reply.messages[0]?.quickReply, undefined);
+    }
+    assertEquals(await ctx.store.listParseJobs(), []);
+  });
+});
+
+Deno.test("webhook: commands match after normalisation (full-width, spaces, case)", async () => {
+  await withKv(async (kv) => {
+    const { web } = await makeWebDeps(kv);
+    const { deps, replies } = makeDeps({ web });
+    deps.parsers = [MockParser("p1", new Map())];
+
+    const cases: [string, string][] = [
+      ["　確認　", "web:check"], // ideographic spaces around the word
+      ["ＨＥＬＰ", "web:help"], // full-width ASCII
+      ["Help", "web:help"], // mixed case
+      [" help ", "web:help"],
+      ["ﾍﾙﾌﾟ", "web:help"], // half-width katakana
+    ];
+    for (const [sent, expected] of cases) {
+      const result = await post(deps, [textEvent(sent)]);
+      assertEquals(result.handled, [expected], sent);
+    }
+    assertEquals(replies.length, cases.length);
   });
 });
 
@@ -570,7 +820,8 @@ Deno.test("webhook: preset policies map exactly (none/free24)", async () => {
   await withKv(async (kv) => {
     for (const name of ["none", "free24"] as const) {
       const { web, owner } = await makeWebDeps(kv);
-      const text = `${name} を予約`;
+      // Longer than MAX_COMMAND_GUESS_CHARS, so it reaches the parse pipeline.
+      const text = `${name} 8/1 19時に〇〇を予約`;
       const parser = MockParser(
         "p1",
         new Map([[text, {
@@ -596,7 +847,8 @@ Deno.test("webhook: preset policies map exactly (none/free24)", async () => {
 Deno.test("webhook: postback-resolved registration lands in the web ledger too", async () => {
   await withKv(async (kv) => {
     const { web, owner } = await makeWebDeps(kv);
-    const text = "土曜19時に〇〇を仮予約";
+    // Longer than MAX_COMMAND_GUESS_CHARS, so it reaches the parse pipeline.
+    const text = "土曜19時に〇〇を仮予約しました";
     const p1 = MockParser(
       "p1",
       new Map([[text, {
@@ -615,7 +867,7 @@ Deno.test("webhook: postback-resolved registration lands in the web ledger too",
     deps.parsers = [p1, p2];
 
     await post(deps, [textEvent(text)]);
-    const data = replies[0]?.messages[0]?.quickReply?.items[1]?.action.data ?? "";
+    const data = postbackData(replies[0]?.messages[0]?.quickReply?.items[1]);
     const second = await post(deps, [{
       type: "postback",
       replyToken: "reply-2",
