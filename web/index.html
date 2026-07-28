@@ -68,6 +68,15 @@
       --mid: var(--lamp);
       --high: var(--danger-ink);
       --full: var(--danger-ink);
+      /* ═══ 文字サイズ（オーナー 2026-07-28「老眼の人とかは見にくい」）═══
+         スタイルシートの font-size はすべて calc(元のpx * var(--fs)) で書く。
+         --fs: 1 のときは計算結果が元の px と完全に一致するので、既定の見た目は
+         いま調整し終えた状態そのままになる（px を rem に書き換えない理由もこれ）。
+         zoom / transform: scale は使わない（文字がぼけるうえ、position: fixed の
+         更新バー・ボトムナビ・モーダルが壊れる）。
+         例外はボトムナビの2つだけ（.bn-item は列幅で頭打ち・.bn-fab は 11px 固定）。
+         どちらも理由をその場に書いてある。 */
+      --fs: 1;
       font-family: 'Zen Kaku Gothic New','Hiragino Sans','Hiragino Kaku Gothic ProN',sans-serif;
       background: var(--paper);
       color: var(--ink);
@@ -79,6 +88,13 @@
       word-break: normal;
       overflow-wrap: break-word;
       transition: background .25s;
+    }
+    /* 3段階。倍率は 320px でも横あふれ・文字の切れが出ない範囲で決めた（実測）。 */
+    body.fs-large {
+      --fs: 1.15;
+    }
+    body.fs-xlarge {
+      --fs: 1.28;
     }
     body.dark {
       --paper: #151c2c;
@@ -130,6 +146,10 @@
     .topbar {
       display: flex;
       align-items: center;
+      /* 文字サイズを上げると右側のボタン列が1行に入らなくなる幅がある。そのときは
+         ロゴの下へ折り返させる（横スクロールを出さないための逃げ道）。既定の
+         --fs: 1 ではどの幅でも折り返さないので、いまの見た目は変わらない。 */
+      flex-wrap: wrap;
       gap: 14px;
       max-width: 1080px;
       margin: 0 auto;
@@ -139,7 +159,7 @@
     .logo {
       font-family: 'Instrument Serif',serif;
       font-style: italic;
-      font-size: 27px;
+      font-size: calc(27px * var(--fs));
       letter-spacing: .005em;
       line-height: 1.1;
     }
@@ -152,12 +172,12 @@
     .logo .dia {
       color: var(--lamp);
       font-style: normal;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       vertical-align: 6px;
       margin-left: 2px;
     }
     .logo-sub {
-      font-size: 10.5px;
+      font-size: calc(10.5px * var(--fs));
       color: var(--faint);
       letter-spacing: .08em;
     }
@@ -165,14 +185,16 @@
       margin-left: auto;
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
       gap: 10px;
     }
     .chip {
-      font-size: 11px;
+      font-size: calc(11px * var(--fs));
       color: var(--soft);
       border: 1px solid var(--line);
       border-radius: 999px;
-      padding: 3px 11px;
+      padding: calc(3px * var(--fs)) calc(11px * var(--fs));
       background: var(--card);
       white-space: nowrap;
     }
@@ -184,14 +206,34 @@
       color: var(--ink);
     }
     .theme-toggle {
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 700;
-      padding: 5px 12px;
+      padding: calc(5px * var(--fs)) calc(12px * var(--fs));
       border-radius: 999px;
       border: 1px solid var(--line);
       background: var(--card);
       color: var(--ink);
       box-shadow: var(--shadow);
+    }
+    /* 文字サイズ切替（トップバー）。テーマ切替と同じ見た目の族にする。ラベルは
+       A / A+ / A++ で現在の段を表し、読み上げ用の名前は aria-label 側に持たせる。
+       標準（いちばん狭い 320px で効く段）でいちばん細いラベルになるようにしている。 */
+    .fs-toggle {
+      font-size: calc(13px * var(--fs));
+      font-weight: 700;
+      padding: calc(5px * var(--fs)) calc(9px * var(--fs));
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--ink);
+      box-shadow: var(--shadow);
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+    .fs-toggle.on {
+      border-color: var(--lamp);
+      background: var(--lamp-soft);
+      color: var(--lamp-ink);
     }
     .iconbtn {
       background: none;
@@ -210,7 +252,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 12px;
+      font-size: calc(12px * var(--fs));
       font-weight: 700;
       color: var(--soft);
       padding: 0;
@@ -224,9 +266,13 @@
     button {
       font-family: inherit;
       cursor: pointer;
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       border: 1px solid transparent;
-      transition: .12s;
+      /* 変わるのは :hover の背景・罫線・文字色と :disabled の opacity だけなので、
+         その4つだけを名指しする。以前の `transition: .12s`（= all）だと --fs も
+         遷移対象になり、文字サイズを切り替えてもボタンだけ前の大きさで止まった
+         （未登録のカスタムプロパティは離散補間なので、Chrome では値が更新されない）。 */
+      transition: background .12s, border-color .12s, color .12s, opacity .12s;
     }
     .btn-primary {
       background: var(--lamp-ink);
@@ -234,8 +280,8 @@
       border: none;
       border-radius: 999px;
       font-weight: 700;
-      font-size: 13px;
-      padding: 9px 18px;
+      font-size: calc(13px * var(--fs));
+      padding: calc(9px * var(--fs)) calc(18px * var(--fs));
     }
     .btn-primary:hover {
       background: var(--lamp-ink-strong);
@@ -250,8 +296,8 @@
       color: var(--on-lamp);
       border-radius: 999px;
       font-weight: 700;
-      font-size: 13px;
-      padding: 10px 22px;
+      font-size: calc(13px * var(--fs));
+      padding: calc(10px * var(--fs)) calc(22px * var(--fs));
       text-decoration: none;
     }
     .btn-a:hover {
@@ -263,8 +309,8 @@
       color: var(--ink);
       border: 1px solid var(--line);
       border-radius: 999px;
-      font-size: 13px;
-      padding: 8px 16px;
+      font-size: calc(13px * var(--fs));
+      padding: calc(8px * var(--fs)) calc(16px * var(--fs));
     }
     .btn-ghost:hover {
       border-color: var(--lamp);
@@ -275,8 +321,8 @@
       color: var(--lamp-ink);
       border: 1px solid var(--lamp);
       border-radius: 999px;
-      padding: 5px 14px;
-      font-size: 12.5px;
+      padding: calc(5px * var(--fs)) calc(14px * var(--fs));
+      font-size: calc(12.5px * var(--fs));
       font-weight: 700;
     }
     .btn-small:hover {
@@ -288,7 +334,7 @@
       justify-content: space-between;
       gap: 12px;
       flex-wrap: wrap;
-      font-size: 12px;
+      font-size: calc(12px * var(--fs));
       color: var(--soft);
       margin: 0 0 12px;
     }
@@ -304,9 +350,9 @@
       background: var(--lamp-soft);
       border: 1px dashed var(--lamp);
       border-radius: 10px;
-      padding: 10px 14px;
+      padding: calc(10px * var(--fs)) 14px;
       margin: 0 0 12px;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       color: var(--ink);
     }
     .demobar.on {
@@ -339,8 +385,8 @@
       margin-left: auto;
     }
     .btn-ghost.mini {
-      font-size: 11.5px;
-      padding: 4px 12px;
+      font-size: calc(11.5px * var(--fs));
+      padding: calc(4px * var(--fs)) calc(12px * var(--fs));
     }
     /* ═══ ページビュー（マイページ） ═══ */
     .page-head {
@@ -350,7 +396,7 @@
       margin-bottom: 14px;
     }
     .page-head h2 {
-      font-size: 17px;
+      font-size: calc(17px * var(--fs));
       font-weight: 700;
     }
     .pagecard {
@@ -366,14 +412,14 @@
        モーダルだと .modal の内側スクロールに閉じ込められてスマホで読みにくいうえ、
        #help のディープリンクから開いたとき「戻る」先が曖昧になるため。 */
     .help-lead {
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       font-weight: 500;
       line-height: 1.85;
       color: var(--ink);
     }
     .help-p {
       margin-top: 8px;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 500;
       line-height: 1.85;
       color: var(--ink-2);
@@ -385,7 +431,7 @@
     }
     .help-steps {
       margin: 6px 0 0 1.3em;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 500;
       line-height: 1.85;
       color: var(--ink-2);
@@ -396,13 +442,13 @@
     .help-ways {
       list-style: none;
       margin: 4px 0 0;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 500;
       line-height: 1.85;
       color: var(--ink-2);
     }
     .help-ways li {
-      padding: 8px 0;
+      padding: calc(8px * var(--fs)) 0;
       border-bottom: 1px dashed var(--line);
     }
     .help-ways li:last-child {
@@ -412,7 +458,7 @@
     .help-legend {
       list-style: none;
       margin: 8px 0 0;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 500;
       line-height: 1.75;
       color: var(--ink-2);
@@ -454,8 +500,8 @@
       border: 1.5px solid var(--danger-ink);
       color: var(--danger-ink);
       border-radius: 3px;
-      padding: 0 8px;
-      font-size: 10.5px;
+      padding: 0 calc(8px * var(--fs));
+      font-size: calc(10.5px * var(--fs));
       letter-spacing: .16em;
       font-weight: 700;
       transform: rotate(-2deg);
@@ -483,7 +529,7 @@
     .datescale {
       display: flex;
       justify-content: space-between;
-      font-size: 10.5px;
+      font-size: calc(10.5px * var(--fs));
       color: var(--faint);
       padding: 0 2px 6px;
       border-bottom: 1px solid var(--line);
@@ -498,13 +544,13 @@
       align-items: center;
       gap: 8px;
       margin-bottom: 10px;
-      font-size: 12px;
+      font-size: calc(12px * var(--fs));
       font-weight: 700;
       letter-spacing: .06em;
     }
     .rail-head .cnt {
       margin-left: auto;
-      font-size: 11px;
+      font-size: calc(11px * var(--fs));
       font-weight: 700;
       color: var(--danger-ink);
     }
@@ -513,7 +559,7 @@
       border: 1px solid var(--line);
       border-left: 3px solid var(--danger);
       border-radius: 10px;
-      padding: 11px 13px;
+      padding: calc(11px * var(--fs)) 13px;
       margin-bottom: 9px;
       box-shadow: var(--shadow);
       animation: slideIn .3s ease-out;
@@ -522,7 +568,7 @@
       border: 1px dashed var(--line);
     }
     .rail-item .lb {
-      font-size: 10.5px;
+      font-size: calc(10.5px * var(--fs));
       color: var(--danger-ink);
       font-weight: 700;
       letter-spacing: .08em;
@@ -534,11 +580,11 @@
       color: var(--soft);
     }
     .rail-item .tt {
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       margin-top: 3px;
     }
     .rail-item .ds {
-      font-size: 11px;
+      font-size: calc(11px * var(--fs));
       color: var(--ink-2);
     }
     .rail-item .btns {
@@ -549,8 +595,8 @@
     .rail-done {
       border: 1px solid var(--line);
       border-radius: 10px;
-      padding: 9px 13px;
-      font-size: 11.5px;
+      padding: calc(9px * var(--fs)) 13px;
+      font-size: calc(11.5px * var(--fs));
       color: var(--faint);
       background: var(--card2);
     }
@@ -559,7 +605,7 @@
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 12px;
-      padding: 13px 16px;
+      padding: calc(13px * var(--fs)) 16px;
       margin-bottom: 12px;
       box-shadow: var(--shadow);
     }
@@ -574,10 +620,10 @@
     }
     .plan-title {
       font-weight: 700;
-      font-size: 14.5px;
+      font-size: calc(14.5px * var(--fs));
     }
     .plan-note {
-      font-size: 11px;
+      font-size: calc(11px * var(--fs));
       color: var(--soft);
       margin-left: auto;
     }
@@ -586,8 +632,8 @@
       background: var(--lamp-soft);
       border: 1px dashed var(--lamp);
       border-radius: 8px;
-      padding: 7px 10px;
-      font-size: 11.5px;
+      padding: calc(7px * var(--fs)) 10px;
+      font-size: calc(11.5px * var(--fs));
       line-height: 1.6;
     }
     .plan.solo .resv {
@@ -601,22 +647,22 @@
       margin-top: 11px;
     }
     .resv .name {
-      font-size: 12.5px;
+      font-size: calc(12.5px * var(--fs));
     }
     .resv.off .name b {
       text-decoration: line-through;
       color: var(--soft);
     }
     .resv .cut {
-      font-size: 10.5px;
+      font-size: calc(10.5px * var(--fs));
       color: var(--danger-ink);
     }
     .resv .sub {
-      font-size: 10.5px;
+      font-size: calc(10.5px * var(--fs));
       color: var(--ink-2);
     }
     .resv .tools {
-      font-size: 10.5px;
+      font-size: calc(10.5px * var(--fs));
       color: var(--soft);
     }
     .resv .tools a {
@@ -634,7 +680,7 @@
       align-items: stretch;
     }
     .okmark {
-      font-size: 11px;
+      font-size: calc(11px * var(--fs));
       font-weight: 700;
       color: var(--safe-ink);
       white-space: nowrap;
@@ -643,8 +689,8 @@
       background: var(--card2);
       border: 1px solid var(--line);
       border-radius: 999px;
-      padding: 4px 11px;
-      font-size: 11.5px;
+      padding: calc(4px * var(--fs)) calc(11px * var(--fs));
+      font-size: calc(11.5px * var(--fs));
       white-space: nowrap;
       color: var(--ink);
     }
@@ -675,7 +721,7 @@
       background: transparent;
       border: 1px dashed var(--soft);
       color: var(--soft);
-      font-size: 10.5px;
+      font-size: calc(10.5px * var(--fs));
     }
     .rowbtn.danger {
       color: var(--danger-ink);
@@ -708,7 +754,7 @@
     .bar-cap {
       display: flex;
       justify-content: space-between;
-      font-size: 9.5px;
+      font-size: calc(9.5px * var(--fs));
       color: var(--soft);
       margin-top: 3px;
     }
@@ -718,9 +764,9 @@
       font-weight: 700;
     }
     .pill {
-      font-size: 11px;
+      font-size: calc(11px * var(--fs));
       font-weight: 700;
-      padding: 2px 9px;
+      padding: calc(2px * var(--fs)) calc(9px * var(--fs));
       border-radius: 11px;
       white-space: nowrap;
     }
@@ -743,7 +789,7 @@
     /* ═══ 空状態 ═══ */
     .hint {
       color: var(--soft);
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       margin-bottom: 16px;
       max-width: 720px;
     }
@@ -755,7 +801,7 @@
       box-shadow: var(--shadow);
     }
     .empty h3 {
-      font-size: 16px;
+      font-size: calc(16px * var(--fs));
       margin-bottom: 14px;
     }
     .startgrid {
@@ -769,7 +815,8 @@
       padding: 14px 16px;
       background: var(--card2);
       cursor: pointer;
-      transition: .12s;
+      /* all にすると --fs も遷移対象になり中の文字サイズが止まる（button と同じ） */
+      transition: background .12s, border-color .12s;
     }
     .startcard:hover {
       border-color: var(--lamp);
@@ -781,7 +828,7 @@
       margin-bottom: 4px;
     }
     .startcard .d {
-      font-size: 12.5px;
+      font-size: calc(12.5px * var(--fs));
       color: var(--soft);
     }
     /* ═══ モーダル ═══ */
@@ -812,22 +859,44 @@
     }
     /* Settings-modal section pattern: shared by #profilePage and #calOverlay */
     .sec {
-      margin-top: 16px;
-      padding-top: 16px;
+      margin-top: calc(16px * var(--fs));
+      padding-top: calc(16px * var(--fs));
       border-top: 1px solid var(--line);
     }
     .sec-h {
-      font-size: 12px;
+      font-size: calc(12px * var(--fs));
       font-weight: 700;
       color: var(--soft);
       margin-bottom: 6px;
     }
     .sec-danger {
       margin-top: 20px;
-      padding: 12px 14px;
+      padding: calc(12px * var(--fs)) 14px;
       border: 1px solid var(--danger);
       border-radius: 10px;
       background: var(--danger-soft);
+    }
+    /* 文字サイズの3択（マイページ）。キャンセル規定の .pol-mode と同じ丸ピルの
+       語彙にそろえる。色の組み合わせも .pol-mode.on と同じ（--lamp-soft ×
+       --lamp-ink）なので、記録済みのコントラスト比をそのまま引き継ぐ。 */
+    .fs-opts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .fs-opt {
+      background: var(--card2);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: calc(9px * var(--fs)) calc(14px * var(--fs));
+      font-size: calc(13px * var(--fs));
+    }
+    .fs-opt[aria-pressed="true"] {
+      background: var(--lamp-soft);
+      border-color: var(--lamp);
+      color: var(--lamp-ink);
+      font-weight: 700;
     }
     .profile-header {
       display: flex;
@@ -844,11 +913,11 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 22px;
+      font-size: calc(22px * var(--fs));
       font-weight: 700;
     }
     .profile-name {
-      font-size: 16px;
+      font-size: calc(16px * var(--fs));
       font-weight: 700;
       color: var(--ink);
     }
@@ -859,30 +928,31 @@
       margin-bottom: 16px;
     }
     .modal-head h3 {
-      font-size: 19px;
+      font-size: calc(19px * var(--fs));
       color: var(--ink);
     }
     .x {
       border: 1px solid var(--line);
       background: var(--card);
       border-radius: 8px;
-      width: 32px;
-      height: 32px;
+      width: calc(32px * var(--fs));
+      height: calc(32px * var(--fs));
       /* The generic button rule sets padding elsewhere, which squashes the ×
-         inside the fixed 32px box; flex-shrink lets long titles crush it. */
+         inside the fixed box; flex-shrink lets long titles crush it.
+         箱も文字と一緒に --fs で拡大する（× は図形ではなく文字なので）。 */
       padding: 0;
       flex: 0 0 auto;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 16px;
+      font-size: calc(16px * var(--fs));
       line-height: 1;
       color: var(--soft);
       cursor: pointer;
     }
     label {
       display: block;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 600;
       margin: 12px 0 5px;
     }
@@ -894,10 +964,10 @@
     textarea {
       width: 100%;
       font-family: inherit;
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 9px 11px;
+      padding: calc(9px * var(--fs)) calc(11px * var(--fs));
       background: var(--card2);
       color: var(--ink);
     }
@@ -919,7 +989,7 @@
          choices instead of breaking 日本語 one character per line. */
       flex-wrap: wrap;
       gap: 8px 18px;
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       margin-bottom: 4px;
     }
     .radio-row label {
@@ -944,8 +1014,8 @@
       color: var(--ink);
       border: 1px solid var(--line);
       border-radius: 999px;
-      padding: 9px 14px;
-      font-size: 13px;
+      padding: calc(9px * var(--fs)) calc(14px * var(--fs));
+      font-size: calc(13px * var(--fs));
     }
     .pol-mode.on {
       background: var(--lamp-soft);
@@ -956,7 +1026,7 @@
     .pol-body {
       display: none;
       margin-top: 10px;
-      padding: 12px 14px;
+      padding: calc(12px * var(--fs)) 14px;
       border: 1px solid var(--line);
       border-radius: 10px;
       background: var(--card2);
@@ -970,7 +1040,7 @@
       flex-wrap: wrap;
       align-items: center;
       gap: 6px;
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       margin-bottom: 8px;
     }
     .pol-line .lb {
@@ -1001,15 +1071,15 @@
       border: 1px solid var(--line);
       border-radius: 8px;
       color: var(--soft);
-      padding: 5px 10px;
+      padding: calc(5px * var(--fs)) calc(10px * var(--fs));
     }
     .pol-hint {
-      font-size: 12px;
+      font-size: calc(12px * var(--fs));
       margin: -2px 0 10px;
     }
     .pol-add {
-      padding: 7px 14px;
-      font-size: 12.5px;
+      padding: calc(7px * var(--fs)) calc(14px * var(--fs));
+      font-size: calc(12.5px * var(--fs));
     }
     .pol-add:disabled {
       opacity: .45;
@@ -1017,7 +1087,7 @@
     }
     .pol-preview {
       margin-top: 10px;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 700;
       color: var(--lamp-ink);
     }
@@ -1030,11 +1100,11 @@
       flex-wrap: wrap;
       gap: 4px 10px;
       margin-top: 10px;
-      padding: 8px 12px;
+      padding: calc(8px * var(--fs)) 12px;
       border: 1px solid var(--safe);
       border-radius: 8px;
       background: var(--safe-soft);
-      font-size: 12.5px;
+      font-size: calc(12.5px * var(--fs));
       font-weight: 500;
       color: var(--safe-ink);
     }
@@ -1054,7 +1124,7 @@
       align-items: flex-start;
       gap: 7px;
       margin: 12px 0 0;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 600;
     }
     .tpl-save input,
@@ -1072,18 +1142,18 @@
       justify-content: space-between;
       align-items: center;
       gap: 10px;
-      padding: 9px 0;
+      padding: calc(9px * var(--fs)) 0;
       border-bottom: 1px solid var(--line);
     }
     .tpl-row:last-child {
       border-bottom: none;
     }
     .tpl-row .fc {
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       font-weight: 700;
     }
     .tpl-row .pl {
-      font-size: 12.5px;
+      font-size: calc(12.5px * var(--fs));
       font-weight: 500;
       color: var(--ink-2);
       line-height: 1.6;
@@ -1095,14 +1165,14 @@
       margin-top: 14px;
     }
     .line-step-h {
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 700;
       color: var(--ink);
       margin-bottom: 6px;
     }
     .line-code-box {
       margin-top: 10px;
-      padding: 12px 14px;
+      padding: calc(12px * var(--fs)) 14px;
       border: 1px solid var(--lamp);
       border-radius: 10px;
       background: var(--lamp-soft);
@@ -1114,7 +1184,7 @@
     }
     .line-code {
       font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-      font-size: 27px;
+      font-size: calc(27px * var(--fs));
       font-weight: 700;
       letter-spacing: .16em;
       line-height: 1.35;
@@ -1136,7 +1206,7 @@
       margin-top: 8px;
     }
     .line-count {
-      font-size: 12.5px;
+      font-size: calc(12.5px * var(--fs));
       font-weight: 700;
       color: var(--ink-2);
     }
@@ -1146,7 +1216,7 @@
     .line-howto {
       list-style: none;
       margin: 12px 0 8px;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 500;
       color: var(--ink-2);
     }
@@ -1158,11 +1228,11 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 12px;
+      padding: calc(10px * var(--fs)) 12px;
       border: 1px solid var(--safe);
       border-radius: 10px;
       background: var(--safe-soft);
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       font-weight: 700;
       color: var(--safe-ink);
     }
@@ -1172,11 +1242,11 @@
     }
     .share-tag {
       display: inline-block;
-      font-size: 11px;
+      font-size: calc(11px * var(--fs));
       color: var(--soft);
       background: var(--card2);
       border-radius: 6px;
-      padding: 2px 8px;
+      padding: calc(2px * var(--fs)) calc(8px * var(--fs));
       margin: 4px 0;
     }
     .inv-row {
@@ -1186,9 +1256,9 @@
       /* 名前＋バッジ＋2ボタンは 320px で1行に入らないので折り返す */
       flex-wrap: wrap;
       gap: 8px 10px;
-      padding: 9px 0;
+      padding: calc(9px * var(--fs)) 0;
       border-bottom: 1px solid var(--line);
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
     }
     .inv-row:last-child {
       border-bottom: none;
@@ -1203,10 +1273,10 @@
     /* 共有の権限バッジ。編集可だけ safe 系で目立たせ、閲覧のみは中立色にする。 */
     .role-badge {
       display: inline-block;
-      font-size: 11.5px;
+      font-size: calc(11.5px * var(--fs));
       font-weight: 700;
       border-radius: 999px;
-      padding: 2px 9px;
+      padding: calc(2px * var(--fs)) calc(9px * var(--fs));
       background: var(--card2);
       color: var(--soft);
       white-space: nowrap;
@@ -1221,15 +1291,15 @@
       justify-content: center;
     }
     .modal-foot .btn-primary {
-      padding: 11px 40px;
+      padding: calc(11px * var(--fs)) 40px;
     }
     .parse-note {
       display: none;
       background: var(--safe-soft);
       border: 1px solid var(--safe);
       border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 12.5px;
+      padding: calc(8px * var(--fs)) 12px;
+      font-size: calc(12.5px * var(--fs));
       color: var(--safe-ink);
       margin-bottom: 6px;
     }
@@ -1239,7 +1309,8 @@
       padding: 14px 16px;
       margin-bottom: 12px;
       cursor: pointer;
-      transition: .12s;
+      /* all にすると --fs も遷移対象になり中の文字サイズが止まる（button と同じ） */
+      transition: background .12s, border-color .12s;
     }
     .import-opt:hover {
       border-color: var(--lamp);
@@ -1251,7 +1322,7 @@
       margin-bottom: 3px;
     }
     .import-opt .d {
-      font-size: 12.5px;
+      font-size: calc(12.5px * var(--fs));
       color: var(--soft);
     }
     .cancelled-sec {
@@ -1260,7 +1331,7 @@
       padding-top: 14px;
     }
     .cancelled-sec h3 {
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       color: var(--soft);
       margin-bottom: 4px;
     }
@@ -1276,7 +1347,7 @@
       border-radius: 8px;
       padding: 10px 14px;
       margin: 10px 0 14px;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       background: var(--lamp-soft);
     }
     .ics-guide summary {
@@ -1295,7 +1366,7 @@
     /* スマホ向けの導入（アプリ別に「何が現実的か」だけ書く） */
     .ics-lead {
       margin: 0 0 12px 1.15em;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       color: var(--soft);
     }
     .ics-lead li {
@@ -1310,7 +1381,7 @@
     }
     .ics-acts button {
       width: 100%;
-      padding: 12px 18px;
+      padding: calc(12px * var(--fs)) 18px;
     }
     /* タッチ端末はスクショを一番上・主ボタンにする（DOM 順は PC 優先のまま置く）。 */
     #icsHelpOverlay.phone .ics-acts {
@@ -1318,7 +1389,7 @@
     }
     .back-link {
       color: var(--lamp-ink);
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       cursor: pointer;
       margin-right: 6px;
     }
@@ -1328,7 +1399,7 @@
     }
     .import-manual a {
       color: var(--soft);
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       text-decoration: underline;
       cursor: pointer;
     }
@@ -1336,7 +1407,7 @@
       display: flex;
       gap: 8px;
       align-items: flex-start;
-      padding: 8px 6px;
+      padding: calc(8px * var(--fs)) 6px;
       border-bottom: 1px solid var(--line);
       font-weight: 500;
     }
@@ -1345,12 +1416,12 @@
       margin-top: 5px;
     }
     .ics-item .when {
-      font-size: 12px;
+      font-size: calc(12px * var(--fs));
       color: var(--ink-2);
     }
     .foot-note {
       color: var(--faint);
-      font-size: 12px;
+      font-size: calc(12px * var(--fs));
       margin-top: 28px;
       border-top: 1px solid var(--line);
       padding-top: 12px;
@@ -1373,7 +1444,7 @@
       box-shadow: var(--shadow);
     }
     .pwa-title {
-      font-size: 14px;
+      font-size: calc(14px * var(--fs));
       font-weight: 900;
       letter-spacing: .02em;
     }
@@ -1390,7 +1461,7 @@
       min-height: 1.7em;
       margin-top: 8px;
       color: var(--soft);
-      font-size: 11.5px;
+      font-size: calc(11.5px * var(--fs));
     }
     /* ═══ 更新のお知らせバナー（オーナー 2026-07-27）═══
        下部トーストではなくページ最上部（トップバーの上）に出す。× で閉じられるが、
@@ -1420,12 +1491,12 @@
       gap: 12px;
       max-width: 1080px;
       margin: 0 auto;
-      padding: 9px 20px;
+      padding: calc(9px * var(--fs)) 20px;
     }
     .pwa-update-bar .copy {
       flex: 1 1 auto;
       min-width: 0;
-      font-size: 13px;
+      font-size: calc(13px * var(--fs));
       font-weight: 700;
       line-height: 1.5;
     }
@@ -1439,7 +1510,7 @@
       .pwa-update-bar .inner {
         flex-wrap: wrap;
         gap: 8px;
-        padding: 9px 12px;
+        padding: calc(9px * var(--fs)) 12px;
       }
       .pwa-update-bar .copy {
         order: 1;
@@ -1472,7 +1543,7 @@
       align-items: center;
       gap: 2px;
       color: var(--soft);
-      font-size: 9.5px;
+      font-size: calc(9.5px * var(--fs));
       background: none;
       border: none;
       padding: 0;
@@ -1502,7 +1573,7 @@
       margin-top: -26px;
       border: 3px solid var(--paper);
       box-shadow: var(--shadow);
-      font-size: 8.5px;
+      font-size: calc(8.5px * var(--fs));
       font-weight: 700;
       padding: 0;
       justify-self: center;
@@ -1550,35 +1621,35 @@
         gap: 10px 14px;
       }
       .resv .name {
-        font-size: 15px;
+        font-size: calc(15px * var(--fs));
         line-height: 1.5;
       }
       .resv .sub,
       .resv .tools,
       .resv .cut {
-        font-size: 12.5px;
+        font-size: calc(12.5px * var(--fs));
         font-weight: 500;
         line-height: 1.65;
       }
       .plan {
-        padding: 15px 16px;
+        padding: calc(15px * var(--fs)) 16px;
       }
       .plan-title {
-        font-size: 16px;
+        font-size: calc(16px * var(--fs));
       }
       .plan-note {
-        font-size: 12.5px;
+        font-size: calc(12.5px * var(--fs));
         font-weight: 500;
       }
       .decide-note {
-        font-size: 13px;
-        padding: 9px 12px;
+        font-size: calc(13px * var(--fs));
+        padding: calc(9px * var(--fs)) 12px;
       }
       /* 期限バーのキャプションは3つとも入りきらないので、真ん中を独立行に落とす。 */
       .bar-cap {
         flex-wrap: wrap;
         row-gap: 2px;
-        font-size: 12px;
+        font-size: calc(12px * var(--fs));
         font-weight: 500;
         margin-top: 5px;
       }
@@ -1589,56 +1660,56 @@
         line-height: 1.5;
       }
       .rail-item {
-        padding: 13px 14px;
+        padding: calc(13px * var(--fs)) 14px;
       }
       .rail-item .lb {
-        font-size: 12px;
+        font-size: calc(12px * var(--fs));
       }
       .rail-item .tt {
-        font-size: 15px;
+        font-size: calc(15px * var(--fs));
         line-height: 1.55;
         margin-top: 4px;
       }
       .rail-item .ds {
-        font-size: 13px;
+        font-size: calc(13px * var(--fs));
         font-weight: 500;
         line-height: 1.6;
       }
       .rail-head {
-        font-size: 13px;
+        font-size: calc(13px * var(--fs));
       }
       .rail-head .cnt,
       .rail-done {
-        font-size: 12.5px;
+        font-size: calc(12.5px * var(--fs));
       }
       .rowbtn {
-        font-size: 13px;
-        padding: 6px 13px;
+        font-size: calc(13px * var(--fs));
+        padding: calc(6px * var(--fs)) calc(13px * var(--fs));
       }
       .okmark {
-        font-size: 13px;
+        font-size: calc(13px * var(--fs));
         align-self: center;
       }
       .rowbtn.dashed {
-        font-size: 12.5px;
+        font-size: calc(12.5px * var(--fs));
       }
       .chip {
-        font-size: 12.5px;
+        font-size: calc(12.5px * var(--fs));
         font-weight: 500;
-        padding: 4px 12px;
+        padding: calc(4px * var(--fs)) calc(12px * var(--fs));
       }
       .pill {
-        font-size: 12.5px;
-        padding: 3px 10px;
+        font-size: calc(12.5px * var(--fs));
+        padding: calc(3px * var(--fs)) calc(10px * var(--fs));
       }
       .stamp {
-        font-size: 11.5px;
-        padding: 1px 8px;
+        font-size: calc(11.5px * var(--fs));
+        padding: calc(1px * var(--fs)) calc(8px * var(--fs));
       }
       .share-tag,
       .databar,
       .btn-ghost.mini {
-        font-size: 12.5px;
+        font-size: calc(12.5px * var(--fs));
         font-weight: 500;
       }
       /* トップバーは 320px でも1行に収める（「予約整理アプリ」を途中で折らない）。
@@ -1648,10 +1719,10 @@
         gap: 10px;
       }
       .logo {
-        font-size: 25px;
+        font-size: calc(25px * var(--fs));
       }
       .logo-sub {
-        font-size: 11px;
+        font-size: calc(11px * var(--fs));
         letter-spacing: .04em;
         white-space: nowrap;
       }
@@ -1659,7 +1730,7 @@
         gap: 8px;
       }
       #todayChip {
-        padding: 4px 10px;
+        padding: calc(4px * var(--fs)) calc(10px * var(--fs));
       }
       .hint,
       .startcard .d,
@@ -1668,24 +1739,24 @@
       .pwa-status,
       .foot-note,
       .ics-guide ol {
-        font-size: 13px;
+        font-size: calc(13px * var(--fs));
         font-weight: 500;
         line-height: 1.7;
       }
       .sec-h {
-        font-size: 13px;
+        font-size: calc(13px * var(--fs));
       }
       label {
-        font-size: 14px;
+        font-size: calc(14px * var(--fs));
       }
       .pol-hint {
-        font-size: 12.5px;
+        font-size: calc(12.5px * var(--fs));
       }
       .pol-add {
-        font-size: 13px;
+        font-size: calc(13px * var(--fs));
       }
       .pol-preview {
-        font-size: 14px;
+        font-size: calc(14px * var(--fs));
         line-height: 1.6;
       }
       /* 新しい二次テキストもモバイルは 12px 以上・weight 500 に揃える */
@@ -1694,28 +1765,28 @@
       .line-howto,
       .line-count,
       .role-badge {
-        font-size: 13px;
+        font-size: calc(13px * var(--fs));
       }
       .tpl-save,
       .inv-perm {
-        font-size: 14px;
+        font-size: calc(14px * var(--fs));
       }
       /* 使い方は読み物なので、モバイルでは本文と同じ 13.5px まで上げる */
       .help-p,
       .help-steps,
       .help-ways,
       .help-legend {
-        font-size: 13.5px;
+        font-size: calc(13.5px * var(--fs));
       }
       .help-lead {
-        font-size: 14.5px;
+        font-size: calc(14.5px * var(--fs));
       }
       .line-step-h {
-        font-size: 14px;
+        font-size: calc(14px * var(--fs));
       }
       /* 320px でも 8 桁が1行に収まる幅にする */
       .line-code {
-        font-size: 25px;
+        font-size: calc(25px * var(--fs));
         letter-spacing: .12em;
       }
       /* 320px では日付/時刻を横並びにすると date 入力があふれるので1列にする。 */
@@ -1730,20 +1801,43 @@
         max-height: calc(100vh - 48px);
       }
       .modal-head h3 {
-        font-size: 17px;
+        font-size: calc(17px * var(--fs));
       }
       /* ボトムナビ: 5列 × 320px でも「マイページ」が入るよう左右を詰めて 12px に。 */
       .bottomnav {
         padding: 9px 4px calc(13px + env(safe-area-inset-bottom));
       }
+      /* ここだけ --fs をそのまま掛けない。5列 repeat(5,1fr) の1列は 320px で
+         約 62px しかなく、「マイページ」（全角5文字＝5em）は 12.4px で限界に
+         なる。3.8vw を上限にして「列に入る分だけ大きくする」ことで、特大でも
+         2行に折れず横にもあふれない。max(12px, …) を挟んでいるのは、320px より
+         狭い窓でも 12px を下回らせない（既定の見た目を必ず保つ）ため。 */
       .bn-item {
-        font-size: 12px;
+        font-size: min(calc(12px * var(--fs)), max(12px, 3.8vw));
       }
+      /* FAB は直径 56px を変えない意匠なので、ラベルも 11px 固定にする（--fs を
+         掛けない唯一の文字）。12px にすると「取り込む」が 48px になり、3px の縁の
+         内側 1px まで迫って輪に当たって見える。＋の図形と隣のナビ文字で読めるので、
+         ここだけは大きくしない。 */
       .bn-fab {
         width: 56px;
         height: 56px;
         margin-top: -28px;
         font-size: 11px;
+      }
+    }
+    /* ═══ いちばん狭い端末（〜360px）═══
+       トップバーの右に文字サイズの A ボタンが増えたぶん、320px では 22px ほど
+       足りなくなる。連携アイコンはボトムナビの「連携」とまったく同じ入口なので、
+       #importBtn を隠しているのと同じ考え方でこの幅だけ隠し（入口は失われない）、
+       すき間も少し詰めて、標準サイズでは今までどおり1行に収める。
+       大きめ・特大では .topbar の flex-wrap でロゴの下へ折り返す。 */
+    @media (max-width:360px) {
+      #calBtn {
+        display: none;
+      }
+      .top-right {
+        gap: 6px;
       }
     }
     </style>
@@ -1765,6 +1859,7 @@
       <div class="top-right">
         <span class="chip" id="todayChip"></span>
         <button class="theme-toggle" id="themeBtn" title="ライト/ダーク切替">◑</button>
+        <button class="fs-toggle" id="fsBtn" aria-label="文字サイズ: 標準（押すと大きめ）" title="文字サイズ: 標準（押すと大きめ）">A</button>
         <button class="btn-primary" id="importBtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M12 5v14M5 12h14"></path></svg>取り込む</button>
         <button class="iconbtn" id="calBtn" title="カレンダー連携・通知"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg></button>
         <button class="avatar" id="profileBtn" title="マイページ">？</button>
@@ -1826,6 +1921,19 @@
               <div class="profile-name" id="p_avatarName">-</div>
               <div class="hint" id="p_avatarEmail" style="margin-top:2px"></div>
             </div>
+          </div>
+
+          <!-- 文字サイズ（オーナー 2026-07-28「老眼の人とかは見にくい」）。
+               読みにくくて探しに来る人がいちばん先に見つけられるよう、マイページの
+               先頭に置く。トップバーの A ボタンと同じ状態を共有する。 -->
+          <div class="sec">
+            <div class="sec-h">文字サイズ</div>
+            <div class="fs-opts" role="group" aria-label="文字サイズ">
+              <button class="fs-opt" id="fsOptNormal" data-fs="normal" aria-pressed="true">標準</button>
+              <button class="fs-opt" id="fsOptLarge" data-fs="large" aria-pressed="false">大きめ</button>
+              <button class="fs-opt" id="fsOptXlarge" data-fs="xlarge" aria-pressed="false">特大</button>
+            </div>
+            <div class="hint" style="margin:6px 0 0">この端末のこのブラウザだけの設定です。共有相手や他の端末には影響しません。</div>
           </div>
 
           <div class="sec">
@@ -2230,7 +2338,7 @@
         <div class="sec">
           <div class="sec-h">② どのカレンダーでも: 購読 URL（iCloud / Google / TimeTree）</div>
           <p class="hint" style="margin:0 0 6px">確定した予約だけがカレンダーに載ります。</p>
-          <input id="icsUrl" readonly style="font-size:12px">
+          <input id="icsUrl" readonly style="font-size:calc(12px * var(--fs))">
           <div class="hint" style="margin:4px 0 0">
             <a id="icsCopy" style="cursor:pointer;text-decoration:underline">URL をコピー</a> ·
             <a id="icsRotate" style="cursor:pointer;text-decoration:underline">URL を再発行（漏れたとき）</a><br>
@@ -3975,6 +4083,41 @@
       localStorage.setItem(THEME_KEY, theme);
       applyTheme(theme);
     };
+
+    // ---- 文字サイズ（オーナー 2026-07-28「老眼の人とかは見にくい」）----
+    // CSS 側の --fs を body のクラスで切り替えるだけ。テーマと同じ localStorage
+    // 運用で、トップバーの A ボタンとマイページの3択が同じ状態を共有する。
+    const FS_KEY = "plancel.fontScale";
+    const FS_STEPS = ["normal", "large", "xlarge"];
+    const FS_LABEL = { normal: "標準", large: "大きめ", xlarge: "特大" };
+    const FS_MARK = { normal: "A", large: "A+", xlarge: "A++" };
+    function applyFontScale(step) {
+      document.body.classList.toggle("fs-large", step === "large");
+      document.body.classList.toggle("fs-xlarge", step === "xlarge");
+      const next = FS_STEPS[(FS_STEPS.indexOf(step) + 1) % FS_STEPS.length];
+      const btn = q("#fsBtn");
+      btn.textContent = FS_MARK[step];
+      // 読み上げ用の名前は「いまの設定」と「押すとどうなるか」の両方を持たせる。
+      btn.setAttribute("aria-label", "文字サイズ: " + FS_LABEL[step] + "（押すと" + FS_LABEL[next] + "）");
+      btn.title = "文字サイズ: " + FS_LABEL[step] + "（押すと" + FS_LABEL[next] + "）";
+      btn.classList.toggle("on", step !== "normal");
+      for (const opt of document.querySelectorAll(".fs-opt")) {
+        opt.setAttribute("aria-pressed", opt.dataset.fs === step ? "true" : "false");
+      }
+    }
+    function setFontScale(step) {
+      fontScale = FS_STEPS.includes(step) ? step : "normal";
+      localStorage.setItem(FS_KEY, fontScale);
+      applyFontScale(fontScale);
+    }
+    let fontScale = localStorage.getItem(FS_KEY);
+    if (!FS_STEPS.includes(fontScale)) fontScale = "normal";
+    applyFontScale(fontScale);
+    q("#fsBtn").onclick = () => setFontScale(FS_STEPS[(FS_STEPS.indexOf(fontScale) + 1) % FS_STEPS.length]);
+    for (const opt of document.querySelectorAll(".fs-opt")) {
+      opt.onclick = () => setFontScale(opt.dataset.fs);
+    }
+
     q("#todayChip").textContent = fmtDate(Date.now());
     // 台帳 / マイページ / 使い方 のページ切替（どれもモーダルではなくページ）
     function setView(view) {
@@ -4201,7 +4344,7 @@
       if (ME.capacityWarning) {
         const w = document.createElement("div");
         w.style.cssText =
-          "border:1px solid #c53030;background:#fff5f5;color:#742a2a;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px";
+          "border:1px solid #c53030;background:#fff5f5;color:#742a2a;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:calc(13px * var(--fs))";
         w.textContent =
           `⚠ 管理者向け警告: 利用者が ${ME.userCount} 人に達しました（設計70人・無料枠の検証済み上限は約100人）。上限や保証リストの見直しを検討してください。`;
         q("#dataBar").before(w);
