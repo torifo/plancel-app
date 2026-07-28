@@ -8,8 +8,10 @@ import {
   createSession,
   deleteAccount,
   deleteSession,
+  ensureMailSecret,
   findUserByIcsSecret,
   findUserByLineUserId,
+  findUserByMailSecret,
   getGcalEvent,
   getOrCreateUserByEmail,
   getSessionUser,
@@ -19,7 +21,9 @@ import {
   linkLineUser,
   looksLikeLineLinkCode,
   MAGIC_RATE_LIMIT,
+  mailSecretFromAddress,
   rotateIcsSecret,
+  rotateMailSecret,
   saveOauthState,
   setGcalEvent,
   takeOauthState,
@@ -108,6 +112,55 @@ Deno.test("rotateIcsSecret invalidates the old feed secret", async () => {
     assertNotEquals(next?.icsSecret, u.icsSecret);
     assertEquals(await findUserByIcsSecret(kv, u.icsSecret), null);
     assertEquals((await findUserByIcsSecret(kv, next?.icsSecret ?? ""))?.id, u.id);
+  });
+});
+
+// ---- mail intake address (メール転送, owner 2026-07-27) ----
+
+Deno.test("mailSecretFromAddress reads the secret and rejects anything else", () => {
+  assertEquals(mailSecretFromAddress("p-abc123@ferouhelee.resend.app"), "abc123");
+  // Forwarding clients send display-name form.
+  assertEquals(mailSecretFromAddress("plancel <P-abc123@ferouhelee.resend.app>"), "abc123");
+  // The secret itself is never case-folded — it is the KV key.
+  assertEquals(mailSecretFromAddress("p-AbC@x.test"), "AbC");
+  assertEquals(mailSecretFromAddress("owner@gmail.com"), null);
+  assertEquals(mailSecretFromAddress("p-@x.test"), null);
+});
+
+Deno.test("a new user gets an indexed mail secret; rotate retires the old one", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    assertEquals((await findUserByMailSecret(kv, u.mailSecret ?? ""))?.id, u.id);
+
+    const next = await rotateMailSecret(kv, u.id, ids);
+    assertNotEquals(next?.mailSecret, u.mailSecret);
+    assertEquals(await findUserByMailSecret(kv, u.mailSecret ?? ""), null);
+    assertEquals((await findUserByMailSecret(kv, next?.mailSecret ?? ""))?.id, u.id);
+  });
+});
+
+// Accounts created before the feature carry no secret; the first read issues it.
+Deno.test("ensureMailSecret backfills a pre-feature account exactly once", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    await kv.delete(["mail_secret", u.mailSecret ?? ""]);
+    await kv.set(["webuser", u.id], { ...u, mailSecret: null });
+
+    const issued = await ensureMailSecret(kv, u.id, ids);
+    assertNotEquals(issued, null);
+    assertEquals((await findUserByMailSecret(kv, issued ?? ""))?.id, u.id);
+    assertEquals(await ensureMailSecret(kv, u.id, ids), issued); // idempotent
+  });
+});
+
+Deno.test("deleteAccount drops the mail index so a forward cannot resolve", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    await deleteAccount(kv, u.id, ids);
+    assertEquals(await findUserByMailSecret(kv, u.mailSecret ?? ""), null);
   });
 });
 

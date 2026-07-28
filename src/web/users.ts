@@ -8,8 +8,9 @@
  * existing browser token as the user's ledgerId (zero-copy migration).
  *
  * Also owns: sessions (90d), magic-link tokens (15min, single-use, rate
- * limited), OAuth state (10min), iCal feed secrets, the per-user LINE link
- * (+ its one-time 10min link code), and the reservation ⇄ Google Calendar
+ * limited), OAuth state (10min), iCal feed secrets, the per-user mail-intake
+ * secret (the forward-to address, see ./email-intake.ts), the per-user LINE
+ * link (+ its one-time 10min link code), and the reservation ⇄ Google Calendar
  * event mapping.
  */
 import { z } from "zod";
@@ -31,6 +32,13 @@ export const webUserSchema = z.object({
   email: z.string().regex(/^\S+@\S+$/),
   ledgerId: z.string().min(1),
   icsSecret: z.string().min(1),
+  /**
+   * Secret in the user's mail-intake address (`p-<mailSecret>@<domain>`, see
+   * ./email-intake.ts). Nullable and defaulted because accounts created before
+   * 2026-07-28 have none: `ensureMailSecret` issues one on first read, exactly
+   * as `issueApiToken` issues on demand.
+   */
+  mailSecret: z.string().nullable().default(null),
   /** Personal API token (MCP 連携). Defaulted so older records still parse. */
   apiToken: z.string().nullable().default(null),
   /** 表示名 (non-unique) — invites show this; null falls back to the email. */
@@ -83,6 +91,7 @@ const MAGIC = "magic";
 const MAGIC_RATE = "magic_rate";
 const OAUTH_STATE = "oauth_state";
 const ICS = "ics_secret";
+const MAIL = "mail_secret";
 const APITOKEN = "apitoken";
 const BY_UID = "webuser_uid";
 const BY_LINE = "line_user";
@@ -131,6 +140,15 @@ export function findUserByIcsSecret(kv: Deno.Kv, secret: string): Promise<WebUse
   return userIdFromIndex(kv, [ICS, secret]);
 }
 
+/**
+ * Resolves the ledger a forwarded mail belongs to. This index — never the
+ * envelope's `from`, which anyone can forge — is the identity of an inbound
+ * mail (see ./email-intake.ts).
+ */
+export function findUserByMailSecret(kv: Deno.Kv, secret: string): Promise<WebUser | null> {
+  return userIdFromIndex(kv, [MAIL, secret]);
+}
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -156,11 +174,13 @@ export async function getOrCreateUserByEmail(
   const existing = await findUserByEmail(kv, norm);
   if (existing !== null) return existing;
   const now = ids.nowIso();
+  const mailSecret = ids.randomToken();
   const user: WebUser = {
     id: ids.newId(),
     email: norm,
     ledgerId: ids.newId(),
     icsSecret: ids.randomToken(),
+    mailSecret,
     apiToken: null,
     displayName: null,
     uid: null,
@@ -177,6 +197,7 @@ export async function getOrCreateUserByEmail(
     .set([USER, user.id], user)
     .set([BY_EMAIL, norm], user.id)
     .set([ICS, user.icsSecret], user.id)
+    .set([MAIL, mailSecret], user.id)
     .commit();
   return user;
 }
@@ -234,6 +255,84 @@ export async function rotateIcsSecret(
     .set([ICS, secret], userId)
     .set([USER, userId], next)
     .commit();
+  return next;
+}
+
+// ---------- mail intake address (メール転送, owner 2026-07-27) ----------
+
+/**
+ * Local-part prefix of the forward-to address. A leading letter keeps the
+ * local part valid for every mail client, and the fixed prefix is what tells
+ * the webhook that a recipient is a plancel intake address at all.
+ */
+export const MAIL_LOCAL_PREFIX = "p-";
+
+/** The address a user forwards reservation mail to: `p-<secret>@<domain>`. */
+export function mailAddressFor(secret: string, domain: string): string {
+  return `${MAIL_LOCAL_PREFIX}${secret}@${domain}`;
+}
+
+/**
+ * The secret inside a recipient address, or null when it is not an intake
+ * address. Accepts `Name <addr>` display forms (what forwarding clients and
+ * Resend put in `to`), and matches the prefix case-insensitively while keeping
+ * the secret verbatim — the secret is the KV key and must not be folded.
+ *
+ * The domain is deliberately ignored: Resend only delivers mail addressed to
+ * plancel's own receiving domains, so the secret alone decides the ledger, and
+ * adding a custom domain later needs no code change.
+ */
+export function mailSecretFromAddress(address: string): string | null {
+  const angled = address.match(/<([^>]*)>/);
+  const bare = (angled?.[1] ?? address).trim();
+  const at = bare.lastIndexOf("@");
+  const local = at < 0 ? bare : bare.slice(0, at);
+  if (!local.toLowerCase().startsWith(MAIL_LOCAL_PREFIX)) return null;
+  const secret = local.slice(MAIL_LOCAL_PREFIX.length);
+  return secret === "" ? null : secret;
+}
+
+/**
+ * The user's mail-intake secret, issued on first use. Accounts predating the
+ * feature carry none, and `/auth/me` is where the address becomes visible — so
+ * the issue happens there (one write, once per account) rather than in a
+ * migration.
+ */
+export async function ensureMailSecret(
+  kv: Deno.Kv,
+  userId: string,
+  ids: AuthIds,
+): Promise<string | null> {
+  const cur = await getUser(kv, userId);
+  if (cur === null) return null;
+  if (cur.mailSecret !== null) return cur.mailSecret;
+  const mailSecret = ids.randomToken();
+  await kv.atomic()
+    .set([MAIL, mailSecret], userId)
+    .set([USER, userId], { ...cur, mailSecret, updated_at: ids.nowIso() })
+    .commit();
+  return mailSecret;
+}
+
+/**
+ * Issues a fresh mail-intake secret and retires the old index — the recovery
+ * path for an address that leaked (anyone holding it can add candidates to the
+ * ledger).
+ */
+export async function rotateMailSecret(
+  kv: Deno.Kv,
+  userId: string,
+  ids: AuthIds,
+): Promise<WebUser | null> {
+  const cur = await getUser(kv, userId);
+  if (cur === null) return null;
+  const mailSecret = ids.randomToken();
+  const next: WebUser = { ...cur, mailSecret, updated_at: ids.nowIso() };
+  const tx = kv.atomic()
+    .set([MAIL, mailSecret], userId)
+    .set([USER, userId], next);
+  if (cur.mailSecret !== null) tx.delete([MAIL, cur.mailSecret]);
+  await tx.commit();
   return next;
 }
 
@@ -526,6 +625,8 @@ export async function deleteAccount(
   if (user.google !== null) await kv.delete([BY_GOOGLE, user.google.sub]);
   if (user.uid !== null) await kv.delete([BY_UID, user.uid]);
   await kv.delete([ICS, user.icsSecret]);
+  // Leaving this behind would let a forwarded mail resolve to a deleted user.
+  if (user.mailSecret !== null) await kv.delete([MAIL, user.mailSecret]);
   if (user.apiToken !== null) await kv.delete([APITOKEN, user.apiToken]);
   // The LINE link must go with the account: leaving the reverse index behind
   // would let that LINE sender resolve to a deleted user.

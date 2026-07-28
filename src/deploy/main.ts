@@ -2,7 +2,8 @@
  * Unified Deno Deploy entrypoint.
  *
  * One deployment serves ALL surfaces off a single managed-KV Store:
- *   - `Deno.serve` — the web UI (GET /), LINE webhook (POST /webhook), GET /healthz
+ *   - `Deno.serve` — the web UI (GET /), LINE webhook (POST /webhook), the
+ *     inbound-mail webhook (POST /webhook/email), GET /healthz
  *   - `Deno.cron`  — the 15-minute boundary check (SDD §6 スケジューラ)
  *
  * The web UI (web/index.html) is the primary surface. Authentication, the
@@ -34,6 +35,9 @@
  *   PLANCEL_EMAIL_DAILY_CAP (reminder e-mails per JST day, default 90)
  *   PLANCEL_ADMIN_EMAILS (comma-separated; /auth/me carries the 100-user warning)
  *   (RESEND_API_KEY + PLANCEL_EMAIL_FROM also power magic-link login)
+ *   PLANCEL_INBOUND_DOMAIN / RESEND_WEBHOOK_SECRET (メール転送インテーク; the
+ *     Received-Emails read also needs RESEND_API_KEY)
+ *   PLANCEL_MAIL_DAILY_CAP (accepted forwards per user per day, default 50)
  */
 import { SystemClock } from "../core/clock/mod.ts";
 import { KvStore } from "../core/store/mod.ts";
@@ -50,6 +54,12 @@ import type { AuthIds } from "../web/users.ts";
 import { handleCalendarFeed, isCalendarFeedPath } from "../web/calendar/ics.ts";
 import { requestSync, sweepDirtySync, type SyncDeps } from "../web/calendar/sync.ts";
 import { EMAIL_DAILY_CAP_DEFAULT, sweepDeadlineNotifications } from "../web/notify.ts";
+import {
+  type EmailIntakeDeps,
+  handleEmailWebhook,
+  isEmailWebhookPath,
+  MAIL_DAILY_CAP_DEFAULT,
+} from "../web/email-intake.ts";
 import { loadPwaAssets, servePwaAsset } from "../web/pwa.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
@@ -179,6 +189,11 @@ if (import.meta.main) {
       (env.get("PLANCEL_ADMIN_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
         .filter(Boolean),
     ),
+    // メール転送インテーク: /auth/me shows the address only once a receiving
+    // domain exists (production: the auto-issued *.resend.app domain).
+    ...(env.get("PLANCEL_INBOUND_DOMAIN") !== undefined
+      ? { inboundDomain: env.get("PLANCEL_INBOUND_DOMAIN") as string }
+      : {}),
   };
   // Queue-free sync (KV Connect has no queues in production): inline
   // reconcile on write + dirty-flag sweep from the cron below.
@@ -282,6 +297,38 @@ if (import.meta.main) {
     saveJob: (job) => store.putParseJob(job),
   };
 
+  // メール転送インテーク (owner 2026-07-27): a forwarded confirmation mail lands
+  // in the FORWARDER'S OWN ledger as a candidate, through the same parser chain
+  // and the same createReservation + sync hook as every other intake surface.
+  // The recipient's secret is the identity — `from` is never trusted.
+  const mailCapEnv = Number(env.get("PLANCEL_MAIL_DAILY_CAP") ?? "");
+  const emailIntakeDeps: EmailIntakeDeps = {
+    kv: store.kv,
+    ids: webIds,
+    clock,
+    parsers,
+    chainConfig,
+    ...(env.get("RESEND_WEBHOOK_SECRET") !== undefined
+      ? { webhookSecret: env.get("RESEND_WEBHOOK_SECRET") as string }
+      : {}),
+    ...(resendKey !== undefined ? { apiKey: resendKey } : {}),
+    fetchFn: fetch,
+    saveJob: (job) => store.putParseJob(job),
+    ...(webNotifyLine !== null ? { line: webNotifyLine } : {}),
+    baseUrl: webNotifyBaseUrl,
+    dailyCap: Number.isFinite(mailCapEnv) && mailCapEnv > 0 ? mailCapEnv : MAIL_DAILY_CAP_DEFAULT,
+    onMutate: (user, resvId) => {
+      if (user.google === null) return;
+      requestSync(syncDeps, user.id, resvId).catch((err) =>
+        log.error("requestSync failed", { err: String(err) })
+      );
+    },
+  };
+  log.info("email intake configured", {
+    enabled: emailIntakeDeps.webhookSecret !== undefined && emailIntakeDeps.apiKey !== undefined,
+    domain: env.get("PLANCEL_INBOUND_DOMAIN") ?? null,
+  });
+
   Deno.serve({ port: Number(env.get("PORT") ?? "8000") }, async (req) => {
     const url = new URL(req.url);
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
@@ -330,6 +377,9 @@ if (import.meta.main) {
     }
     if (req.method === "GET" && url.pathname === "/healthz") {
       return new Response("ok");
+    }
+    if (isEmailWebhookPath(url.pathname)) {
+      return await handleEmailWebhook(req, emailIntakeDeps);
     }
     if (req.method === "POST" && url.pathname === "/webhook") {
       if (webhookDeps === null) return new Response("line not configured", { status: 503 });

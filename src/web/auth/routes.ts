@@ -18,6 +18,7 @@
  *   DELETE /auth/account {confirm} 退会 — delete the account and all its data
  *   POST /auth/adopt {token}     adopt a pre-login browser-token ledger
  *   POST /auth/ics/rotate        rotate the iCal feed secret
+ *   POST /auth/mail/rotate       rotate the mail-intake (転送先) address
  *   POST /auth/line/code         issue a one-time LINE link code (10min)
  *   DELETE /auth/line            unlink this account's LINE
  */
@@ -33,6 +34,7 @@ import {
   createSession,
   deleteAccount,
   deleteSession,
+  ensureMailSecret,
   findUserByApiToken,
   findUserByEmail,
   findUserByGoogleSub,
@@ -44,11 +46,13 @@ import {
   issueLineLinkCode,
   LINE_CODE_TTL_MS,
   linkGoogle,
+  mailAddressFor,
   MIN_PUBLIC_UID_LEN,
   normalizeEmail,
   RESERVED_UIDS,
   revokeApiToken,
   rotateIcsSecret,
+  rotateMailSecret,
   saveOauthState,
   SESSION_TTL_MS,
   setAltEmail,
@@ -129,6 +133,19 @@ export interface AuthDeps {
   allowedEmails?: Set<string>;
   /** Admin addresses: /auth/me gives them userCount + the 100-user warning. */
   adminEmails?: Set<string>;
+  /**
+   * PLANCEL_INBOUND_DOMAIN — the receiving domain of the mail-intake address
+   * (メール転送インテーク, see ../email-intake.ts). Unset (local/tests) means the
+   * feature is not deployed, so /auth/me reports no address at all.
+   */
+  inboundDomain?: string;
+}
+
+/** `p-<secret>@<domain>`, or null while no receiving domain is configured. */
+function mailAddressOf(secret: string | null, deps: AuthDeps): string | null {
+  const domain = deps.inboundDomain;
+  if (secret === null || domain === undefined || domain === "") return null;
+  return mailAddressFor(secret, domain);
 }
 
 /** True when signing in this identity would create a user past the cap. */
@@ -405,11 +422,16 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
         return { admin: true, userCount, capacityWarning: userCount >= ADMIN_WARN_USERS };
       })()
       : {};
+    // Accounts predating メール転送 have no secret yet; issuing it here is the
+    // one write /auth/me makes, and only once per account.
+    const mailSecret = user.mailSecret ?? await ensureMailSecret(deps.kv, user.id, deps.ids);
     return json({
       email: user.email,
       google: user.google !== null && user.google.error === null,
       googleError: user.google?.error ?? null,
       icsPath: `/calendar/${user.icsSecret}.ics`,
+      // 予約確認メールの転送先。null = この環境では未提供 (domain 未設定).
+      mailAddress: mailAddressOf(mailSecret, deps),
       hasApiToken: user.apiToken !== null,
       // Only whether a LINE account is linked — the raw LINE userId is an
       // identifier for the messaging platform and never leaves the server.
@@ -586,6 +608,15 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     if (user === null) return json({ error: "not logged in" }, 401);
     const next = await rotateIcsSecret(deps.kv, user.id, deps.ids);
     return json({ icsPath: `/calendar/${next?.icsSecret}.ics` });
+  }
+
+  // Retires a leaked 転送先アドレス: whoever holds the old one can add candidates
+  // to this ledger, and the old local part stops resolving immediately.
+  if (path === "/auth/mail/rotate" && req.method === "POST") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    const next = await rotateMailSecret(deps.kv, user.id, deps.ids);
+    return json({ mailAddress: mailAddressOf(next?.mailSecret ?? null, deps) });
   }
 
   // Lets the UI clear a broken Google link ("再接続" flow restarts OAuth).

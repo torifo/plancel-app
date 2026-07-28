@@ -29,9 +29,25 @@ Already delivered after MVP-2: Web UI and per-user Web ledger, Google/password/U
 sharing, iCal subscription, Google Calendar push sync, generic update/delete, production Web API,
 remote MCP mode, and installable PWA delivery with an explicit update flow.
 
-Remaining product candidates: email-forward parsing, bookmarklet entry point, and weather-aware
-deadline notices. Production acceptance checks are tracked in `docs/VERIFICATION.md`, not as new
-implementation layers.
+Remaining product candidates: bookmarklet entry point and weather-aware deadline notices. Production
+acceptance checks are tracked in `docs/VERIFICATION.md`, not as new implementation layers.
+
+Email-forward intake (owner 2026-07-27:
+「メールの内容をコピーするのではなく転送してもらうとかがいいな」): **the backend is done** —
+`POST /webhook/email` receives Resend's inbound webhook (`src/web/email-intake.ts`), verifies the
+Svix signature over the raw body with a 5-minute replay window (`src/web/email-signature.ts`),
+resolves the ledger from the per-user receive address `p-<mailSecret>@PLANCEL_INBOUND_DOMAIN` —
+never from the forgeable `from` — reads the body through Resend's Received-Emails API, runs the SAME
+parser chain as `/api/parse` and LINE, and creates a **candidate** through the same
+`createReservation` + calendar-sync hook, filling an unstated policy from the facility template.
+Anti-abuse: a per-user 24h cap (`PLANCEL_MAIL_DAILY_CAP`, default 50), a 64KiB raw-body ceiling, a
+100KB parser input ceiling, and `["mail_seen", <email_id>]` claimed atomically so a redelivery can
+never create a second reservation. Everything the app decides answers 200 so Resend stops retrying;
+an unparseable forward writes nothing and tells the forwarder over LINE when they are linked. **The
+マイページ UI hookup is still pending**: `/auth/me` already returns `mailAddress` and
+`POST /auth/mail/rotate` already rotates it, but the page shows neither the address, a copy button,
+nor a 再発行 control. Ops setup (Resend receiving + webhook + the two env vars) is in
+`docs/DEPLOY.md` §3.1.
 
 Facility policy templates (owner 2026-07-27:
 「ホテルごとに規定(ベース)を設定できるといいかも。プランごとになるかもだけど基本的に同じことが多いため」):

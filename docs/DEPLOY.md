@@ -56,6 +56,7 @@ plancel と opulse（現 opulse-monitor）は **1 つの org に軽量2アプリ
   | `/api/policy-templates…`     | 施設ごとのキャンセル規定テンプレ（下記・台帳ごとに非公開）      |
   | `GET /healthz`               | ヘルスチェック（`ok`）                                         |
   | `POST /webhook`              | LINE webhook（LINE env 未設定時は 503）                        |
+  | `POST /webhook/email`        | メール転送インテーク（Resend inbound webhook、下記 §3.1）      |
 - **予約の共有（招待）と権限**（オーナー
   2026-07-28「招待する時に編集を許可すれば細かい修正を参加者もできるように」）: 予約は**オーナーの
   台帳に置いたまま参照で共有**する（相手の台帳にコピーは作らない）。KV は
@@ -134,7 +135,7 @@ TOKEN/SECRET/KEY を含む名前は Deploy が自動で secret 扱いにする�
 | `PLANCEL_ADMIN_EMAILS`                      | 任意         | 管理者アドレス。`/auth/me` に userCount と 100人警告が付く。予約語 uid を取れるのもこのアカウントのみ                                       |
 | `PLANCEL_DEV_USER`                          | ローカルのみ | OAuth を踏まず、全リクエストをこの email のユーザーとして扱う（本番では設定しない）                                                         |
 | `PLANCEL_ADMIN_TOKEN`                       | 任意         | 本番スモーク用。`x-plancel-admin` ヘッダと一致すれば `x-plancel-token` を台帳として直接使える                                               |
-| `RESEND_API_KEY` / `PLANCEL_EMAIL_FROM`     | 任意         | **メールログイン（マジックリンク）**の前提。両方揃うと `/auth/email` が有効化。未設定ならマジックリンクは休眠（コードは残るが送信されない） |
+| `RESEND_API_KEY` / `PLANCEL_EMAIL_FROM`     | 任意         | **メールログイン（マジックリンク）**の前提。両方揃うと `/auth/email` が有効化。未設定ならマジックリンクは休眠（コードは残るが送信されない）。`RESEND_API_KEY` は**受信メール本文の読み出し（§3.1）にも必要** |
 
 ### 取り込み・通知・LINE（既存）
 
@@ -166,6 +167,59 @@ Web台帳の無料キャンセル期限リマインド（`src/web/notify.ts`、1
   時のみ +1）。**LINE 連携済みユーザーは対象外** — LINE push は別クォータで Resend を消費しない。
   上限到達時は `web.notify` に `warn`（"daily email cap reached; deferring to the next JST day"）。
 
+### 3.1 メール転送インテーク（オーナー 2026-07-27「メールの内容をコピーするのではなく転送してもらうとかがいいな」）
+
+予約確認メールを貼り付ける代わりに、**転送するだけ**で自分の台帳に候補として入る
+（`src/web/email-intake.ts`）。Deno Deploy は SMTP を受けられないので、受信は Resend の inbound
+webhook 経由。設計の根拠は `local/reports/2026-07-27-email-forward-intake.md`。
+
+| 変数                      | 必須                 | 用途                                                                                                                          |
+| ------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `PLANCEL_INBOUND_DOMAIN`  | 転送機能を使うなら◯ | 受信ドメイン。**本番は Resend が自動発行した `ferouhelee.resend.app`**（独自ドメイン・DNS 設定は不要）。未設定なら `/auth/me` は `mailAddress: null` を返し、UI は転送先を出さない |
+| `RESEND_WEBHOOK_SECRET`   | 転送機能を使うなら◯ | Resend ダッシュボードの Svix signing secret（`whsec_…`）。未設定なら `POST /webhook/email` は **503**                          |
+| `RESEND_API_KEY`          | 転送機能を使うなら◯ | webhook は**メタデータのみ**なので、本文は Received-Emails API（`GET /emails/receiving/{id}`）で取得する。未設定なら 503       |
+| `PLANCEL_MAIL_DAILY_CAP`  | 任意                 | 1ユーザーが 24 時間に受け付けられる転送数（既定 **50**）。超過分は 200 を返して**何も書かない**（転送ループ・アドレス流出時の歯止め） |
+
+**ユーザーごとの転送先アドレス**: `p-<mailSecret>@<PLANCEL_INBOUND_DOMAIN>`。`mailSecret` は
+`icsSecret` と同型の 32byte 乱数で、逆引き索引 `["mail_secret", <secret>] → userId` を持つ
+（`src/web/users.ts`）。`GET /auth/me` が完成形のアドレスを `mailAddress` で返し、漏洩時は
+`POST /auth/mail/rotate` で発行し直す（旧アドレスは即座に解決しなくなる）。2026-07-28 より前に
+作られたアカウントは秘密を持たないので、`/auth/me` の初回アクセス時に1度だけ発行される。
+
+**`from` は絶対に信用しない**: 送信元アドレスは偽装できるので、**どの台帳かを決めるのは宛先
+ローカルパートの秘密だけ**。実在ユーザーのアドレスを騙った `from` は何も解決しない（ログにだけ残す）。
+これに Svix 署名検証（`svix-id`/`svix-timestamp`/`svix-signature`、生ボディに対する HMAC-SHA256、
+タイムスタンプのずれ 5 分超はリプレイとして拒否）が重なって、なりすましとエンドポイント直叩きの
+両方を止める。
+
+**ステータスコードはリトライ契約**（Resend は非 2xx を再送する）:
+
+| 状況                                             | 応答    |
+| ------------------------------------------------ | ------- |
+| `RESEND_WEBHOOK_SECRET` / `RESEND_API_KEY` 未設定 | **503** |
+| 署名が無い・不一致・タイムスタンプが 5 分超ずれている | **401** |
+| ボディが JSON でない／`email.received` の形でない  | **400** |
+| 生ボディが 64KiB 超                               | **413** |
+| `type` が `email.received` 以外（delivered 等）    | **200**（何もしない） |
+| 宛先の秘密がどのユーザーにも一致しない            | **200**（ログのみ・応答は一致有無を明かさない） |
+| 同じ `email_id` の再送                            | **200**（`["mail_seen", <email_id>]` を atomic に確保・TTL 60日） |
+| 1日の上限超過                                     | **200**（ログのみ） |
+| AI が読み取れなかった                             | **200**（何も書かず、**LINE 連携済みなら**「貼り付けてください」と push。メール返信はしない — 送信ドメイン検証が必要で、リマインドの無料枠を食う） |
+| 受信本文の取得に失敗（Resend 側の一時障害）        | **502**（唯一リトライさせたいケース。冪等マーカーは解放する） |
+| 登録成功                                          | **200** |
+
+本文はテキストパートを優先し、HTML のみのメールはタグを除去して使う（上限 100KB）。**添付は v1 では
+対象外**でログに残すだけ。パーサーチェーンは `/api/parse`・LINE と**同じインスタンス**を共有し、
+登録は HTTP API と同じ `createReservation`（`confirmed: false` = 候補）＋同じカレンダー同期フック。
+メールが規定を書いていなかった場合は**施設テンプレ**（§1 のキャンセル規定テンプレ）で補完し、
+メールが規定を書いていた場合はテンプレで上書きしない。
+
+**オーナーがダッシュボードでやること**: ① Resend で受信を有効化（独自ドメインなしなら
+`*.resend.app` が自動割当）→ ② Webhook を `https://plancel-app.torifo.deno.net/webhook/email`
+に向けて `email.received` を購読し signing secret を控える → ③ Deploy の環境変数に
+`PLANCEL_INBOUND_DOMAIN` と `RESEND_WEBHOOK_SECRET` を入れて**再デプロイ**（env 変更は再デプロイまで
+効かない）→ ④ 各ユーザーがマイページで自分の転送先アドレスをメールの連絡先に保存。
+
 ## 4. 認証（ログイン一本化）
 
 ログインが唯一の入口。**旧方式（ブラウザローカルの匿名トークンが現行）は廃止**。旧トークン台帳は
@@ -195,6 +249,10 @@ Web台帳の無料キャンセル期限リマインド（`src/web/notify.ts`、1
   - **パスワード設定/変更**（`POST /auth/password`）: Google
     アカウントにパスワードログインを足せる。
   - **パーソナル API トークン**（`POST/DELETE /auth/token`、§6 MCP 用）。
+  - **メール転送先アドレス**（2026-07-27、§3.1）: `GET /auth/me` の `mailAddress`
+    （`p-<mailSecret>@<PLANCEL_INBOUND_DOMAIN>`、ドメイン未設定なら `null`）。
+    `POST /auth/mail/rotate` で再発行 → 新しい `mailAddress` を返し、旧アドレスは即座に無効。
+    **UI 未実装**（表示・コピーボタン・再発行ボタンは今後）。
   - **LINE 連携**（ユーザー毎、2026-07-27）: `POST /auth/line/code` が**8文字の連携コード**
     （曖昧な O/0/I/l/1 を除く英数字、**10分間有効・1回限り**、発行し直すと前のコードは即無効）を
     返し、それを LINE のトークに送ると連携が完了する。`DELETE /auth/line` で解除。`GET /auth/me`

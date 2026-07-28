@@ -1,10 +1,11 @@
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
+import { assertEquals, assertNotEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../auth/routes.ts";
 import {
   consumeLineLinkCode,
   findUserByApiToken,
   findUserByEmail,
   findUserByLineUserId,
+  findUserByMailSecret,
   findUserByUid,
   getOrCreateUserByEmail,
   getUser,
@@ -440,6 +441,38 @@ Deno.test("personal API token: issue -> act as user -> rotate invalidates -> rev
     assertEquals(gone.ledger, null);
     const me = await (await handleAuthApi(req("GET", "/auth/me"), deps)).json();
     assertEquals(me.hasApiToken, false);
+  });
+});
+
+// ---- mail intake address (メール転送, owner 2026-07-27) ----
+
+Deno.test("転送先アドレス: /auth/me shows it only with a receiving domain, rotate replaces it", async () => {
+  await withKv(async (kv) => {
+    // One generator for both deps: two would hand out the same "random" token.
+    const ids = makeAuthIds();
+    // No PLANCEL_INBOUND_DOMAIN → the feature is simply not offered.
+    const off = makeDeps(kv, { ids, devUserEmail: "me@example.com" });
+    const noDomain = await (await handleAuthApi(req("GET", "/auth/me"), off)).json();
+    assertEquals(noDomain.mailAddress, null);
+
+    const deps = makeDeps(kv, {
+      ids,
+      devUserEmail: "me@example.com",
+      inboundDomain: "ferouhelee.resend.app",
+    });
+    const me = await (await handleAuthApi(req("GET", "/auth/me"), deps)).json();
+    assertStringIncludes(me.mailAddress, "@ferouhelee.resend.app");
+    assertStringIncludes(me.mailAddress, "p-");
+    const user = await findUserByEmail(kv, "me@example.com");
+    assertEquals((await findUserByMailSecret(kv, user?.mailSecret ?? ""))?.id, user?.id);
+
+    // Rotation: the leaked address stops resolving, the new one is returned.
+    assertEquals((await handleAuthApi(req("POST", "/auth/mail/rotate"), makeDeps(kv))).status, 401);
+    const rotated = await (await handleAuthApi(req("POST", "/auth/mail/rotate"), deps)).json();
+    assertNotEquals(rotated.mailAddress, me.mailAddress);
+    assertEquals(await findUserByMailSecret(kv, user?.mailSecret ?? ""), null);
+    const after = await (await handleAuthApi(req("GET", "/auth/me"), deps)).json();
+    assertEquals(after.mailAddress, rotated.mailAddress);
   });
 });
 
