@@ -335,3 +335,40 @@ Deno.test("policy-templates API: a shared-reservation member cannot read the own
     assertEquals((await getTemplate(kv, owner.ledgerId, "翠嶺館"))?.policy, "staged");
   });
 });
+
+// ---- the rescue itself: one rule, applied wherever a reservation is created ----
+
+Deno.test("policy templates: 規定が不明の登録は施設の既定規定を受け取る（API/MCP 経路）", async () => {
+  await withKv(async (kv) => {
+    // この規則は createReservation（src/web/store.ts）に1か所だけ置いてある。
+    // 以前は取り込み経路ごとに書かれていて、LINE と MCP が引き忘れていた:
+    // 同じ宿でも入れる場所によって規定が入ったり不明のままだったりした。
+    const ids = makeIds();
+    const owner = await getOrCreateUserByEmail(kv, "owner@example.com", ids);
+    await saveTemplate(kv, owner.ledgerId, "翠嶺館", "staged", ids);
+
+    // MCP の create_reservation はこの POST に落ちる（policy 既定値は "unknown"）。
+    const created = await (await asUser(kv, ids, owner, "POST", "/api/reservations", {
+      service: "翠嶺館",
+      startsAt: "2026-08-22T15:00:00+09:00",
+      policy: "unknown",
+    })).json();
+    assertEquals(created.reservation.policy, "staged");
+
+    // 読み取れた規定は塗り替えない — その予約に固有の料率表のほうが強い。
+    const stated = await (await asUser(kv, ids, owner, "POST", "/api/reservations", {
+      service: "翠嶺館",
+      startsAt: "2026-08-23T15:00:00+09:00",
+      policy: "free24",
+    })).json();
+    assertEquals(stated.reservation.policy, "free24");
+
+    // 既定を持たない施設は不明のまま（勝手に他所の規定を借りない）。
+    const other = await (await asUser(kv, ids, owner, "POST", "/api/reservations", {
+      service: "名も無き宿",
+      startsAt: "2026-08-24T15:00:00+09:00",
+      policy: "unknown",
+    })).json();
+    assertEquals(other.reservation.policy, "unknown");
+  });
+});

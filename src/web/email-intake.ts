@@ -41,7 +41,6 @@ import { logger } from "../lib/log.ts";
 import { runParseChain } from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
 import { fromCoreStages } from "./policy.ts";
-import { getTemplate } from "./policy-template.ts";
 import { createReservation, webCreateSchema, type WebIds } from "./store.ts";
 import { findUserByMailSecret, mailSecretFromAddress, type WebUser } from "./users.ts";
 import { readSvixHeaders, verifySvixSignature } from "./email-signature.ts";
@@ -431,29 +430,19 @@ async function intake(
     return empty(200);
   }
 
-  // A policy the mail never stated falls back to the facility's saved template,
-  // the same rescue the web form performs via /api/policy-templates/lookup. A
-  // policy the mail DID state is never overwritten (this reservation's own fee
-  // table beats the facility default).
+  // A policy the mail never stated falls back to the facility's saved template.
+  // That rescue lives in createReservation (src/web/store.ts) so every intake
+  // route gets it — this one used to carry its own copy, and the copy LINE never
+  // had is what made the same hotel behave differently there (2026-07-28).
   const fields = create.data;
-  const policy = fields.policy === "unknown"
-    ? (await getTemplate(deps.kv, user.ledgerId, fields.service))?.policy ?? "unknown"
-    : fields.policy;
-
-  const r = await createReservation(
-    deps.kv,
-    user.ledgerId,
-    { ...fields, policy },
-    deps.ids,
-    user.id,
-  );
+  const r = await createReservation(deps.kv, user.ledgerId, fields, deps.ids, user.id);
   deps.onMutate?.(user, r.id);
   log.info("forwarded mail registered as a candidate", {
     userId: user.id,
     email_id: event.email_id,
     job_id: job.id,
     resvId: r.id,
-    policyFromTemplate: fields.policy === "unknown" && policy !== "unknown",
+    policyFromTemplate: fields.policy === "unknown" && r.policy !== "unknown",
   });
   return empty(200);
 }

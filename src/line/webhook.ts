@@ -44,7 +44,7 @@ import { logger, newCorrelationId } from "../lib/log.ts";
 import { verifyLineSignature } from "./signature.ts";
 import { findUserByLineUserId, type WebUser } from "../web/users.ts";
 import {
-  applyWebAction,
+  applyWebPostback,
   buildCommandReply,
   buildUnknownCommandReply,
   type LineWebDeps,
@@ -177,11 +177,12 @@ function summaryText(reservation: Reservation): string {
 }
 
 /**
- * Outcome of registering a parse output: the reply summary on success, or
+ * Outcome of registering a parse output: the reply message on success, or
  * `ok: false` when the output does not satisfy `reservationInputSchema`
- * (missing/invalid fields).
+ * (missing/invalid fields). A whole message rather than a string because the
+ * web-ledger path may attach Quick Reply items to it (キャンセル規定の選択).
  */
-type Registration = { ok: true; summary: string } | { ok: false };
+type Registration = { ok: true; message: LineTextMessage } | { ok: false };
 
 /**
  * Registers a validated parse output as a reservation (source: line).
@@ -208,12 +209,12 @@ async function registerOutput(
 
   if (web !== null) {
     const registered = await registerWebReservation(web.deps, web.user, parsed.data);
-    return { ok: true, summary: registered.summaryText };
+    return { ok: true, message: registered.message };
   }
 
   const reservation = buildReservation(deps.ctx, parsed.data);
   const created = await persistNewReservation(deps.ctx, reservation);
-  return { ok: true, summary: summaryText(created) };
+  return { ok: true, message: { type: "text", text: summaryText(created) } };
 }
 
 export async function handleLineWebhook(
@@ -351,7 +352,7 @@ async function handleMessage(
   if (job.status === "parsed") {
     const registered = await registerOutput(deps, web, resolvedOutput(job), job.id);
     if (registered.ok) {
-      await deps.client.reply(replyToken, [{ type: "text", text: registered.summary }]);
+      await deps.client.reply(replyToken, [registered.message]);
       return "registered";
     }
     await deps.client.reply(replyToken, [missingMessage(job)]);
@@ -383,7 +384,9 @@ async function handlePostback(
   const webAct = parseWebPostback(data);
   if (webAct !== null) {
     if (web === null) return "ignored:postback";
-    const reply = await applyWebAction(web.deps, web.user, webAct.action, webAct.id);
+    // `web` はこのイベントの送信者本人の台帳。よその予約IDを載せた postback は
+    // この台帳に無いIDとして落ちる（web-commands.ts の applyWebPostback）。
+    const reply = await applyWebPostback(web.deps, web.user, webAct);
     await deps.client.reply(replyToken, [reply]);
     return `web:${webAct.action}`;
   }
@@ -434,6 +437,6 @@ async function handlePostback(
   }
   updated = { ...updated, status: "resolved" };
   await deps.ctx.store.putParseJob(updated);
-  await deps.client.reply(replyToken, [{ type: "text", text: registered.summary }]);
+  await deps.client.reply(replyToken, [registered.message]);
   return "postback:registered";
 }

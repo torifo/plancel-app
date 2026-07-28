@@ -25,6 +25,8 @@ import {
   setUid,
 } from "../../web/users.ts";
 import { makeAuthIds } from "../../web/tests/users_test.ts";
+import { saveTemplate } from "../../web/policy-template.ts";
+import type { WebPolicy } from "../../web/policy.ts";
 
 const SECRET = "channel-secret";
 const OWNER = "U-owner";
@@ -813,6 +815,197 @@ Deno.test("webhook: fixed-yen fee / absent parsed policy -> unknown, and says so
       assertEquals(r?.policy, "unknown", label);
       assertStringIncludes(text, "キャンセル規定が不明です");
     }
+  });
+});
+
+// ---- 規定不明で登録したあとの続き（LINE で始めた作業を LINE で終える） ----
+
+/**
+ * 規定を読み取れない予約メールを1通送り、候補として登録させる。返り値には
+ * 登録直後の返信と、その続きの postback を撃つための deps がそろっている。
+ */
+async function registerWithUnknownPolicy(
+  kv: Deno.Kv,
+  fields: { amount?: number; startsAt?: string; template?: WebPolicy } = {},
+) {
+  const { web, owner, webIds, mutated, seed } = await makeWebDeps(kv);
+  if (fields.template !== undefined) {
+    await saveTemplate(kv, owner.ledgerId, "翠嶺館", fields.template, webIds);
+  }
+  const body = "宿からの予約確認メールです（キャンセル規定の記載なし）";
+  const parser = MockParser(
+    "p1",
+    new Map([[body, {
+      raw_response: "{}",
+      output: {
+        service_name: "翠嶺館",
+        starts_at: fields.startsAt ?? "2026-08-22T15:00:00+09:00",
+        ...(fields.amount === undefined ? {} : { amount_jpy: fields.amount }),
+      },
+    }]]),
+  );
+  const { deps, replies } = makeDeps({ web });
+  deps.parsers = [parser];
+  assertEquals((await post(deps, [textEvent(body)])).handled, ["registered"]);
+  const resv = (await listReservations(kv, owner.ledgerId))[0];
+  return { deps, replies, owner, mutated, seed, resv, message: replies[0]?.messages[0] };
+}
+
+/** 規定 Quick Reply のタップ。既定は本人（OWNER）が押した場合。 */
+function policyPostback(
+  id: string | undefined,
+  choice: string,
+  opts: { by?: string; token?: string } = {},
+) {
+  return {
+    type: "postback",
+    replyToken: opts.token ?? "reply-2",
+    source: { type: "user", userId: opts.by ?? OWNER },
+    postback: { data: `webact|policy|${id}|${choice}` },
+  };
+}
+
+Deno.test("webhook: 規定不明で登録 -> その場で規定を選べる Quick Reply が付く", async () => {
+  await withKv(async (kv) => {
+    const { resv, message } = await registerWithUnknownPolicy(kv);
+    assertEquals(resv?.policy, "unknown");
+
+    const body = message?.text ?? "";
+    assertStringIncludes(body, "キャンセル規定が不明です");
+    assertStringIncludes(body, "当てはまるものを選んでください");
+    // プリセットで表せない規定の逃げ道は台帳そのもの（取り込み画面ではない）。
+    assertStringIncludes(body, "その他はWebで: https://plancel-app.torifo.deno.net");
+    assertEquals(body.includes("#import"), false);
+
+    // 選択肢は PRESET_STAGES のプリセット名だけ = 新しい段階表を発明しない。
+    const items = message?.quickReply?.items ?? [];
+    assertEquals(items.map((i) => i.action.label), [
+      "前日まで無料",
+      "7日前まで無料",
+      "いつでも無料",
+    ]);
+    assertEquals(
+      items.map(postbackData),
+      ["free24", "staged", "none"].map((p) => `webact|policy|${resv?.id}|${p}`),
+    );
+    // LINE の Quick Reply 上限（MAX_QUICK_REPLY = 13）の内側。
+    assertEquals(items.length <= 13, true);
+  });
+});
+
+Deno.test("webhook: 施設の既定規定があるときは、聞かずにそれを当てる", async () => {
+  await withKv(async (kv) => {
+    // web の取り込み（フォームの /api/policy-templates/lookup とメール転送の
+    // email-intake.ts）は、規定を読み取れなかったとき施設の既定規定に落ちる。
+    // LINE だけがこれを引いていなかったので、同じ宿でも web から入れると規定が
+    // 入り、LINE から入れると unknown のままだった（2026-07-28 修正）。
+    const { resv, message } = await registerWithUnknownPolicy(kv, { template: "staged" });
+    assertEquals(resv?.policy, "staged");
+
+    // 規定が決まっている以上、聞く必要がない = Quick Reply を出さない。
+    const body = message?.text ?? "";
+    assertEquals(body.includes("キャンセル規定が不明です"), false);
+    assertEquals(message?.quickReply, undefined);
+  });
+});
+
+Deno.test("webhook: 読み取れた規定は施設の既定で塗り替えない", async () => {
+  await withKv(async (kv) => {
+    // その予約に固有の料率表のほうが、施設の既定より強い（6068e12 と同じ規則）。
+    const { web, owner, webIds } = await makeWebDeps(kv);
+    await saveTemplate(kv, owner.ledgerId, "翠嶺館", "none", webIds);
+    const body = "翠嶺館 予約確認（3日前から50%）";
+    const parser = MockParser(
+      "p1",
+      new Map([[body, {
+        raw_response: "{}",
+        output: {
+          service_name: "翠嶺館",
+          starts_at: "2026-08-22T15:00:00+09:00",
+          cancellation_policy: CORE_POLICY.staged,
+        },
+      }]]),
+    );
+    const { deps } = makeDeps({ web });
+    deps.parsers = [parser];
+    assertEquals((await post(deps, [textEvent(body)])).handled, ["registered"]);
+    const resv = (await listReservations(kv, owner.ledgerId))[0];
+    assertEquals(resv?.policy, "staged");
+  });
+});
+
+Deno.test("webhook: 規定を選ぶと台帳に入り、無料キャンセル期限が返信に出る", async () => {
+  await withKv(async (kv) => {
+    const { deps, replies, owner, mutated, resv } = await registerWithUnknownPolicy(kv, {
+      amount: 40000,
+    });
+    const id = resv?.id ?? "";
+
+    const result = await post(deps, [policyPostback(id, "staged")]);
+
+    assertEquals(result.handled, ["web:policy"]);
+    assertEquals((await getReservation(kv, owner.ledgerId, id))?.policy, "staged");
+    // 規定はカレンダーの説明文に出るので、登録時と同じく貼り直しを頼む。
+    assertEquals(mutated, [id, id]);
+
+    const body = replies[1]?.messages[0]?.text ?? "";
+    assertStringIncludes(body, "キャンセル規定を「7日前まで無料」にしました: 翠嶺館（@owner）");
+    assertStringIncludes(body, "7日前まで無料 → 3日前まで30% → 前日まで50% → 当日100%");
+    // 8/22 開始・staged = 168時間前まで無料 -> 8/15。
+    assertStringIncludes(body, "◆8/15(土)まで無料");
+    assertStringIncludes(body, "最大キャンセル料 ¥40,000");
+  });
+});
+
+Deno.test("webhook: 「いつでも無料」の返信は同じ文を二度言わない", async () => {
+  await withKv(async (kv) => {
+    // describePolicy と無料キャンセル期限の一行が、この規定だけ同じ文になる。
+    const { deps, replies, resv } = await registerWithUnknownPolicy(kv, { amount: 8000 });
+    await post(deps, [policyPostback(resv?.id, "none")]);
+    assertEquals((replies[1]?.messages[0]?.text ?? "").split("\n"), [
+      "キャンセル規定を「いつでも無料」にしました: 翠嶺館（@owner）",
+      "いつでも無料 / 最大キャンセル料 ¥0",
+      "「確認」で一覧",
+    ]);
+  });
+});
+
+Deno.test("webhook: 他人の予約IDを載せた policy postback は何も書き換えない", async () => {
+  await withKv(async (kv) => {
+    const { deps, replies, owner, mutated, seed, resv } = await registerWithUnknownPolicy(kv);
+    const id = resv?.id ?? "";
+    await seed(OTHER_EMAIL, OTHER);
+
+    // OTHER が OWNER の予約IDを載せて押す。
+    const foreign = await post(deps, [policyPostback(id, "none", { by: OTHER })]);
+    assertEquals(foreign.handled, ["web:policy"]);
+    assertStringIncludes(replies[1]?.messages[0]?.text ?? "", "見つかりませんでした");
+    assertEquals((await getReservation(kv, owner.ledgerId, id))?.policy, "unknown");
+
+    // 本人が押しても、プリセット名でない値は受け付けない（段階表は postback から
+    // 入ってこない）。パースの時点で落ちるので返信もしない。
+    const bogus = await post(deps, [policyPostback(id, "free48", { token: "reply-3" })]);
+    assertEquals(bogus.handled, ["ignored:postback"]);
+    assertEquals((await getReservation(kv, owner.ledgerId, id))?.policy, "unknown");
+
+    // 登録時の1回だけ。弾かれた2回はカレンダー同期も走っていない。
+    assertEquals(mutated, [id]);
+    assertEquals(replies.length, 2);
+  });
+});
+
+Deno.test("webhook: 選んだ時点で無料キャンセル期限が過ぎていたら、過ぎたと言う", async () => {
+  await withKv(async (kv) => {
+    // now = 8/1。開始 8/3 の予約に「7日前まで無料」を選ぶと期限は 7/27 = 過去。
+    // 「◆7/27まで無料」だけ返すと、まだ間に合うように読めてしまう。
+    const { deps, replies, resv } = await registerWithUnknownPolicy(kv, {
+      startsAt: "2026-08-03T15:00:00+09:00",
+    });
+    await post(deps, [policyPostback(resv?.id, "staged")]);
+    assertStringIncludes(
+      replies[1]?.messages[0]?.text ?? "",
+      "◆7/27(月)まで無料（この無料キャンセル期限は過ぎています）",
+    );
   });
 });
 

@@ -5,8 +5,10 @@
  * (src/web/store.ts) from LINE chat — the core event-sourced ledger is only the
  * standalone/MCP-local sink now (LINE v2 #4, closed):
  *   - a COMMAND word (`COMMANDS` below) → its own reply + the command Quick Reply
- *   - Quick Reply postback              → confirm / report-cancelled on the web ledger
- *   - parsed reservation                → created as a web-ledger candidate
+ *   - Quick Reply postback              → confirm / report-cancelled / キャンセル規定を
+ *                                         決める（いずれも送信者本人の台帳の中だけ）
+ *   - parsed reservation                → created as a web-ledger candidate。規定を
+ *                                         読み取れなかったときは、その場で選ばせる
  *
  * The command table is the rich menu's contract (owner 2026-07-28): a rich-menu
  * button can only send a fixed text or open a URL, so every word the menu sends
@@ -33,6 +35,7 @@ import {
   createReservation,
   getReservation,
   listReservations,
+  patchReservation,
   type WebReservation,
   WebTransitionError,
 } from "../web/store.ts";
@@ -46,7 +49,15 @@ import {
   looksLikeLineLinkCode,
   type WebUser,
 } from "../web/users.ts";
-import { freeDeadlineMs, fromCoreStages, isAlwaysFree, maxLossYen } from "../web/policy.ts";
+import {
+  describePolicy,
+  freeDeadlineMs,
+  fromCoreStages,
+  isAlwaysFree,
+  maxLossYen,
+  type WebPolicyPreset,
+  webPolicyPresetSchema,
+} from "../web/policy.ts";
 import type { LineQuickReplyItem, LineTextMessage } from "./types.ts";
 
 /** Access to the WEB ledgers, injected into the webhook (optional). */
@@ -79,8 +90,15 @@ export const WEB_POSTBACK_PREFIX = "webact";
  * the bare origin. `web/index.html`'s `routeHash` resolves all three:
  * `#import` opens the 取り込み modal, `#link` the 「連携と通知」 modal at its LINE
  * section, `#help` the 使い方 page.
+ *
+ * `APP_LEDGER_URL` is the one exception, and it is the bare origin ON PURPOSE:
+ * `routeHash` has no route that opens ONE reservation, so there is nothing more
+ * precise to link a 「その他はWebで」 escape to. The origin lands on the 台帳
+ * itself (the default view), which is the screen that answers 「規定を細かく
+ * 入れたい」. A per-reservation route would be the better link the day one exists.
  */
 const APP_URL = "https://plancel-app.torifo.deno.net";
+const APP_LEDGER_URL = APP_URL;
 const APP_IMPORT_URL = `${APP_URL}/#import`;
 const APP_LINK_URL = `${APP_URL}/#link`;
 const APP_HELP_URL = `${APP_URL}/#help`;
@@ -142,12 +160,36 @@ export function looksLikeMistypedCommand(text: string): boolean {
 
 export type WebAction = "confirm" | "cancel";
 
-/** Parses `webact|<action>|<id>`; null when this is not a web-ledger postback. */
-export function parseWebPostback(data: string): { action: WebAction; id: string } | null {
-  const [prefix, action, id] = data.split("|");
+/**
+ * キャンセル規定として LINE から選べる値＝プリセット名だけ。段階表そのものを
+ * postback に載せない（＝LINE 側で新しい段階表を発明しない）ので、台帳と LINE
+ * が別々の料率表を持つことがない。"unknown" を外しているのは、それこそが今
+ * 抜け出そうとしている状態だから。
+ */
+const policyChoiceSchema = webPolicyPresetSchema.exclude(["unknown"]);
+/** Exactly the keys of `PRESET_STAGES` — the same exclusion, as a type. */
+export type PolicyChoice = Exclude<WebPolicyPreset, "unknown">;
+
+function isPolicyChoice(value: string | undefined): value is PolicyChoice {
+  return value !== undefined && policyChoiceSchema.safeParse(value).success;
+}
+
+/**
+ * A `webact|` postback. 規定の選択だけは4つ目の欄（選ばれたプリセット名）を
+ * 持つので、確定/キャンセルとは別の枝にしてある。
+ */
+export type WebPostback =
+  | { action: WebAction; id: string }
+  | { action: "policy"; id: string; choice: PolicyChoice };
+
+/** Parses `webact|<action>|<id>[|<choice>]`; null when it is not one of ours. */
+export function parseWebPostback(data: string): WebPostback | null {
+  const [prefix, action, id, choice] = data.split("|");
   if (prefix !== WEB_POSTBACK_PREFIX || id === undefined || id === "") return null;
-  if (action !== "confirm" && action !== "cancel") return null;
-  return { action, id };
+  if (action === "confirm" || action === "cancel") return { action, id };
+  // 未知の4つ目の欄は黙って捨てる: 受け付けるのはプリセット名だけ。
+  if (action === "policy" && isPolicyChoice(choice)) return { action, id, choice };
+  return null;
 }
 
 const HOUR_MS = 3_600_000;
@@ -523,6 +565,115 @@ export async function applyWebAction(
   return text(`確定しました: ${r.service}（${label}）${note}「確認」で一覧`);
 }
 
+// ---- キャンセル規定の補完（規定不明で登録した予約の続き） ----
+//
+// 規定が入らないままの予約は、無料キャンセル期限が決まらない＝このアプリの
+// 本体機能（期限の見張り）が効かない。LINE で始めた登録を LINE で終えられる
+// ように、規定不明で登録したその場で選ばせる。
+
+/**
+ * チップに載る短い名前。`Record<PolicyChoice, …>` なので、プリセットが増えたら
+ * ここが型エラーになる — 選べない規定が黙って生まれることはない。
+ * `describePolicy` の全文（「7日前まで無料 → 3日前まで30% → …」）は MAX_LABEL に
+ * 収まらないので、ラベルはこのアプリが見張っている一点＝無料キャンセル期限だけを
+ * 言い、全文は選んだあとの返信で見せる。
+ */
+const POLICY_LABEL: Record<PolicyChoice, string> = {
+  free24: "前日まで無料",
+  staged: "7日前まで無料",
+  none: "いつでも無料",
+};
+
+/**
+ * 並びは緩い順ではなく、宿・店の規定として多い順（前日締切が最多）。上ほど
+ * 押されるので、当たりを最初に置く。
+ */
+const POLICY_ORDER: readonly PolicyChoice[] = ["free24", "staged", "none"];
+
+/**
+ * 規定不明で登録した予約に付ける選択肢。プリセットの数だけなので `MAX_QUICK_REPLY`
+ * の内側に必ず収まるが、プリセットが増えても超えないよう同じ上限で切る。
+ */
+function policyQuickReplies(id: string): LineQuickReplyItem[] {
+  return POLICY_ORDER.map((choice) => {
+    const label = POLICY_LABEL[choice].slice(0, MAX_LABEL);
+    return {
+      type: "action",
+      action: {
+        type: "postback",
+        label,
+        data: `${WEB_POSTBACK_PREFIX}|policy|${id}|${choice}`,
+        displayText: label,
+      },
+    } satisfies LineQuickReplyItem;
+  }).slice(0, MAX_QUICK_REPLY);
+}
+
+/**
+ * 規定を入れた直後の一行。すでに過ぎた期限もありうる（明後日の予約に
+ * 「7日前まで無料」を入れた場合）ので、そのときは過去だと言い切る —
+ * 「◆8/15(土)まで無料」だけ返すと、まだ間に合うように読めてしまう。
+ */
+function deadlineLine(r: WebReservation, nowMs: number): string {
+  const at = freeDeadlineMs(r.policy, r.startsAt);
+  const note = deadlineNote(r);
+  return at !== null && at <= nowMs ? `${note}（この無料キャンセル期限は過ぎています）` : note;
+}
+
+/**
+ * 選ばれたプリセットを、その予約のキャンセル規定として入れる。
+ *
+ * 他人の予約を書き換えられない理由は確定/キャンセルとまったく同じ: id は
+ * postback 由来＝クライアントが言っているだけの値だが、読み書きは送信者本人の
+ * 台帳（`owner.ledgerId`）の中でしか行わない。よその id はこの台帳に存在しない
+ * id として `patchReservation` が null を返し、STALE の返事で終わる。
+ * 書けたときは確定/キャンセルと同じく `onMutate` を鳴らす — 規定は
+ * カレンダーの説明文（`describePolicy`）に出るので、貼り直しが要る。
+ */
+export async function applyPolicyChoice(
+  deps: LineWebDeps,
+  owner: WebUser,
+  id: string,
+  choice: PolicyChoice,
+): Promise<LineTextMessage> {
+  const r = await patchReservation(
+    deps.kv,
+    owner.ledgerId,
+    id,
+    { policy: choice },
+    deps.ids,
+    owner.id,
+  );
+  if (r === null) return text(STALE);
+  deps.onMutate?.(owner, id);
+
+  // 金額未登録なら最大キャンセル料は ¥0 としか出せないので、黙っておく。
+  const loss = r.amount === null
+    ? ""
+    : ` / 最大キャンセル料 ${yen(maxLossYen(r.policy, r.amount))}`;
+  // 料率の全文は、ラベルが言っていない段（3日前まで30% など）を確かめるために出す。
+  const detail = describePolicy(r.policy);
+  const deadline = deadlineLine(r, deps.nowMs());
+  return text([
+    `キャンセル規定を「${POLICY_LABEL[choice]}」にしました: ${r.service}（${accountLabel(owner)}）`,
+    // 「いつでも無料」は全文と期限の一行が同じ文になるので、二度言わない。
+    ...(detail === deadline ? [] : [detail]),
+    `${deadline}${loss}`,
+    "「確認」で一覧",
+  ].join("\n"));
+}
+
+/** The one dispatcher for `webact|` postbacks — the webhook never branches. */
+export function applyWebPostback(
+  deps: LineWebDeps,
+  owner: WebUser,
+  act: WebPostback,
+): Promise<LineTextMessage> {
+  return act.action === "policy"
+    ? applyPolicyChoice(deps, owner, act.id, act.choice)
+    : applyWebAction(deps, owner, act.action, act.id);
+}
+
 // ---- Registration into the web ledger (LINE v2 #4) ----
 
 /**
@@ -543,15 +694,19 @@ export interface WebRegistrationInput {
  * through the same `createReservation` the HTTP API calls (and firing the same
  * `onMutate` hook it fires on create, unconditionally — the sync itself decides
  * what a candidate means).
+ *
+ * 返すのは文面ではなくメッセージそのもの: 規定を読み取れなかったときだけ、
+ * その場で規定を選ぶ Quick Reply を付けて返す。
  */
 export async function registerWebReservation(
   deps: LineWebDeps,
   owner: WebUser,
   output: WebRegistrationInput,
-): Promise<{ id: string; summaryText: string }> {
+): Promise<{ id: string; message: LineTextMessage }> {
   // Arbitrary parsed stages are preserved as-is (src/web/policy.ts); only a
-  // policy with no % expression at all stays "unknown" for the owner to fill in.
-  const policy = fromCoreStages(output.cancellation_policy);
+  // policy with no % expression at all stays "unknown" — 下の Quick Reply で
+  // その場で埋められる。
+  const parsedPolicy = fromCoreStages(output.cancellation_policy);
   const r = await createReservation(
     deps.kv,
     owner.ledgerId,
@@ -561,7 +716,7 @@ export async function registerWebReservation(
       startsAt: output.starts_at,
       amount: output.amount_jpy ?? null,
       location: output.location ?? null,
-      policy,
+      policy: parsedPolicy,
       // LINE additions are candidates; the owner confirms from 「確認」or the web UI.
       confirmed: false,
     },
@@ -571,12 +726,26 @@ export async function registerWebReservation(
   deps.onMutate?.(owner, r.id);
 
   const when = fmtMdHm(Temporal.Instant.from(r.startsAt).epochMilliseconds);
-  const note = policy === "unknown" ? "（キャンセル規定が不明です。台帳で補ってください）" : "";
+  const head = `登録しました: ${r.service} / ${when} — ${
+    accountLabel(owner)
+  } の台帳に候補として入りました`;
+  // 読み取れた規定だけでなく、createReservation が当てた施設の既定規定も含めて
+  // 判断するので、保存された `r.policy` を見る（parse 結果を見ると、既定が入って
+  // いるのに規定を聞いてしまう）。
+  if (r.policy !== "unknown") return { id: r.id, message: text(head) };
+
+  // 規定不明のまま終わらせない: ここで選べば無料キャンセル期限が決まる。
+  // プリセットで表せない規定（¥固定額や独自の段階表）だけを台帳に逃がす。
   return {
     id: r.id,
-    summaryText: `登録しました: ${r.service} / ${when} — ${
-      accountLabel(owner)
-    } の台帳に候補として入りました${note}`,
+    message: {
+      ...text([
+        `${head}（キャンセル規定が不明です）`,
+        "当てはまるものを選んでください。選ぶと無料キャンセル期限を見張れます。",
+        `その他はWebで: ${APP_LEDGER_URL}`,
+      ].join("\n")),
+      quickReply: { items: policyQuickReplies(r.id) },
+    },
   };
 }
 

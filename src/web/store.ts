@@ -11,6 +11,7 @@
  */
 import { z } from "zod";
 import { webPolicySchema } from "./policy.ts";
+import { getTemplate } from "./policy-template.ts";
 
 // The policy model (presets + arbitrary stage tables) and its math live in
 // ./policy.ts; re-exported here because the record schema is this module's.
@@ -128,6 +129,15 @@ export async function createReservation(
   actor: WebActor = null,
 ): Promise<WebReservation> {
   const now = ids.nowIso();
+  // 規定が「不明」のときだけ施設の既定規定に落ちる（オーナー 2026-07-27）。
+  // 予約を作る経路は web API（フォームと MCP）・メール転送・LINE の3つあり、
+  // この規則をそれぞれが自前で書いていた結果、LINE だけが引き忘れていて「同じ宿
+  // でも web から入れると規定が入り、LINE から入れると不明」になっていた
+  // （2026-07-28）。作る場所は1つなので、規則もここ1か所に置く。
+  // 読み取れた規定は塗り替えない — その予約に固有の料率表のほうが強い。
+  const policy = input.policy === "unknown"
+    ? (await getTemplate(kv, token, input.service))?.policy ?? "unknown"
+    : input.policy;
   const r: WebReservation = {
     id: ids.newId(),
     plan: input.plan,
@@ -135,7 +145,7 @@ export async function createReservation(
     startsAt: input.startsAt,
     amount: input.amount,
     location: input.location,
-    policy: input.policy,
+    policy,
     // Confirm through confirmReservation below so create-with-confirmed uses
     // exactly the same transition validation and atomic plan settlement.
     status: "candidate",
