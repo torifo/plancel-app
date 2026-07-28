@@ -363,6 +363,32 @@
     .demobar.on {
       display: flex;
     }
+    /* 読み込みに失敗したときだけ出す帯。台帳の中身は消さずに残す方針なので、
+       「いま見えているのが最新ではない」ことと、やり直す手段はここだけが伝える。 */
+    .loadbar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: var(--danger-soft);
+      border: 1px solid var(--danger);
+      border-radius: 10px;
+      padding: calc(10px * var(--fs)) 14px;
+      margin: 0 0 12px;
+      font-size: calc(13px * var(--fs));
+      color: var(--ink);
+    }
+    .loadbar.on {
+      display: flex;
+    }
+    .loadbar .btn-small {
+      border-color: var(--danger);
+      color: var(--danger-ink);
+    }
+    .loadbar .btn-small:hover {
+      background: var(--card2);
+    }
     .actions {
       display: flex;
       gap: 8px;
@@ -596,6 +622,9 @@
       display: flex;
       gap: 7px;
       margin-top: 7px;
+      /* 「✓ キャンセルした」と取り消しの2つが並ぶので、狭い幅では折り返す
+         （.rowbtn は nowrap なので、wrap がないとレールからはみ出す）。 */
+      flex-wrap: wrap;
     }
     .rail-done {
       border: 1px solid var(--line);
@@ -1909,6 +1938,13 @@
         <button class="btn-small" id="exitDemo">← 自分のデータに戻る</button>
       </div>
 
+      <!-- 読み込みに失敗したときだけ出る帯。失敗しても data は空にしないので、
+           「消えた」のではなく「読めていない」ことをここで名指しする。 -->
+      <div class="loadbar" id="loadBar" role="alert">
+        <div class="txt" id="loadMsg"></div>
+        <button class="btn-small" id="retryBtn">もう一度読み込む</button>
+      </div>
+
       <div class="statusrow">
         <div class="chips">
           <span class="chip lamp" id="chipNext">◆ 次の無料キャンセル期限 —</span>
@@ -2515,13 +2551,76 @@
     }
     let data = [];
     let editingId = null;
-    // 失敗を人の言葉にする。権限不足（403 reason:"role"）はそれ自体が説明になっている
-    // ので、汎用の前置き（「失敗しました: 」など）は付けずにそのまま出す。
-    function apiErrorText(e, prefix) {
-      if (e && e.status === 403 && e.body && e.body.reason === "role") {
+    // ログイン切れ・通信断の言い回し。台帳・LINE 連携・転送メールで同じ事象なので
+    // 1か所に置く（LINE の節はここより後ろなので、宣言はこちらが先）。
+    const LINE_RELOAD = "ログインの有効期限が切れました。ページを再読み込みしてからやり直してください。";
+    const LINE_OFFLINE = "通信できませんでした。電波のよいところで、もう一度お試しください。";
+    // サーバのエラー識別子 → 画面に出す日本語。キーは src/web/api.ts と
+    // src/web/auth/routes.ts の json({error}) と 1:1（スペース入りもそのまま来る）。
+    // 識別子を生で出すと利用者には意味が取れないので、必ずここを通す。
+    const API_ERRORS = {
+      "not found": "対象が見つかりませんでした。台帳を読み込み直してからお試しください。",
+      forbidden: "この操作を行う権限がありません。",
+      invalid: "入力の内容が正しくありません。",
+      "invalid email": "メールアドレスの形式が正しくありません。",
+      "invalid facility name": "施設名が正しくありません。",
+      user_not_found: "その相手が見つかりませんでした。メールアドレスかユーザーIDをご確認ください。",
+      "login required": LINE_RELOAD,
+      "not logged in": LINE_RELOAD,
+      reauth: "確認のため、もう一度ログインしてください。",
+      "method not allowed": "この操作には対応していません。",
+      "missing x-plancel-token": "台帳を特定できませんでした。ページを再読み込みしてください。",
+      "rate limited": "続けて操作されました。しばらく待ってから、もう一度お試しください。",
+      capacity: "ただいま新しい登録の受け付けを止めています。",
+      bad_credentials: "メールアドレスかパスワードが違います。",
+      email_taken: "そのメールアドレスは、すでに使われています。",
+      uid_taken: "そのユーザーIDは、すでに使われています。",
+      uid_reserved: "そのユーザーIDは使えません。別のものをお選びください。",
+      uid_too_short: "ユーザーIDが短すぎます。",
+      confirm_mismatch: "確認用の入力が一致しません。",
+      "google login not configured": "Google ログインは、いまお使いになれません。",
+      "email login not configured": "メールでのログインは、いまお使いになれません。",
+    };
+    // 409 invalid_transition だけはサーバが message に理由を入れてくる。中身は
+    // src/web/store.ts が組み立てる英文で、出る形は下の4通りしかない。次にやることが
+    // 形ごとに違うので、ひとまとめにせず言い分ける。
+    function transitionText(message) {
+      const m = String(message || "");
+      if (m.includes("already has a confirmed reservation")) {
+        return "このプランでは、すでに別の予約が確定しています。付け替えるときは、先に確定済みの予約を「キャンセルした」で外してください。";
+      }
+      if (m.includes("changed while it was being confirmed")) {
+        return "同時に別の操作が入ったため、確定できませんでした。台帳を読み込み直してから、もう一度お試しください。";
+      }
+      if (m.includes("move a confirmed reservation to another plan")) {
+        return "確定済みの予約は、あとから別のプランへ移せません。移すときは、先に「キャンセルした」で確定を外してください。";
+      }
+      if (m.includes("from confirmed")) return "この予約は、すでに確定しています。";
+      return "この予約は、いまの状態からは確定できません。先に候補へ戻してからお試しください。";
+    }
+    // 失敗を人の言葉にする。lead は「何ができなかったか」の一文（呼び出し側しか
+    // 知らないので任意）。理由の側は対応表がすべて言い切りの文なので、識別子が
+    // 画面に出ることはない。表にない識別子だけは日本語で総括したうえで原文を
+    // かっこ書きで残す（利用者には読める文が、問い合わせには手掛かりが残る）。
+    function apiErrorText(e, lead) {
+      return (lead || "") + apiErrorReason(e);
+    }
+    function apiErrorReason(e) {
+      // status が無い＝サーバまで届いていない（fetch が投げた）。識別子の対応表では
+      // なく通信の案内を出す。"Failed to fetch" が画面に出るのを防ぐのが要点。
+      if (!e || typeof e.status !== "number") {
+        console.error(e);
+        return LINE_OFFLINE;
+      }
+      if (e.status === 403 && e.body && e.body.reason === "role") {
         return "この共有予約を編集する権限がありません（閲覧のみ）。";
       }
-      return prefix + ((e && e.message) || "不明なエラー");
+      const code = (e && e.message) || "";
+      if (code === "invalid_transition") return transitionText(e.body && e.body.message);
+      if (API_ERRORS[code]) return API_ERRORS[code];
+      // サーバが人向けの message を添えていれば、識別子より先にそちらを出す。
+      if (e && e.body && e.body.message) return String(e.body.message);
+      return `うまくいきませんでした（コード: ${code || "不明"}）`;
     }
 
     // ---- キャンセル規定モデル: src/web/policy.ts の写し。ロックステップ必須 ----
@@ -2607,18 +2706,47 @@
     }
 
     const q = (s) => document.querySelector(s);
+    // 読み込みに一度でも成功したか。失敗時に data を空にすると「まだ予約がありません」
+    // という初回向けの案内が出て、台帳が消えたと誤解させるので、直前のデータは残し、
+    // まだ何も読めていないときは空の案内も出さない（loadError で描き分ける）。
+    let dataLoaded = false;
+    let loadError = null; // null / "unauth"（ログイン切れ）/ "offline"（通信できず）
     async function refresh() {
       try {
         const j = await api("GET", "/api/reservations");
         data = j.reservations;
+        dataLoaded = true;
+        loadError = null;
       } catch (e) {
         console.error(e);
-        data = [];
+        loadError = e && e.status === 401 ? "unauth" : "offline";
       }
       render();
     }
+    // 失敗の帯。ログイン切れは再読み込みでしか直らないので、再試行の中身を変える。
+    function renderLoadState() {
+      const bar = q("#loadBar");
+      bar.classList.toggle("on", loadError !== null);
+      if (loadError === null) return;
+      q("#loadMsg").textContent = loadError === "unauth"
+        ? LINE_RELOAD
+        : LINE_OFFLINE + (dataLoaded ? "表示中の台帳は、最後に読み込めたときのものです。" : "");
+      q("#retryBtn").textContent = loadError === "unauth" ? "ページを再読み込み" : "もう一度読み込む";
+    }
+    q("#retryBtn").onclick = async () => {
+      if (loadError === "unauth") {
+        location.reload();
+        return;
+      }
+      const btn = q("#retryBtn");
+      btn.disabled = true;
+      btn.textContent = "読み込んでいます…";
+      await refresh(); // 成否どちらでも renderLoadState() が帯と文言を作り直す
+      btn.disabled = false;
+    };
 
     function render() {
+      renderLoadState();
       q("#dataBar").style.display = viewingDemo ? "none" : "flex";
       q("#demoBar").classList.toggle("on", viewingDemo);
       if (ME) q("#meEmail").textContent = ME.email;
@@ -2644,6 +2772,13 @@
 
       const list = q("#list");
       if (active.length === 0 && cancelled.length === 0) {
+        // 一度も読めていないうちは「予約が無い」と断定できない。始め方の案内を出すと
+        // 既存の台帳が消えたように見えるので、読めていないことだけを言う。
+        if (!dataLoaded) {
+          list.innerHTML =
+            `<div class="empty"><h3>台帳をまだ読み込めていません</h3><p class="hint" style="margin-bottom:0">上の「もう一度読み込む」でやり直せます。予約は消えていません。</p></div>`;
+          return;
+        }
         list.innerHTML = `<div class="empty"><h3>まだ予約がありません。どちらから始めますか？</h3>
           <div class="startgrid">
             <div class="startcard" id="sc-scratch"><div class="t">🌱 まっさらから始める</div><div class="d">これから取る予約を1件ずつ登録。候補を複数入れて「プラン」に束ねると、1つ確定したとき残りが自動で要キャンセルになります。</div></div>
@@ -2700,7 +2835,7 @@
         b.onclick = () => act("POST", `/api/reservations/${b.dataset.restore}/restore`)
       );
       document.querySelectorAll("[data-confirm]").forEach((b) =>
-        b.onclick = () => act("POST", `/api/reservations/${b.dataset.confirm}/confirm`)
+        b.onclick = () => askConfirm(b.dataset.confirm)
       );
       document.querySelectorAll("[data-cancel]").forEach((b) =>
         b.onclick = () => act("POST", `/api/reservations/${b.dataset.cancel}/cancel`)
@@ -2805,7 +2940,7 @@
         items.push(
           `<div class="rail-item"><div class="lb">${label}</div><div class="tt"><b>${
             esc(r.service)
-          }をキャンセル</b> ✂</div><div class="ds">${ds}</div><div class="btns"><button class="rowbtn act" data-cancel="${r.id}">✓ キャンセルした</button></div></div>`,
+          }をキャンセル</b> ✂</div><div class="ds">${ds}</div><div class="btns"><button class="rowbtn act" data-cancel="${r.id}">✓ キャンセルした</button><button class="rowbtn" data-restore="${r.id}">↩ 候補に戻す</button></div></div>`,
         );
       }
       const plans = {};
@@ -2856,6 +2991,10 @@
     // ①先にある無料期限 → ②次の予約 → ③どちらも無いときの中立の一言、の順に選ぶ。
     // now は render() から渡ってくる同じ値を使うので、追加のタイマーは要らない。
     function railIdleHtml(active, now) {
+      // 読めていないうちは「やることが無い」と言い切らない（帯が失敗を伝えている）。
+      if (!dataLoaded) {
+        return `<div class="rail-item soft"><div class="ds">台帳を読み込めていないため、今日やることを出せません。</div></div>`;
+      }
       const mine = active.filter((r) => !r.shared);
       const ahead = mine.map((r) => ({ r, dl: freeDeadline(r) }))
         .filter((x) => x.dl && x.dl > now).sort((a, b) => a.dl - b.dl);
@@ -2965,7 +3104,11 @@
           mainBtn += `<button class="rowbtn dashed" data-edit="${r.id}">規定 不明 → 入れる</button>`;
         }
       } else if (r.status === "to_cancel") {
-        mainBtn = `<button class="rowbtn act" data-cancel="${r.id}">✓ キャンセルした</button>`;
+        // 「要キャンセル」は確定の巻き添えで着く状態なので、押し間違いで着くこともある。
+        // していない電話連絡を記録させないよう、キャンセル済みの行と同じ復元（restore）
+        // で候補に戻せるようにする。
+        mainBtn = `<button class="rowbtn act" data-cancel="${r.id}">✓ キャンセルした</button>` +
+          `<button class="rowbtn" data-restore="${r.id}">↩ 候補に戻す</button>`;
       } else {
         mainBtn = `<span class="okmark">✓ 確定済み</span>`;
       }
@@ -2980,11 +3123,35 @@
         <div class="ract">${mainBtn}</div></div>`;
     }
 
+    // 確定は1行では済まない: サーバは同じプランの残りの候補を同じコミットで
+    // 「要キャンセル」に落とす（src/web/store.ts の確定処理）ので、押した人は
+    // 宿や店への連絡まで背負う。MCP と LINE は先に断っているのに台帳だけ黙って
+    // 実行していたので、巻き込む候補を数えて名指ししてから聞く。
+    function askConfirm(id) {
+      const r = data.find((x) => x.id === id);
+      if (!r) return;
+      // 数え方はサーバと同じ — 同じプラン名・候補のまま・自分の台帳のもの。
+      const others = r.plan
+        ? data.filter((x) =>
+          !x.shared && x.id !== id && x.plan === r.plan && x.status === "candidate"
+        )
+        : [];
+      const shown = others.slice(0, 3).map((x) => x.service).join("・");
+      const rest = others.length > 3 ? `・ほか${others.length - 3}件` : "";
+      const detail = others.length === 0
+        ? "同じプランに他の候補はありません。"
+        : `同じプラン「${r.plan}」の他の候補 ${others.length}件（${shown}${rest}）が「要キャンセル」になります。宿や店への連絡はご自分でお願いします。`;
+      if (!confirm(`「${r.service}」で確定します。\n${detail}\nよろしいですか？`)) return;
+      act("POST", `/api/reservations/${id}/confirm`);
+    }
+
     async function act(method, path, body) {
       try {
         await api(method, path, body);
       } catch (e) {
-        alert(apiErrorText(e, "失敗しました: "));
+        // 行の操作（確定・キャンセル・復元・削除・脱退）はどれも押した直後なので、
+        // 何をしようとしたかは利用者の記憶にある。理由だけを言い切りで出す。
+        alert(apiErrorText(e));
       }
       await refresh();
     }
@@ -3034,7 +3201,7 @@
                 ? "編集を許可しました。"
                 : "閲覧のみに戻しました。";
             } catch (e) {
-              q("#inv_msg").textContent = apiErrorText(e, "権限を変えられませんでした: ");
+              q("#inv_msg").textContent = apiErrorText(e, "権限を変えられませんでした。");
             }
             await loadMembers();
             await refresh();
@@ -3045,7 +3212,7 @@
             try {
               await api("DELETE", `/api/reservations/${inviteResvId}/members/${b.dataset.remove}`);
             } catch (e) {
-              alert(apiErrorText(e, "外せませんでした: "));
+              alert(apiErrorText(e, "外せませんでした。"));
             }
             await loadMembers();
             await refresh();
@@ -3075,7 +3242,7 @@
       } catch (e) {
         q("#inv_msg").textContent = e.message === "user_not_found"
           ? "そのメールアドレス・ユーザーIDのユーザーは見つかりませんでした（完全一致のみ）。"
-          : apiErrorText(e, "追加できませんでした: ");
+          : apiErrorText(e, "追加できませんでした。");
       }
     };
 
@@ -3451,7 +3618,7 @@
       } catch (e) {
         // 共有予約を「閲覧のみ」で編集しようとしたときは 403 が返る（rowHtml は編集を
         // 出さないが、権限がその場で降格されることはある）。
-        alert(apiErrorText(e, "失敗しました: "));
+        alert(apiErrorText(e, "保存できませんでした。"));
         return;
       }
       // 既定の保存は予約が通ったあと。ここで失敗しても予約は成立させ、知らせるだけ。
@@ -3925,8 +4092,6 @@
       ME = await res.json();
       return "ok";
     }
-    const LINE_RELOAD = "ログインの有効期限が切れました。ページを再読み込みしてからやり直してください。";
-    const LINE_OFFLINE = "通信できませんでした。電波のよいところで、もう一度お試しください。";
     q("#lineIssueBtn").onclick = async () => {
       const btn = q("#lineIssueBtn");
       btn.disabled = true;
