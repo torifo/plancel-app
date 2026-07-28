@@ -3057,6 +3057,10 @@
       const name = tplFacility();
       renderTplSaveRow();
       if (name === "" || name === tplLookedUp || polTouched) return;
+      // 既定を当てるのは規定が「不明」のときだけ。予約メールから読み取れた規定は
+      // その予約に固有の情報（同じ宿でも返金不可プランはある）なので、施設の既定で
+      // 塗り替えない。編集中の予約に入っている規定を消さないのも同じ理由。
+      if (stagesOfPolicy(readPolicy()) !== null) return;
       tplLookedUp = name;
       let j;
       try {
@@ -3065,7 +3069,10 @@
         return; // 照会はおまけなので、失敗しても入力の邪魔をしない
       }
       // 待っている間にユーザーが規定を触った / 施設名を変えたのなら、もう当てない
-      if (!j || !j.template || polTouched || tplFacility() !== name) return;
+      if (
+        !j || !j.template || polTouched || tplFacility() !== name ||
+        stagesOfPolicy(readPolicy()) !== null
+      ) return;
       tplUndoPolicy = readPolicy();
       tplAppliedFor = name;
       fillPolicyForm(j.template.policy);
@@ -3145,15 +3152,18 @@
         String(d.getMinutes()).padStart(2, "0")
       }`;
       q("#f_amount").value = (r && r.amount != null) ? r.amount : "";
-      // テンプレ関連の状態を1件ごとに巻き戻す。tplLookedUp を開いた時点の施設名に
-      // しておくと、名前を触っていない編集で既存の規定を勝手に差し替えなくなる。
+      // テンプレ関連の状態を1件ごとに巻き戻す。tplLookedUp は空にする: 取り込みや
+      // 編集では施設名が JS から入るので blur も change も飛ばず、ここで名前を
+      // 覚えてしまうと照会自体が止まっていた（既存の規定を守るのは、上の
+      // lookupTemplate 側の「規定が不明のときだけ当てる」判定が担う）。
       polTouched = false;
-      tplLookedUp = tplFacility();
+      tplLookedUp = "";
       hideTplNote();
       q("#tplSave").checked = false;
       fillPolicyForm(r && r.policy); // 末尾の polPreview() が renderTplSaveRow() を呼ぶ
       [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === "candidate");
       q("#addOverlay").classList.add("on");
+      lookupTemplate(); // 施設名が自動で入ったとき（取り込み・編集）にも既定を当てる
     }
     function openImport() {
       q("#importOverlay").classList.add("on");
@@ -3469,17 +3479,37 @@
       closeAll();
       busy(true, "登録中…");
       let ok = 0;
+      let tplHits = 0;
+      // 一括取り込みは追加フォームを通らないので、施設の既定はここで当てる。
+      // 同じ施設が何件あっても照会は1回で済むようキャッシュする。
+      const tplCache = new Map();
+      const tplFor = async (name) => {
+        if (!tplCache.has(name)) {
+          let policy = "unknown";
+          try {
+            const j = await api(
+              "GET",
+              "/api/policy-templates/lookup?service=" + encodeURIComponent(name),
+            );
+            if (j && j.template) policy = j.template.policy;
+          } catch (e) { /* 照会はおまけ。失敗しても「不明」で取り込む */ }
+          tplCache.set(name, policy);
+        }
+        return tplCache.get(name);
+      };
       try {
         for (const c of checks) {
           const ev = icsEvents[+c.dataset.ics];
           try {
+            const policy = await tplFor(ev.summary);
+            if (policy !== "unknown") tplHits++;
             await api("POST", "/api/reservations", {
               plan: null,
               service: ev.summary,
               startsAt: ev.startsAt,
               amount: null,
               location: ev.location || null,
-              policy: "unknown",
+              policy,
               confirmed: false,
             });
             ok++;
@@ -3492,8 +3522,10 @@
       }
       await refresh();
       alert(
-        ok +
-          "件の予定を登録しました。キャンセル規定は「不明」なので、各予約の「編集」から補完できます。",
+        ok + "件の予定を登録しました。" +
+          (tplHits > 0
+            ? `そのうち${tplHits}件は、保存済みの施設の既定からキャンセル規定を入れました。残りは各予約の「編集」から補完できます。`
+            : "キャンセル規定は「不明」なので、各予約の「編集」から補完できます。"),
       );
     };
 
