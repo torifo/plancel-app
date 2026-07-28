@@ -2105,7 +2105,7 @@
             <div class="sec-h">4. 予約の入れ方は<span id="helpWayCount">5</span>通り</div>
             <ul class="help-ways">
               <li><b>📧 予約確認メールを貼り付け</b>：予約サイトのメール本文をそのまま貼るだけ。店名・日時・場所・金額・キャンセル規定まで読み取れるので、いちばん確実です。</li>
-              <li id="helpWayMail" style="display:none"><b>📨 メールを転送する</b>：あなた専用の転送先アドレスに予約確認メールを転送すると、貼り付けなくても候補として台帳に並びます。アドレスは<b>マイページの「メールを転送して予約を取り込む」</b>にあります。他人に知られるとその人も予約を入れられるので、人が見える場所には書かないでください。</li>
+              <li id="helpWayMail" style="display:none"><b>📨 メールを転送する</b>：あなた専用の転送先アドレスに予約確認メールを転送すると、貼り付けなくても候補として台帳に並びます。アドレスは<b>「取り込む」の中の「📨 メールを転送する」</b>か、<b>マイページの「メールを転送して予約を取り込む」</b>で見られます（同じアドレスです）。他人に知られるとその人も予約を入れられるので、人が見える場所には書かないでください。</li>
               <li><b>📷 スクショ・写真から読み取り</b>：予約画面やカレンダー画面の写真からも読み取れます。<b>TimeTreeはスクショが唯一の道です</b>（アプリから.icsを書き出せないため）。iPhoneのカレンダーも同じくスクショが確実です。</li>
               <li><b>📅 .icsファイル</b>：Googleカレンダーなどから書き出した.icsを選ぶと、今後の予定をまとめて登録します。書き出せるのはパソコンのブラウザだけです。</li>
               <li><b>✎ 手動で追加</b>：「＋手動で追加」から1件ずつ。読み取りが難しいときの最後の手段です。</li>
@@ -2244,6 +2244,25 @@
           <div class="t">📧 予約確認メールを貼り付け</div>
           <div
             class="d">予約サイトからの確認メール本文を貼るだけ。店名・日時・場所・金額・キャンセル規定を AI が読み取り、確認してから登録します。</div>
+        </div>
+        <!-- メール転送（受け口は 2026-07-28 から本番稼働）。貼り付けの直後に置く：
+             同じ「予約確認メール」を手にしている人が、貼るか転送するかをその場で
+             選べる並びにするため。受信ドメインが無い環境では /auth/me の
+             mailAddress が null ＝ 機能自体が無いので、renderMailFeature が丸ごと
+             隠す。アドレスはモーダルを閉じずにその場で出す：コピーしてメールアプリ
+             に移るだけの操作で、別画面へ飛ばす理由がない。 -->
+        <div class="import-opt" data-imp="forward" id="impForward" style="display:none">
+          <div class="t">📨 メールを転送する（貼り付け不要）</div>
+          <div
+            class="d">予約確認メールを、あなた専用のアドレスに転送するだけ。開いて本文を貼る手間がありません。<b>確認画面は出ません</b>——読み取れた時点で候補として台帳に並ぶので、あとから台帳で直してください。</div>
+          <div id="impForwardBox" style="display:none">
+            <input id="impMailAddr" readonly style="font-size:calc(12px * var(--fs));margin-top:8px">
+            <div class="hint" style="margin:4px 0 0">
+              <a id="impMailCopy" style="cursor:pointer;text-decoration:underline">アドレスをコピー</a> · 人に教えないでください（再発行はマイページ）
+            </div>
+            <div class="hint" id="impMailMsg" style="margin:4px 0 0;min-height:1.7em" role="status"
+              aria-live="polite"></div>
+          </div>
         </div>
         <div class="import-opt" data-imp="ics">
           <div class="t">📅 カレンダーから取り込み（.ics）</div>
@@ -3514,6 +3533,26 @@
       }
     };
 
+    // メール転送: 押すとその場でアドレスを開く（モーダルは閉じない）。中の入力欄と
+    // リンクのクリックは親に伝えない — 伝わると開いた直後に畳まれてしまう。
+    document.querySelector('[data-imp="forward"]').onclick = () => {
+      const box = q("#impForwardBox");
+      const opening = box.style.display === "none";
+      box.style.display = opening ? "block" : "none";
+      if (opening) q("#impMailAddr").select();
+    };
+    q("#impForwardBox").onclick = (e) => e.stopPropagation();
+    q("#impMailAddr").onclick = () => q("#impMailAddr").select();
+    q("#impMailCopy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(q("#impMailAddr").value);
+        mailNote("コピーしました。メールアプリでこの宛先に転送してください。", "ok", "#impMailMsg");
+      } catch (e) {
+        q("#impMailAddr").select();
+        mailNote("コピーできませんでした。選ばれている文字をコピーしてください。", "err", "#impMailMsg");
+      }
+    };
+
     // photo / screenshot
     document.querySelector('[data-imp="photo"]').onclick = () => {
       closeAll();
@@ -3990,8 +4029,9 @@
     // そのときはマイページの節と使い方の「転送」の行の両方を隠し、この機能の話を
     // どこにも出さない（機能が無いのに案内だけ出すほうが悪い）。エラーの文言は
     // LINE 連携と同じものを使い回す（401 と通信失敗で書き分ける約束もそのまま）。
-    function mailNote(msg, kind) {
-      const el = q("#mailMsg");
+    // 同じ文言をマイページと取り込みモーダルの両方で使うので、出す先を選べる。
+    function mailNote(msg, kind, sel) {
+      const el = q(sel || "#mailMsg");
       el.textContent = msg;
       el.style.color = kind === "err"
         ? "var(--danger-ink)"
@@ -4006,7 +4046,11 @@
       q("#helpWayMail").style.display = on ? "" : "none";
       q("#helpWayMailNote").style.display = on ? "" : "none";
       q("#helpWayCount").textContent = on ? "5" : "4";
-      if (on) q("#mailAddr").value = addr;
+      q("#impForward").style.display = on ? "" : "none";
+      if (on) {
+        q("#mailAddr").value = addr;
+        q("#impMailAddr").value = addr;
+      }
     }
     // 90 文字近くあって手では選びにくいので、触ったら全選択する（コピーが使えない
     // ブラウザでも、そのまま長押し→コピーに持っていける）。
