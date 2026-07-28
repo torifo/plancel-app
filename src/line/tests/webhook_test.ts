@@ -334,11 +334,11 @@ Deno.test("webhook: 「確認」 -> web-ledger summary + action Quick Reply", as
     const msg = replies[0]?.messages[0];
     const body = msg?.text ?? "";
     // Every reply names the account it read — one person may own several.
-    assertStringIncludes(body, "@owner のWeb台帳の予約 1件");
+    assertStringIncludes(body, "@owner の台帳の予約 1件");
     // 8/22 start, staged policy -> free until 168h before = 8/15.
-    assertStringIncludes(body, "8/22(土) 湖畔の湯宿 蛍 [候補] ◆8/15(土)まで¥0");
-    assertStringIncludes(body, "◆次の締切 8/15(土)");
-    assertStringIncludes(body, "放置損失 ¥40,000");
+    assertStringIncludes(body, "8/22(土) 湖畔の湯宿 蛍 [候補] ◆8/15(土)まで無料");
+    assertStringIncludes(body, "◆次の無料キャンセル期限 8/15(土)");
+    assertStringIncludes(body, "最大キャンセル料 ¥40,000");
     // Cancelled reservations are out of the summary entirely.
     assertEquals(body.includes("翠嶺館"), false);
     const items = msg?.quickReply?.items ?? [];
@@ -356,7 +356,7 @@ Deno.test("webhook: empty web ledger -> friendly one-liner, still navigable", as
     const result = await post(deps, [textEvent("一覧")]);
     assertEquals(result.handled, ["web:check"]);
     const msg = replies[0]?.messages[0];
-    assertStringIncludes(msg?.text ?? "", "@owner のWeb台帳に予約はまだありません");
+    assertStringIncludes(msg?.text ?? "", "@owner の台帳に予約はまだありません");
     // No reservation to act on, but the menu is still there.
     assertEquals(menuTexts(msg), ["締切", "今日", "今週", "使い方"]);
     assertEquals((msg?.quickReply?.items ?? []).filter((i) => postbackData(i) !== ""), []);
@@ -381,7 +381,7 @@ Deno.test("webhook: 使い方 -> compact how-to + command Quick Reply", async ()
     const msg = replies[0]?.messages[0];
     const body = msg?.text ?? "";
     assertStringIncludes(body, "plancel は予約のキャンセル期限を見張って");
-    assertStringIncludes(body, "・確認：予約の一覧と次の締切");
+    assertStringIncludes(body, "・確認：予約の一覧と次の無料キャンセル期限");
     assertStringIncludes(body, "予約確認メールの本文かスクショ");
     assertStringIncludes(body, "https://plancel-app.torifo.deno.net/#help");
     // A chat bubble, not a manual.
@@ -398,7 +398,7 @@ Deno.test("webhook: 連携 -> names the bound account and how to unlink", async 
 
     assertEquals(result.handled, ["web:link"]);
     const msg = replies[0]?.messages[0];
-    assertStringIncludes(msg?.text ?? "", "このトークは @owner のWeb台帳につながっています");
+    assertStringIncludes(msg?.text ?? "", "このトークは @owner の台帳につながっています");
     assertStringIncludes(msg?.text ?? "", "https://plancel-app.torifo.deno.net/#link");
     assertEquals(menuTexts(msg), FULL_MENU);
   });
@@ -471,7 +471,7 @@ Deno.test("webhook: 締切 with nothing inside 7 days says so and names the next
     assertEquals((await post(deps, [textEvent("期限")])).handled, ["web:deadline"]);
     const body = replies[0]?.messages[0]?.text ?? "";
     assertStringIncludes(body, "@owner に7日以内の無料キャンセル期限はありません。");
-    assertStringIncludes(body, "次の期限は 8/25(火)「宿C」です。");
+    assertStringIncludes(body, "次の無料キャンセル期限は 8/25(火)「宿C」です。");
   });
 });
 
@@ -755,7 +755,7 @@ Deno.test("webhook: parsed text with web wired -> web-ledger candidate, NOT the 
     assertEquals((await ctx.store.listParseJobs())[0]?.status, "parsed");
     const body = replies[0]?.messages[0]?.text ?? "";
     assertStringIncludes(body, "登録しました: 〇〇 / 8/1(土) 19:00");
-    assertStringIncludes(body, "@owner のWeb台帳に候補として入りました");
+    assertStringIncludes(body, "@owner の台帳に候補として入りました");
     assertEquals(body.includes("規定は不明"), false);
   });
 });
@@ -793,7 +793,7 @@ Deno.test("webhook: nonstandard parsed policy -> stored as its own stage table",
     const weird = await registerParsed(kv, "weird", CORE_POLICY.weird);
     // 12h の段は「開始まで80%」と同義なので、正規形では h=0 に畳まれる。
     assertEquals(weird.r?.policy, { stages: [{ h: 48, pct: 20 }, { h: 0, pct: 80 }] });
-    assertEquals(weird.text.includes("キャンセル規定は不明"), false);
+    assertEquals(weird.text.includes("キャンセル規定が不明です"), false);
 
     const five = await registerParsed(kv, "five", CORE_POLICY.fiveDay);
     assertEquals(five.r?.policy, {
@@ -811,7 +811,7 @@ Deno.test("webhook: fixed-yen fee / absent parsed policy -> unknown, and says so
     ) {
       const { r, text } = await registerParsed(kv, label, policy);
       assertEquals(r?.policy, "unknown", label);
-      assertStringIncludes(text, "キャンセル規定は不明");
+      assertStringIncludes(text, "キャンセル規定が不明です");
     }
   });
 });
@@ -882,7 +882,7 @@ Deno.test("webhook: postback-resolved registration lands in the web ledger too",
     assertEquals(own[0]?.startsAt, "2026-08-01T10:30:00.000Z");
     // ParseJob lifecycle is identical to the core-ledger path.
     assertEquals((await ctx.store.listParseJobs())[0]?.status, "resolved");
-    assertStringIncludes(replies[1]?.messages[0]?.text ?? "", "Web台帳に候補として入りました");
+    assertStringIncludes(replies[1]?.messages[0]?.text ?? "", "の台帳に候補として入りました");
   });
 });
 
@@ -947,7 +947,7 @@ Deno.test("webhook: an unlinked sender's link code links the account and names i
     // Once linked, the same sender is served their own ledger.
     const check = await post(deps, [textEvent("確認", OTHER)]);
     assertEquals(check.handled, ["web:check"]);
-    assertStringIncludes(replies[3]?.messages[0]?.text ?? "", "@other のWeb台帳");
+    assertStringIncludes(replies[3]?.messages[0]?.text ?? "", "@other の台帳");
   });
 });
 
@@ -970,7 +970,7 @@ Deno.test("webhook: 確認 shows ONLY the sender's own ledger (isolation)", asyn
     const { deps, replies } = makeDeps({ web, allowedUserIds: new Set([OWNER]) });
     assertEquals((await post(deps, [textEvent("確認", OTHER)])).handled, ["web:check"]);
     const otherBody = replies[0]?.messages[0]?.text ?? "";
-    assertStringIncludes(otherBody, "@other のWeb台帳の予約 1件");
+    assertStringIncludes(otherBody, "@other の台帳の予約 1件");
     assertStringIncludes(otherBody, "他人の宿");
     assertEquals(otherBody.includes("オーナーの宿"), false);
 
@@ -999,7 +999,7 @@ Deno.test("webhook: parse-and-add lands in the SENDER's ledger, not the other us
     assertEquals((await post(deps, [textEvent(text, OTHER)])).handled, ["registered"]);
     assertEquals((await listReservations(kv, other.ledgerId)).length, 1);
     assertEquals(await listReservations(kv, owner.ledgerId), []);
-    assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "@other のWeb台帳に候補として");
+    assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "@other の台帳に候補として");
   });
 });
 

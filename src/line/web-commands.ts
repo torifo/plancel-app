@@ -76,7 +76,9 @@ export const WEB_POSTBACK_PREFIX = "webact";
  * Production URL, hard-coded on purpose: a LINE reply has to be actionable on
  * its own, and the webhook has no request origin to derive it from. The `#…`
  * fragment names the screen that answers the reply, so a link never points at
- * the bare origin (web/index.html has yet to route them — see ROADMAP).
+ * the bare origin. `web/index.html`'s `routeHash` resolves all three:
+ * `#import` opens the 取り込み modal, `#link` the 「連携と通知」 modal at its LINE
+ * section, `#help` the 使い方 page.
  */
 const APP_URL = "https://plancel-app.torifo.deno.net";
 const APP_IMPORT_URL = `${APP_URL}/#import`;
@@ -158,7 +160,14 @@ const MAX_QUICK_REPLY = 13;
 const MAX_LABEL = 20;
 const MAX_NAME = 14;
 
-const STATUS_LABEL: Record<string, string> = {
+/**
+ * The canonical Japanese word for each status — every surface (web rows, LINE
+ * lines, MCP descriptions) must use these four and no synonyms. Exported so
+ * `src/web/tests/policy_mirror_test.ts` can pin the set against
+ * `webStatusSchema` and against web/index.html instead of a fourth copy
+ * existing somewhere unnoticed (audit 2026-07-28 §5.3).
+ */
+export const STATUS_LABEL: Record<string, string> = {
   candidate: "候補",
   confirmed: "確定",
   to_cancel: "要キャンセル",
@@ -186,7 +195,7 @@ function startMs(r: WebReservation): number {
   return Temporal.Instant.from(r.startsAt).epochMilliseconds;
 }
 
-/** `◆8/15まで¥0` / `規定不明` / `いつでも無料` — the per-line deadline hint. */
+/** `◆8/15まで無料` / `規定不明` / `いつでも無料` — the per-line deadline hint. */
 function deadlineNote(r: WebReservation): string {
   if (r.policy === "unknown") return "規定不明";
   if (isAlwaysFree(r.policy)) return "いつでも無料";
@@ -194,7 +203,7 @@ function deadlineNote(r: WebReservation): string {
   // A custom policy can be paid from the outset — there is no free window to
   // count down to, which is NOT the same as always-free.
   if (deadlineMs === null) return "無料期間なし";
-  return `◆${fmtMd(deadlineMs)}まで¥0`;
+  return `◆${fmtMd(deadlineMs)}まで無料`;
 }
 
 function line(r: WebReservation): string {
@@ -266,10 +275,12 @@ function footer(active: WebReservation[], nowMs: number): string {
     .sort((a, b) => a - b);
   const next = deadlines[0];
   const nextPart = next === undefined
-    ? "◆差し迫った締切なし"
-    : `◆次の締切 ${fmtMd(next)}（あと${Math.max(1, Math.ceil((next - nowMs) / DAY_MS))}日）`;
+    ? "◆近い無料キャンセル期限なし"
+    : `◆次の無料キャンセル期限 ${fmtMd(next)}（あと${
+      Math.max(1, Math.ceil((next - nowMs) / DAY_MS))
+    }日）`;
   const loss = active.reduce((sum, r) => sum + maxLossYen(r.policy, r.amount), 0);
-  return `${nextPart} / 放置損失 ${yen(loss)}`;
+  return `${nextPart} / 最大キャンセル料 ${yen(loss)}`;
 }
 
 const text = (t: string): LineTextMessage => ({ type: "text", text: t });
@@ -290,7 +301,7 @@ export async function buildCheckReply(
   if (active.length === 0) {
     return withMenu(
       text(
-        `${label} のWeb台帳に予約はまだありません。予約メールやスクショを送れば登録できます。`,
+        `${label} の台帳に予約はまだありません。予約メールやスクショを送れば登録できます。`,
       ),
       "check",
     );
@@ -300,7 +311,7 @@ export async function buildCheckReply(
   const body = shown.map(line);
   if (active.length > shown.length) body.push(`…ほか${active.length - shown.length}件`);
   const message = text(
-    [`${label} のWeb台帳の予約 ${active.length}件`, ...body, "", footer(active, deps.nowMs())]
+    [`${label} の台帳の予約 ${active.length}件`, ...body, "", footer(active, deps.nowMs())]
       .join("\n"),
   );
   // Per-reservation actions never crowd the command menu out of the strip.
@@ -343,8 +354,8 @@ export async function buildDeadlineReply(
   if (soon.length === 0) {
     const next = all[0];
     const tail = next === undefined
-      ? "この先に期限が決まっている予約もありません。"
-      : `次の期限は ${fmtMd(next.at)}「${next.r.service}」です。`;
+      ? "この先に無料キャンセル期限が決まっている予約もありません。"
+      : `次の無料キャンセル期限は ${fmtMd(next.at)}「${next.r.service}」です。`;
     return withMenu(
       text(`${label} に${DEADLINE_WINDOW_DAYS}日以内の無料キャンセル期限はありません。\n${tail}`),
       "deadline",
@@ -408,7 +419,7 @@ export function buildHelpReply(): LineTextMessage {
     text([
       "plancel は予約のキャンセル期限を見張って、無料のうちに知らせるサービスです。",
       "使えるコマンド",
-      "・確認：予約の一覧と次の締切",
+      "・確認：予約の一覧と次の無料キャンセル期限",
       "・締切：7日以内に無料キャンセル期限が切れる予約",
       "・今日／今週：これから始まる予定",
       "・連携：このトークがつながっているアカウント",
@@ -423,8 +434,8 @@ export function buildHelpReply(): LineTextMessage {
 export function buildLinkReply(owner: WebUser): LineTextMessage {
   return withMenu(
     text([
-      `このトークは ${accountLabel(owner)} のWeb台帳につながっています。`,
-      `解除するときは ${APP_LINK_URL} の「LINE連携」から行えます。`,
+      `このトークは ${accountLabel(owner)} の台帳につながっています。`,
+      `解除するときは ${APP_LINK_URL} の「連携と通知」から行えます。`,
     ].join("\n")),
     "link",
   );
@@ -560,22 +571,28 @@ export async function registerWebReservation(
   deps.onMutate?.(owner, r.id);
 
   const when = fmtMdHm(Temporal.Instant.from(r.startsAt).epochMilliseconds);
-  const note = policy === "unknown" ? "（キャンセル規定は不明のためWebで補完してください）" : "";
+  const note = policy === "unknown" ? "（キャンセル規定が不明です。台帳で補ってください）" : "";
   return {
     id: r.id,
     summaryText: `登録しました: ${r.service} / ${when} — ${
       accountLabel(owner)
-    } のWeb台帳に候補として入りました${note}`,
+    } の台帳に候補として入りました${note}`,
   };
 }
 
 // ---- Per-user linking (owner 2026-07-27) ----
 
-/** Reply for a LINE account with no plancel link yet. */
+/**
+ * Reply for a LINE account with no plancel link yet — the FIRST message an
+ * unlinked person ever gets, so every step has to name something they can see.
+ * `APP_LINK_URL` (`/#link`) opens the 「連携と通知」 modal at its LINE section
+ * (`routeHash`), and the button inside it reads 「LINE と連携する」: マイページ
+ * has no LINE section at all (2026-07-28 fix).
+ */
 export const LINK_GUIDE_TEXT = [
   "このLINEアカウントはまだ plancel のアカウントと連携されていません。",
   `1. ${APP_LINK_URL} をブラウザで開いてログイン`,
-  "2. マイページの「LINE連携」で連携コードを発行",
+  "2. 開いた「連携と通知」で「LINE と連携する」を押して連携コードを発行",
   "3. そのコードをこのトークに送る",
   `（コードは8文字・${CODE_MINUTES}分間有効。連携するまで予約は登録できません）`,
 ].join("\n");
@@ -584,12 +601,12 @@ export const LINK_GUIDE_TEXT = [
 export const LINK_CODE_UNKNOWN_TEXT = [
   "連携コードが確認できませんでした。",
   `期限切れ（${CODE_MINUTES}分）か入力ミスの可能性があります。`,
-  `${APP_LINK_URL} のマイページで新しいコードを発行して、もう一度送ってください。`,
+  `${APP_LINK_URL} を開いて「連携と通知」で新しいコードを発行して、もう一度送ってください。`,
 ].join("\n");
 
 /** Reply when the code's account is already linked to a different LINE. */
 export const LINK_TAKEN_TEXT =
-  "このLINEアカウントは別の plancel アカウントに連携済みです。Webのマイページで連携を解除してから、もう一度お試しください。";
+  "このLINEアカウントは別の plancel アカウントに連携済みです。Webの「連携と通知」で「連携を解除」してから、もう一度お試しください。";
 
 /** What a message from an unlinked LINE sender resulted in. */
 export type LinkAttempt =
@@ -625,7 +642,7 @@ export async function tryLinkFromMessage(
       text(
         `LINE連携が完了しました: ${
           accountLabel(user)
-        } のWeb台帳につながりました。「確認」で予約一覧、予約メールやスクショを送れば登録できます。`,
+        } の台帳につながりました。「確認」で予約一覧、予約メールやスクショを送れば登録できます。`,
       ),
       null,
     ),

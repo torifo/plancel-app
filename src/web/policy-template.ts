@@ -1,8 +1,12 @@
 /**
- * 施設ごとのキャンセル規定テンプレ（オーナー 2026-07-27:
+ * 施設の既定規定 = 施設ごとに覚えたキャンセル規定（オーナー 2026-07-27:
  * 「ホテルごとに規定(ベース)を設定できるといいかも。プランごとになるかもだけど
  * 基本的に同じことが多いため」）— 同じ宿・同じ店の料率表を予約ごとに入れ直させ
  * ないための、台帳ごとのライブラリ。
+ *
+ * 用語: `facility` は予約レコードの `service` フィールドそのもの（web UI の
+ * 「お店・宿・サービス名」、MCP の `facility` 引数）。同じ値を、予約では
+ * `service`、この既定規定では `facility` と呼んでいる — 別の概念ではない。
  *
  * KV: `["web", <ledgerToken>, "policy_tpl", <facilityKey(facility)>]` →
  * `{ facility, policy, updated_at }`. The KEY is the normalized facility name,

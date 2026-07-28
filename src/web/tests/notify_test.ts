@@ -113,7 +113,7 @@ Deno.test("notifies once for a free24 deadline within 24h", async () => {
     assertEquals(count, 1);
     assertEquals(sent.length, 1);
     assertEquals(sent[0]?.email, "a@b.jp");
-    assertEquals(sent[0]?.subject, "[plancel] キャンセル無料期限が近づいています");
+    assertEquals(sent[0]?.subject, "[plancel] 無料キャンセル期限が近づいています");
     assertEquals(sent[0]?.text.includes("svc-R1"), true);
     assertEquals(sent[0]?.text.includes("plancel で確認: https://plancel.test"), true);
   });
@@ -309,11 +309,11 @@ Deno.test("a single crossing reservation keeps the singular phrasing", async () 
     await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
     const sent: Sent[] = [];
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
-    assertEquals(sent[0]?.subject, "[plancel] キャンセル無料期限が近づいています");
+    assertEquals(sent[0]?.subject, "[plancel] 無料キャンセル期限が近づいています");
     assertEquals(sent[0]?.text.includes("無料キャンセル期限が近い予約があります。"), true);
     assertEquals(sent[0]?.text.includes("1件"), false);
     // free24 の最大料率は 100% → amount 10000 の期限後は ¥10,000。
-    assertEquals(sent[0]?.text.includes("期限後 ¥10,000"), true);
+    assertEquals(sent[0]?.text.includes("期限後の最大キャンセル料 ¥10,000"), true);
     assertEquals(await notified(kv, u.id, "R1"), true);
   });
 });

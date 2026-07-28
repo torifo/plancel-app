@@ -20,8 +20,10 @@
  * file is only the thin `import.meta.main` wiring, like cron/main.ts and
  * line/main.ts. Env:
  *   LINE_CHANNEL_SECRET / LINE_CHANNEL_ACCESS_TOKEN
- *   LINE_ALLOWED_USER_IDS (LEGACY: per-user linking is the authorization now;
- *     a non-empty set only restricts senders that are not linked yet)
+ *   LINE_ALLOWED_USER_IDS (a private-beta gate over UNLINKED senders only, still
+ *     read here and enforced in line/webhook.ts. EMPTY is the correct state for
+ *     a public account: a non-empty set would stop anyone new from linking. It
+ *     can never block a sender who is already linked)
  *   PLANCEL_OWNER_USER_ID (core-ledger cron push target, see notifier.ts;
  *     web-ledger reminders go to each user's OWN linked LINE account)
  *   RESEND_API_KEY / PLANCEL_EMAIL_FROM / PLANCEL_EMAIL_TO (email fallback)
@@ -89,9 +91,12 @@ if (import.meta.main) {
   const lineClient = lineToken !== undefined
     ? createLineClient({ channelAccessToken: lineToken })
     : null;
-  // LEGACY (owner 2026-07-27): linking a LINE account to a web account is the
-  // authorization now, so this set can only restrict senders that are NOT
-  // linked yet. Leave it empty / remove it from the production env.
+  // Linking a LINE account to a web account is the authorization now (owner
+  // 2026-07-27), so this set can only restrict senders that are NOT linked yet
+  // — but it IS still read and still enforced for them (line/webhook.ts).
+  // Production leaves it unset on purpose: the account is public, and a
+  // non-empty set would reject every newcomer before they could send a link
+  // code. Set it only to run a closed beta.
   const allowedUserIds = new Set(
     (env.get("LINE_ALLOWED_USER_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   );

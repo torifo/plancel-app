@@ -239,7 +239,9 @@ const NOTE_UNREADABLE = "転送メールから予約情報を読み取れませ�
 
 function unreadableText(subject: string | null, baseUrl: string): string {
   const which = subject === null || subject.trim() === "" ? "" : `\n件名: ${subject.trim()}`;
-  return `${NOTE_UNREADABLE}${which}\nplancel を開いて本文を貼り付けてください: ${baseUrl}`;
+  // `/#import` opens the 取り込み modal directly (web/index.html routeHash), so the
+  // reply names a screen the reader can actually land on.
+  return `${NOTE_UNREADABLE}${which}\nplancel の「取り込む」で本文を貼り付けてください: ${baseUrl}/#import`;
 }
 
 // ---------- handler ----------

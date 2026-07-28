@@ -120,20 +120,23 @@ interface Due {
   deadlineMs: number;
 }
 
+// Wording is shared vocabulary, not prose: 「無料キャンセル期限」 for the date and
+// 「最大キャンセル料」 for `maxLossYen` are the terms the app screen and the LINE
+// replies use for the same two numbers (2026-07-28 terminology pass).
 function subjectFor(count: number): string {
   return count === 1
-    ? "[plancel] キャンセル無料期限が近づいています"
+    ? "[plancel] 無料キャンセル期限が近づいています"
     : `[plancel] 無料キャンセル期限が近い予約が${count}件あります`;
 }
 
-/** One line per reservation: サービス / 開始 / 無料期限 / 期限後の金額. */
+/** One line per reservation: サービス / 開始 / 無料キャンセル期限 / 期限後の金額. */
 function dueLine(d: Due): string {
   const startMs = Temporal.Instant.from(d.resv.startsAt).epochMilliseconds;
   // ¥0 would read as "free to drop"; an unpriced reservation says so instead.
   const loss = d.resv.amount === null
     ? "金額未登録"
-    : `期限後 ${yen(maxLossYen(d.resv.policy, d.resv.amount))}`;
-  return `・${d.resv.service} / 開始 ${fmtJst(startMs)} / ◆無料期限 ${
+    : `期限後の最大キャンセル料 ${yen(maxLossYen(d.resv.policy, d.resv.amount))}`;
+  return `・${d.resv.service} / 開始 ${fmtJst(startMs)} / ◆無料キャンセル期限 ${
     fmtJst(d.deadlineMs)
   } / ${loss}`;
 }

@@ -17,6 +17,7 @@
  *   DELETE /api/reservations/:id          delete
  *   POST   /api/reservations/:id/confirm  confirm  (siblings in plan -> to_cancel)
  *   POST   /api/reservations/:id/cancel   report cancelled
+ *   POST   /api/reservations/:id/restore  restore  (cancelled|to_cancel -> candidate)
  *
  * Sharing (invite) routes — reservations stay in the owner's ledger, shares
  * are references (see sharing.ts). Available only when the acting ledger IS
@@ -30,7 +31,7 @@
  * Plus the exact-match lookup used by the invite box:
  *   GET    /api/users/lookup?q=<email|uid>         (login required)
  *
- * Policy templates (施設ごとの規定ベース, see policy-template.ts) — private to
+ * Policy templates (施設の既定規定, see policy-template.ts) — private to
  * the acting ledger, no calendar side effects, so no `mutated()` hook:
  *   GET    /api/policy-templates                       list
  *   PUT    /api/policy-templates/<facility>   {policy} save/overwrite

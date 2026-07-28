@@ -66,11 +66,13 @@ import type {
 export interface LineWebhookDeps {
   channelSecret: string;
   /**
-   * LEGACY allowlist (`LINE_ALLOWED_USER_IDS`, kept for back-compat). Per-user
-   * linking is the authorization now, so this set can NEVER block a linked
-   * sender; a non-empty set only restricts senders that are not linked yet.
+   * Private-beta gate (`LINE_ALLOWED_USER_IDS`). Per-user linking is the
+   * authorization now, so this set can NEVER block a linked sender; a non-empty
+   * set only restricts senders that are not linked YET — which is why the
+   * public account keeps it empty (owner 2026-07-27): a non-empty set would
+   * turn away every new person before they could send their link code.
    * Standalone mode (no `web`) has no link index, so there it still gates
-   * everything, as before. Remove the env var in production.
+   * everything, including its fail-closed empty case.
    */
   allowedUserIds: ReadonlySet<string>;
   ctx: ToolContext;

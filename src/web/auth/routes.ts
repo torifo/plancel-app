@@ -8,12 +8,19 @@
  *   - `x-plancel-admin: <PLANCEL_ADMIN_TOKEN>` — the raw
  *     `x-plancel-token` header is used as the ledger (prod smoke tests)
  *
- * Routes:
+ * Routes — all 19 this file serves (kept complete on purpose: the docs and the
+ * next agent are told to trust this list as ground truth):
  *   GET  /auth/google            start OAuth (302 to Google)
  *   GET  /auth/callback          OAuth return → session cookie → /
  *   POST /auth/email {email}     send magic link (rate limited)
  *   GET  /auth/verify?token=     magic link landing → session cookie → /
  *   GET  /auth/me                session info (401 when logged out)
+ *   POST /auth/register {email,password}  create an account with a password
+ *   POST /auth/login {email,password}     password login → session cookie
+ *   POST /auth/password {current?,next}   set or change the password
+ *   POST /auth/profile {displayName?,uid?,altEmail?}  プロフィール edit
+ *   POST /auth/token             issue the MCP API token (returns it once)
+ *   DELETE /auth/token           revoke the MCP API token
  *   POST /auth/logout            drop session
  *   DELETE /auth/account {confirm} 退会 — delete the account and all its data
  *   POST /auth/adopt {token}     adopt a pre-login browser-token ledger
@@ -21,6 +28,7 @@
  *   POST /auth/mail/rotate       rotate the mail-intake (転送先) address
  *   POST /auth/line/code         issue a one-time LINE link code (10min)
  *   DELETE /auth/line            unlink this account's LINE
+ *   POST /auth/google/unlink     clear a broken Google link (no UI caller yet)
  */
 import { z } from "zod";
 import { listReservations } from "../store.ts";

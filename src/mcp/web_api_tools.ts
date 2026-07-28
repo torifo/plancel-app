@@ -58,7 +58,7 @@ const templateInput = facilityInput.extend({
   // "unknown" is not offered: a template that states no rate would pre-fill the
   // form with 不明 and hide that the fee table was never entered.
   policy: templatePolicyInputSchema.describe(
-    POLICY_DESC.replace('"unknown"/', "") + "（テンプレに unknown は保存できない）",
+    POLICY_DESC.replace('"unknown"/', "") + "（施設の既定規定に unknown は保存できない）",
   ),
 });
 
@@ -131,7 +131,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
   const server = new McpServer({ name: "plancel-web", version: "0.1.0" });
 
   server.registerTool("list_reservations", {
-    description: "Web台帳の予約一覧（候補/確定/要キャンセル/キャンセル済み）を取得する",
+    description: "台帳の予約一覧（候補/確定/要キャンセル/キャンセル済み）を取得する",
     inputSchema: z.object({}).passthrough(),
   }, () => callApi(cfg, "GET", "/api/reservations"));
 
@@ -139,7 +139,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "create_reservation",
     {
       description:
-        "Web台帳に予約を登録する（confirmed=true で確定として登録。確定は家族のカレンダーにも反映される）",
+        "台帳に予約を登録する（confirmed=true で確定として登録。確定は家族のカレンダーにも反映される）",
       inputSchema: createInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {
@@ -256,11 +256,11 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     },
   );
 
-  // ---- 施設ごとのキャンセル規定テンプレ (owner 2026-07-27) ----
+  // ---- 施設の既定規定 = 施設ごとに覚えたキャンセル規定 (owner 2026-07-27) ----
   // 「GUI でできることは MCP でもできる」: the same four operations the web
   // form uses, so Claude can remember a hotel's fee table and reuse it.
   server.registerTool("list_policy_templates", {
-    description: "登録済みのキャンセル規定テンプレ（施設ごとの規定ベース）を一覧する",
+    description: "登録済みの施設の既定規定（施設ごとに覚えたキャンセル規定）を一覧する",
     inputSchema: z.object({}).passthrough(),
   }, () => callApi(cfg, "GET", "/api/policy-templates"));
 
@@ -268,7 +268,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "lookup_policy_template",
     {
       description:
-        "施設名からキャンセル規定テンプレを引く（完全一致。全角/半角・空白・大小文字は同一視。無ければ template:null）",
+        "施設名から既定規定を引く（完全一致。全角/半角・空白・大小文字は同一視。無ければ template:null）",
       inputSchema: facilityInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {
@@ -283,7 +283,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "save_policy_template",
     {
       description:
-        "施設のキャンセル規定テンプレを保存する（同じ施設なら上書き。以後その施設の予約はこの規定を初期値にできる）",
+        "施設の既定規定を保存する（同じ施設なら上書き。以後その施設の予約はこの規定を初期値にできる）",
       inputSchema: templateInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {
@@ -297,7 +297,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
   server.registerTool(
     "delete_policy_template",
     {
-      description: "施設のキャンセル規定テンプレを削除する（予約自体には影響しない）",
+      description: "施設の既定規定を削除する（予約自体には影響しない）",
       inputSchema: facilityInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {

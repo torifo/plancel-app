@@ -202,6 +202,13 @@
       background: var(--lamp-soft);
       color: var(--ink);
     }
+    /* 「◆ 次の無料キャンセル期限 9/9(水)（あと44日）」だけは特大（--fs 1.28）で
+       375px の行に収まらない。この1枚に限り折り返しを許す（.chip の nowrap のまま
+       だと行からはみ出して横スクロールが出る）。 */
+    #chipNext {
+      white-space: normal;
+      max-width: 100%;
+    }
     .chip b {
       color: var(--ink);
     }
@@ -1904,8 +1911,8 @@
 
       <div class="statusrow">
         <div class="chips">
-          <span class="chip lamp" id="chipNext">◆ 次の締切 —</span>
-          <span class="chip">放置損失 <b style="color:var(--danger-ink)" id="stLoss">¥0</b></span>
+          <span class="chip lamp" id="chipNext">◆ 次の無料キャンセル期限 —</span>
+          <span class="chip">最大キャンセル料 <b style="color:var(--danger-ink)" id="stLoss">¥0</b></span>
         </div>
         <div class="miniacts">
           <button class="btn-ghost mini" id="addBtn">＋手動で追加</button>
@@ -2089,7 +2096,7 @@
               <li><span class="lg danger"></span>赤：全額。もう戻せません。</li>
               <li><span class="lg unknown"></span>斜線：規定が不明。期限を見張れないので、入れてください。</li>
             </ul>
-            <p class="help-p"><b>◆</b>は無料で戻れる最終日の位置です。左に寄っているほど締切が近いという合図で、帯の下の真ん中の文字（例：◆7/31(木) ¥0で戻れる最終日）が、それを日付で書いたものです。両端の文字は「今日」と予約日です。</p>
+            <p class="help-p"><b>◆</b>は無料で戻れる最終日の位置です。左に寄っているほど無料キャンセル期限が近いという合図で、帯の下の真ん中の文字（例：◆7/31(木) ¥0で戻れる最終日）が、それを日付で書いたものです。両端の文字は「今日」と予約日です。</p>
           </div>
 
           <div class="sec">
@@ -2129,7 +2136,7 @@
               <li>「連携と通知」でコードを発行し、そのコードをplancelとのトークに送る。</li>
             </ol>
             <p class="help-p">連携は<b>人ごと</b>です。予約を共有している方も、それぞれご自分のLINEを連携すれば、ご自分あてのお知らせがご自分のLINEに届きます。誰か1人にまとめて届くわけではありません。</p>
-            <p class="help-p">トークでは、<b>確認</b>（いまの予約の一覧）・<b>締切</b>（7日以内に無料の期限が切れるもの）・<b>今日</b>・<b>今週</b>・<b>連携</b>（つながっているアカウントの確認）・<b>使い方</b>と送ると、それぞれの答えが返ります。トーク画面下のメニューからも同じ言葉を送れますし、返信には次に押せるボタンが付きます。</p>
+            <p class="help-p">トークでは、<b>確認</b>（いまの予約の一覧）・<b>締切</b>（7日以内に無料キャンセル期限が切れる予約）・<b>今日</b>・<b>今週</b>・<b>連携</b>（つながっているアカウントの確認）・<b>使い方</b>と送ると、それぞれの答えが返ります。トーク画面下のメニューからも同じ言葉を送れますし、返信には次に押せるボタンが付きます。</p>
             <p class="help-p">予約確認メールの本文やスクリーンショットをトークに送れば、そのまま読み取って台帳に入ります。トークに届く案内からは、取り込み画面やこの使い方をそのまま開けます。</p>
             <div class="help-acts"><button class="btn-ghost" id="helpOpenLink">連携と通知をひらく</button></div>
           </div>
@@ -2361,8 +2368,8 @@
         <div class="modal-head"><h3>連携と通知</h3><button class="x" data-close>×</button></div>
 
         <div class="sec" id="calLineSec" style="margin-top:0;padding-top:0;border-top:none">
-          <div class="sec-h">① 締切のお知らせを LINE で受け取る</div>
-          <p class="hint" style="margin:0 0 10px">無料キャンセルの期限が近づくと、plancel の公式アカウントから LINE でお知らせが届きます。連携すると<b>あなたあてのお知らせは、あなたの LINE に届きます</b>。台帳を共有している方も、それぞれご自分の LINE で受け取れます。</p>
+          <div class="sec-h">① 無料キャンセル期限のお知らせを LINE で受け取る</div>
+          <p class="hint" style="margin:0 0 10px">無料キャンセル期限が近づくと、plancel の公式アカウントから LINE でお知らせが届きます。連携すると<b>あなたあてのお知らせは、あなたの LINE に届きます</b>。台帳を共有している方も、それぞれご自分の LINE で受け取れます。</p>
           <div class="line-step" style="margin-top:0">
             <div class="line-step-h">1. plancel を友だち追加する</div>
             <a class="btn-a" id="lineAddBtn" href="https://line.me/R/ti/p/@791wbdma" target="_blank" rel="noopener">💬 LINE で友だち追加</a>
@@ -2605,10 +2612,10 @@
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       const dls = active.map(freeDeadline).filter((d) => d && d > now).sort((a, b) => a - b);
       q("#chipNext").innerHTML = dls.length
-        ? `◆ 次の締切 <b>${fmtDate(dls[0])}</b>（あと${
+        ? `◆ 次の無料キャンセル期限 <b>${fmtDate(dls[0])}</b>（あと${
           Math.max(1, Math.ceil((dls[0] - now) / DAY))
         }日）`
-        : "◆ 差し迫った締切なし";
+        : "◆ 近い無料キャンセル期限なし";
       q("#stLoss").textContent = yen(active.reduce((s, r) => s + maxLoss(r), 0));
       renderDateScale(now);
       renderRail(active, cancelled.length, now);
@@ -2836,8 +2843,8 @@
       if (ahead.length) {
         const r = ahead[0].r, dl = ahead[0].dl, d = daysUntil(dl, now);
         const lb = d <= 0
-          ? "◆無料期限は今日まで"
-          : (d === 1 ? "◆無料期限は明日まで" : `◆無料期限まであと${d}日`);
+          ? "◆無料キャンセル期限は今日まで"
+          : (d === 1 ? "◆無料キャンセル期限は明日まで" : `◆無料キャンセル期限まであと${d}日`);
         const pen = penaltyAfterFree(r);
         return `<div class="rail-item soft"><div class="lb lamp">${lb}</div><div class="tt"><b>${
           esc(r.service)
