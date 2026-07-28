@@ -1240,6 +1240,23 @@
       opacity: .5;
       cursor: not-allowed;
     }
+    /* ═══ メール転送で予約を取り込む（マイページ）═══
+       アドレスは `p-<64桁>@ドメイン` で 90 文字近くあるので、購読 URL とまったく
+       同じ readonly な <input> に入れて中で横スクロールさせる（<div> だと 320px で
+       はみ出す）。秘密の文字列なので「人に見せない」の合図を必ず添える。色は
+       .line-code-box と同じ琥珀の組み合わせ（--lamp-ink × --lamp-soft）で、
+       危険（赤）ではなく注意の段で出す。 */
+    .mail-warn {
+      margin-top: 10px;
+      padding: calc(9px * var(--fs)) 12px;
+      border: 1px solid var(--lamp);
+      border-radius: 8px;
+      background: var(--lamp-soft);
+      font-size: calc(12.5px * var(--fs));
+      font-weight: 500;
+      line-height: 1.75;
+      color: var(--lamp-ink);
+    }
     .share-tag {
       display: inline-block;
       font-size: calc(11px * var(--fs));
@@ -1554,6 +1571,16 @@
       color: var(--lamp-ink);
       font-weight: 700;
     }
+    /* 「終了」が0件のとき。飛び先の「キャンセル済み」の節そのものが無いので、押せる
+       見た目のまま何も起きないのをやめる。無効の見せ方は .pol-add:disabled と同じ
+       opacity ＋ .tpl-save.off と同じ「文字を薄くする」の合わせ技で、アイコンも
+       currentColor なので一緒に沈む（無効な操作なのでコントラスト比の下限は
+       適用しない）。 */
+    .bn-item.off {
+      color: var(--faint);
+      opacity: .45;
+      cursor: not-allowed;
+    }
     .bn-label {
       display: inline-flex;
       align-items: baseline;
@@ -1764,6 +1791,7 @@
       .tpl-row .pl,
       .line-howto,
       .line-count,
+      .mail-warn,
       .role-badge {
         font-size: calc(13px * var(--fs));
       }
@@ -1967,6 +1995,25 @@
             <div class="hint"><a id="p_linkGoogle" style="cursor:pointer;text-decoration:underline">🔗 Google アカウントを紐付ける</a></div>
           </div>
 
+          <!-- メール転送で予約を取り込む（サーバ実装済み・2026-07-28）。
+               /auth/me の mailAddress が null = 受信ドメインが設定されていない環境
+               ＝この機能自体が無いので、節ごと出さない（使い方の「転送」の行も同時に
+               隠す。renderMailFeature() が1か所で両方を切り替える）。
+               アドレスの見た目・コピー・再発行は「連携と通知」の購読 URL と同じ作り
+               （readonly な input ＋「コピー」「再発行」のリンク）にそろえる。 -->
+          <div class="sec" id="mailSec" style="display:none">
+            <div class="sec-h">メールを転送して予約を取り込む</div>
+            <p class="hint" style="margin:0 0 8px">予約確認メールを下のアドレスに転送すると、中身を読み取って台帳に「候補」として並びます。本文を貼り付けなくても、転送するだけで入ります。</p>
+            <input id="mailAddr" readonly style="font-size:calc(12px * var(--fs))">
+            <div class="hint" style="margin:4px 0 0">
+              <a id="mailCopy" style="cursor:pointer;text-decoration:underline">アドレスをコピー</a> ·
+              <a id="mailRotate" style="cursor:pointer;text-decoration:underline">アドレスを再発行（漏れたとき）</a>
+            </div>
+            <div class="mail-warn">⚠ このアドレスは、あなただけの秘密です。知っている人は誰でもこの台帳に予約を入れられるので、SNS や掲示板など人が見える場所には書かないでください。</div>
+            <div class="hint" style="margin:8px 0 0">まだできないこと：<b>添付ファイルは読みません</b>（メールの本文だけを見ます）。読み取れなかったメールは登録されません。LINE を連携していれば、読み取れなかったことを LINE でお知らせします。</div>
+            <div class="hint" id="mailMsg" style="margin:6px 0 0;min-height:1.7em" role="status" aria-live="polite"></div>
+          </div>
+
           <div class="sec">
             <div class="sec-h">施設ごとのキャンセル規定（既定）</div>
             <p class="hint" style="margin:0 0 8px">同じ宿・同じお店をまた予約するとき、ここに保存した規定が自動で入ります。</p>
@@ -2012,6 +2059,15 @@
         <div class="pagecard">
           <p class="help-lead">plancelは、まだ決めていない予約と「無料で戻れる最終日」をまとめて見張るための台帳です。</p>
 
+          <!-- 文字サイズは番号を振らずに本編（1〜8）の前に置く。読めなくて使い方を
+               見に来た人が、いちばん先に見つけられる場所でなければ意味がないため
+               （オーナー 2026-07-28）。番号を振ると以降が全部ずれる。 -->
+          <div class="sec">
+            <div class="sec-h">文字が小さいと感じたら</div>
+            <p class="help-p">画面の右上にある<b>「A」のボタン</b>を押すと、文字の大きさが<b>標準 → 大きめ → 特大</b>と切り替わります。もう一度押すと標準に戻ります。</p>
+            <p class="help-p">マイページの<b>「文字サイズ」</b>でも、標準・大きめ・特大から選べます。どちらも同じ設定です。この端末のこのブラウザにだけ残るので、共有相手や他の端末の見た目は変わりません。</p>
+          </div>
+
           <div class="sec">
             <div class="sec-h">1. 何のためのアプリか</div>
             <p class="help-p">旅行や食事の予定は、とりあえず何軒か押さえておくことがよくあります。plancelはその候補をまとめて置いておき、<b>お金がかからないうちに要らない予約を落とす</b>ところまで見届けます。</p>
@@ -2041,14 +2097,19 @@
           </div>
 
           <div class="sec">
-            <div class="sec-h">4. 予約の入れ方は4通り</div>
+            <!-- 通数は #helpWayCount で出す。受信ドメインが無い環境では転送の行が
+                 消えるので、そのときは「4通り」に戻す（renderMailFeature）。 -->
+            <div class="sec-h">4. 予約の入れ方は<span id="helpWayCount">5</span>通り</div>
             <ul class="help-ways">
               <li><b>📧 予約確認メールを貼り付け</b>：予約サイトのメール本文をそのまま貼るだけ。店名・日時・場所・金額・キャンセル規定まで読み取れるので、いちばん確実です。</li>
+              <li id="helpWayMail" style="display:none"><b>📨 メールを転送する</b>：あなた専用の転送先アドレスに予約確認メールを転送すると、貼り付けなくても候補として台帳に並びます。アドレスは<b>マイページの「メールを転送して予約を取り込む」</b>にあります。他人に知られるとその人も予約を入れられるので、人が見える場所には書かないでください。</li>
               <li><b>📷 スクショ・写真から読み取り</b>：予約画面やカレンダー画面の写真からも読み取れます。<b>TimeTreeはスクショが唯一の道です</b>（アプリから.icsを書き出せないため）。iPhoneのカレンダーも同じくスクショが確実です。</li>
               <li><b>📅 .icsファイル</b>：Googleカレンダーなどから書き出した.icsを選ぶと、今後の予定をまとめて登録します。書き出せるのはパソコンのブラウザだけです。</li>
               <li><b>✎ 手動で追加</b>：「＋手動で追加」から1件ずつ。読み取りが難しいときの最後の手段です。</li>
             </ul>
-            <p class="help-p">どの方法でも登録の前に確認画面が出ます。読み取りが外れていたら、その場で直してから登録してください。</p>
+            <p class="help-p">貼り付け・スクショ・.ics・手動は、登録の前に確認画面が出ます。読み取りが外れていたら、その場で直してから登録してください。</p>
+            <p class="help-p" id="helpWayMailNote" style="display:none"><b>転送だけは確認画面がありません。</b>メールが届いた時点で候補として並ぶので、あとから台帳で見て直してください。</p>
+            <p class="help-p">このほか、LINEのトークにメール本文やスクリーンショットを送っても同じように読み取れます（→6）。</p>
           </div>
 
           <div class="sec">
@@ -2059,25 +2120,29 @@
               <li><b>いつでも無料</b>・<b>前日まで無料</b>：よくある2つはボタン1つで入ります。</li>
               <li><b>期限つき（日数で指定）</b>：「無料でキャンセルできるのは〇日前まで」を入れ、途中で料率が変わるなら「＋段階を足す」で足します。例：7日前まで無料→3日前まで30％→当日100％。入力の下に、できあがった規定が文章で出ます。</li>
             </ul>
-            <p class="help-p">同じ宿・同じ店をまた予約するなら、登録のときに「この規定を『◯◯』の既定として保存する」にチェックを入れてください。次に同じ施設名を入れた時点で規定が自動で入ります。保存した既定は、マイページの「施設ごとのキャンセル規定（既定）」で確認・削除できます。</p>
+            <p class="help-p">同じ宿・同じ店をまた予約するなら、登録のときに「この規定を『◯◯』の既定として保存する」にチェックを入れてください。次に同じ施設名を入れた時点で、その<b>施設ごとの既定</b>が自動で入ります。保存した既定は、マイページの「施設ごとのキャンセル規定（既定）」で一覧・削除できます。</p>
+            <p class="help-p">既定が入るのは、その予約の規定が<b>まだ「不明」のときだけ</b>です。メールやスクショから規定を読み取れた予約は、そちらがその予約に固有の情報なので、施設の既定で塗り替えません。自動で入ったときは、その場に出る「元に戻す」で戻せます。</p>
           </div>
 
           <div class="sec">
-            <div class="sec-h">6. LINEでのお知らせと連携</div>
-            <p class="help-p">無料キャンセルの期限が近づくと、plancelの公式アカウントからLINEでお知らせが届きます。受け取るまでは2手順です。</p>
+            <div class="sec-h">6. お知らせ（LINE・メール）と連携</div>
+            <p class="help-p">無料キャンセルの期限が近づくと、お知らせが届きます。<b>LINEを連携していればLINEに、していなければログインに使っているメールアドレスにメール</b>で届きます。同じころに期限が来る予約が何件かあるときは、1件ずつではなく<b>まとめて1通</b>で届きます。</p>
+            <p class="help-p">LINEで受け取るには2手順です。</p>
             <ol class="help-steps">
               <li>LINEでplancelを友だち追加する（LINE ID：@791wbdma）。</li>
               <li>「連携と通知」でコードを発行し、そのコードをplancelとのトークに送る。</li>
             </ol>
-            <p class="help-p">連携は人ごとです。予約を共有している方も、それぞれご自分のLINEでお知らせを受け取れます。トークに届く案内からは、取り込み画面やこの使い方をそのまま開けます。</p>
+            <p class="help-p">連携は<b>人ごと</b>です。予約を共有している方も、それぞれご自分のLINEを連携すれば、ご自分あてのお知らせがご自分のLINEに届きます。誰か1人にまとめて届くわけではありません。</p>
+            <p class="help-p">トークでは、<b>確認</b>（いまの予約の一覧）・<b>締切</b>（7日以内に無料の期限が切れるもの）・<b>今日</b>・<b>今週</b>・<b>連携</b>（つながっているアカウントの確認）・<b>使い方</b>と送ると、それぞれの答えが返ります。トーク画面下のメニューからも同じ言葉を送れますし、返信には次に押せるボタンが付きます。</p>
+            <p class="help-p">予約確認メールの本文やスクリーンショットをトークに送れば、そのまま読み取って台帳に入ります。トークに届く案内からは、取り込み画面やこの使い方をそのまま開けます。</p>
             <div class="help-acts"><button class="btn-ghost" id="helpOpenLink">連携と通知をひらく</button></div>
           </div>
 
           <div class="sec">
             <div class="sec-h">7. 共有と編集の権限</div>
-            <p class="help-p">予約行の「招待」から、メールアドレスかユーザーID（完全一致）で相手を追加します。相手の台帳にもその予約が並び、期限のお知らせもそれぞれのLINEに届きます。</p>
-            <p class="help-p">招待するときに<b>「編集を許可する」</b>にチェックを入れると、相手も日時・金額・場所などを直せます。チェックしなければ閲覧のみです。あとから変えたくなったら、招待画面の一覧で「編集を許可」・「閲覧のみにする」を切り替えられます。</p>
-            <p class="help-p"><b>確定・キャンセル・削除・招待はオーナーだけ</b>です。プラン全体が動いてしまう操作なので、共有された側には開いていません。</p>
+            <p class="help-p">予約行の「招待」から、メールアドレスかユーザーID（完全一致）で相手を追加します。相手の台帳にもその予約が並び、期限のお知らせもそれぞれのLINEやメールに届きます。</p>
+            <p class="help-p">招待するときに<b>「編集を許可する」</b>にチェックを入れると、相手も<b>プラン名・お店の名前・日時・金額・場所・キャンセル規定</b>を直せます。チェックしなければ閲覧のみです。あとから変えたくなったら、招待画面の一覧で「編集を許可」・「閲覧のみにする」を切り替えられます。</p>
+            <p class="help-p"><b>確定・キャンセル・削除・招待はオーナーだけ</b>です。確定はプラン全体を動かし、削除は元に戻せないので、細かい直しを任せた相手には開いていません。編集を許可された方も、この4つはできません。</p>
           </div>
 
           <div class="sec">
@@ -2103,7 +2168,10 @@
 
     <nav class="bottomnav">
       <button class="bn-item active" id="bnLedger"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13Z"></path><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"></path></svg>台帳</button>
-      <button class="bn-item" id="bnDone" aria-label="完了済み"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M8.5 7.5 20 19M8.5 16.5 20 5"></path></svg><span class="bn-label">Over</span></button>
+      <!-- 終了（キャンセル済み）。ラベルは他の4つと同じ日本語にそろえ、件数も戻す
+           （オーナー 2026-07-28）。読み上げ名は件数まで入れて renderRail が書き替える
+           ので、ここには置かない。0件のときは飛び先の節が無いので .off で無効化する。 -->
+      <button class="bn-item" id="bnDone"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M8.5 7.5 20 19M8.5 16.5 20 5"></path></svg><span class="bn-label">終了<span id="bnDoneCount">0</span></span></button>
       <button class="bn-fab" id="bnImport"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>取り込む</button>
       <button class="bn-item" id="bnCal"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg>連携</button>
       <button class="bn-item" id="bnProfile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>マイページ</button>
@@ -2364,13 +2432,13 @@
     <div class="overlay" id="inviteOverlay">
       <div class="modal" style="max-width:440px">
         <div class="modal-head"><h3>予約に招待</h3><button class="x" data-close>×</button></div>
-        <p class="hint" style="margin-bottom:8px">メールアドレスまたはユーザーID（完全一致）で検索して追加します。追加された相手の台帳にこの予約が共有表示され、期限のお知らせもその方のLINEに届きます。</p>
+        <p class="hint" style="margin-bottom:8px">メールアドレスまたはユーザーID（完全一致）で検索して追加します。追加された相手の台帳にこの予約が共有表示され、期限のお知らせもその方の LINE（未連携ならメール）に届きます。</p>
         <label>メールアドレスまたはユーザーID</label>
         <div style="display:flex;gap:8px">
           <input id="inv_q" placeholder="you@example.com ／ planceluser" style="flex:1" autocomplete="off">
           <button class="btn-primary" id="inv_add" style="flex:0 0 auto;white-space:nowrap">検索して追加</button>
         </div>
-        <label class="inv-perm"><input type="checkbox" id="inv_role"><span>編集を許可する（日時・金額・場所などの修正）</span></label>
+        <label class="inv-perm"><input type="checkbox" id="inv_role"><span>編集を許可する（日時・金額・場所・キャンセル規定などの修正）</span></label>
         <div class="hint" style="margin:4px 0 0">確定・キャンセル・削除・招待はオーナーだけが行えます。</div>
         <div class="hint" id="inv_msg" style="margin-top:6px;min-height:16px"></div>
         <label style="margin-top:12px">共有中の相手</label>
@@ -2747,6 +2815,17 @@
       }
       const todo = active.filter((r) => r.status === "to_cancel").length;
       q("#todoCount").textContent = todo + "件";
+      // ボトムナビの「終了」。0件のときは飛び先の「キャンセル済み」の節そのものが
+      // 描かれないので、押せるように見せない（.off ＋ aria-disabled。onclick 側でも
+      // 弾く）。読み上げ名は見えている文字と食い違わせず、件数まで含める。
+      q("#bnDoneCount").textContent = doneCount;
+      const bnDone = q("#bnDone");
+      bnDone.classList.toggle("off", doneCount === 0);
+      bnDone.setAttribute("aria-disabled", doneCount === 0 ? "true" : "false");
+      bnDone.setAttribute(
+        "aria-label",
+        doneCount === 0 ? "終了した予約はまだありません" : `終了した予約 ${doneCount}件`,
+      );
       q("#rail").innerHTML = (items.length ? items.join("") : railIdleHtml(active, now)) +
         `<div class="rail-done">処理済み ${doneCount}件</div>`;
     }
@@ -3905,6 +3984,75 @@
         q("#icsUrl").select();
       }
     };
+    // ---- メールを転送して予約を取り込む（マイページ #mailSec）----
+    // 受信ドメインが設定されていない環境では /auth/me の mailAddress が null で返る。
+    // そのときはマイページの節と使い方の「転送」の行の両方を隠し、この機能の話を
+    // どこにも出さない（機能が無いのに案内だけ出すほうが悪い）。エラーの文言は
+    // LINE 連携と同じものを使い回す（401 と通信失敗で書き分ける約束もそのまま）。
+    function mailNote(msg, kind) {
+      const el = q("#mailMsg");
+      el.textContent = msg;
+      el.style.color = kind === "err"
+        ? "var(--danger-ink)"
+        : (kind === "ok" ? "var(--safe-ink)" : "");
+    }
+    function renderMailFeature() {
+      const addr = ME && typeof ME.mailAddress === "string" && ME.mailAddress !== ""
+        ? ME.mailAddress
+        : null;
+      const on = addr !== null;
+      q("#mailSec").style.display = on ? "" : "none";
+      q("#helpWayMail").style.display = on ? "" : "none";
+      q("#helpWayMailNote").style.display = on ? "" : "none";
+      q("#helpWayCount").textContent = on ? "5" : "4";
+      if (on) q("#mailAddr").value = addr;
+    }
+    // 90 文字近くあって手では選びにくいので、触ったら全選択する（コピーが使えない
+    // ブラウザでも、そのまま長押し→コピーに持っていける）。
+    q("#mailAddr").onclick = () => q("#mailAddr").select();
+    q("#mailCopy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(q("#mailAddr").value);
+        mailNote("アドレスをコピーしました。メールアプリの転送先に貼り付けてください。", "ok");
+      } catch (e) {
+        q("#mailAddr").select();
+        mailNote("コピーできませんでした。選ばれている文字をコピーしてください。", "err");
+      }
+    };
+    q("#mailRotate").onclick = async () => {
+      if (
+        !confirm(
+          "転送用のアドレスを再発行します。\n古いアドレスに送ったメールは、もう届きません（登録されません）。\nメールアプリに転送先として登録している場合は、新しいアドレスに直してください。\nよろしいですか？",
+        )
+      ) {
+        return;
+      }
+      const link = q("#mailRotate");
+      link.style.pointerEvents = "none";
+      mailNote("再発行しています…");
+      let res;
+      try {
+        res = await fetch("/auth/mail/rotate", { method: "POST" });
+      } catch (e) {
+        link.style.pointerEvents = "";
+        mailNote(LINE_OFFLINE, "err");
+        return;
+      }
+      link.style.pointerEvents = "";
+      if (res.status === 401) {
+        mailNote(LINE_RELOAD, "err");
+        return;
+      }
+      if (!res.ok) {
+        mailNote("再発行できませんでした。もう一度お試しください。", "err");
+        return;
+      }
+      const j = await res.json().catch(() => ({}));
+      if (typeof j.mailAddress === "string" && j.mailAddress !== "") ME.mailAddress = j.mailAddress;
+      renderMailFeature();
+      mailNote("新しいアドレスを発行しました。古いアドレスに送ったメールは届きません。", "ok");
+    };
+
     // マイページ: プロフィール・パスワード・アカウント連携（GUI 専用フロー）
     q("#profileBtn").onclick = () => {
       const shownName = ME.displayName || ME.email || "";
@@ -3930,6 +4078,8 @@
           : (ME.emailVerified
             ? "Google 未連携。紐付けると Google でもログインできます。"
             : "Google 未連携（このアカウントはメール登録のみ）。紐付けるとアカウントの本人確認も完了します。"));
+      mailNote("");
+      renderMailFeature();
       loadTemplates();
       setView("profile");
     };
@@ -4135,6 +4285,8 @@
       scrollTo({ top: 0, behavior: "smooth" });
     };
     q("#bnDone").onclick = () => {
+      // 0件のときは飛び先が無い＝押しても何も起きないので、押させない（見た目も .off）。
+      if (q("#bnDone").classList.contains("off")) return;
       setView("ledger");
       const el = document.querySelector(".cancelled-sec");
       if (el) el.scrollIntoView({ behavior: "smooth" });
@@ -4281,17 +4433,27 @@
       q("#pwaUpdateBtn").disabled = true;
     }
 
-    // ---- LINE の返信に載るディープリンク（/#import・/#link・/#help）----
+    // ---- LINE の返信に載るディープリンク（/#import・/#link・/#help・/#mail）----
     // 開いたらフラグメントは消す（再読み込みで勝手に開き直さないため）。知らない
     // フラグメントは何もしない＝通常どおり台帳を出す。ログイン前は消さずに素通りし、
     // ログイン後の boot() で効かせる。
     function routeHash() {
       const h = location.hash;
-      if (h !== "#import" && h !== "#link" && h !== "#help") return;
+      if (h !== "#import" && h !== "#link" && h !== "#help" && h !== "#mail") return;
       if (!ME) return;
       history.replaceState(null, "", location.pathname + location.search);
       if (h === "#help") {
         openHelp();
+        return;
+      }
+      if (h === "#mail") {
+        // 転送アドレスの節はマイページ（ページビュー）の中なので、#help と同じく
+        // モーダルではなくページを切り替えてから送る。setView が最後に先頭へ戻すので
+        // スクロールはそのあと。受信ドメインが無い環境では節が display:none なので
+        // 何も起きず、マイページの先頭に着地する。
+        closeAll();
+        q("#profileBtn").onclick();
+        q("#mailSec").scrollIntoView({ block: "start" });
         return;
       }
       setView("ledger");
@@ -4340,6 +4502,9 @@
       }
       ME = await res.json();
       q("#loginOverlay").classList.remove("on");
+      // 使い方は マイページ を開かずにも読めるので、転送メールの節と「入れ方は N 通り」
+      // はログイン直後にそろえておく。
+      renderMailFeature();
       // 管理者ログイン時のみ: 利用者数が100人に達したら運用見直しの警告を出す
       if (ME.capacityWarning) {
         const w = document.createElement("div");
