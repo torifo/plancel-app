@@ -45,7 +45,7 @@ export function reservationParsePrompt(todayIso?: string): string {
   "cancellation_policy": {           // キャンセル規定。記載がなければ "unknown"
     "stages": [
       {
-        "until_offset_hours": number,  // 開始日時の何時間前までこの料率か（例: 前日まで=24）
+        "until_offset_hours": number,  // この料率でキャンセルできる最も遅い時点（開始日時の何時間前か。前日まで=24、当日=0）
         "fee_percent": number,         // キャンセル料率 0-100
         "fee_fixed_jpy": number | null // 固定額があれば円、なければ null
       }
@@ -54,11 +54,19 @@ export function reservationParsePrompt(todayIso?: string): string {
   "notes": string | null             // その他の特記事項。なければ null
 }
 
+キャンセル規定の書き方（間違えやすいので必ず読むこと）:
+1. until_offset_hours は「その料率でキャンセルできる最も遅い時点」。無料でキャンセルできる期間があるなら fee_percent: 0 の段を必ず先頭に置く。置き忘れると「予約した時点から有料」という別の規定になってしまう。
+2. 「◯まで無料」と無料の期限が書いてあれば、その時点をそのまま使う。「7日前まで無料」→ 168/0。
+3. 「N日前から◯%」と有料の開始が書いてある場合、N日前は有料の日。無料の段は N×24+24 にする。「7日前から20%」→ 192/0（168ではない）。「3日前から20%」→ 96/0（72ではない）。
+4. 「から」で書かれた規定は有料の各段も1つずれ、「次に料率が上がる段の1日前」がその段の境界になる。「3日前から20%、前日50%、当日80%」→ 96/0, 48/20, 24/50, 0/80。「まで」で書かれた規定はずらさない。「7日前まで無料、3日前まで30%、前日50%、当日100%」→ 168/0, 72/30, 24/50, 0/100。
+5. 時刻まで書かれていれば日数に丸めず開始時刻との差を時間で出す。19:00開始で「前日18時まで無料」→ 25/0。
+6. ここでの「96/0」は until_offset_hours/fee_percent の略記。実際の出力では各段に fee_fixed_jpy も必ず書く（固定額がなければ null）。
+
 規則:
 - 推測で値を作らない。入力に書かれていない項目は null（cancellation_policy は "unknown"）。${dateRules}
 - 日付は書かれているものを正確に写す。曜日と日付が矛盾する場合は日付を優先する。
 - 時刻が書かれていない場合、starts_at は日付のみを 00:00 として表現し、notes に「時刻不明」と書く（チェックイン時刻が明記されていればそれを使う）。
-- cancellation_policy.stages は until_offset_hours の降順（遠い順）で並べる。
+- cancellation_policy.stages は until_offset_hours の降順（遠い順）で並べ、上の「キャンセル規定の書き方」に従う。
 - 金額はカンマや通貨記号を除いた数値にする。
 - 出力は JSON オブジェクトそのもの1つのみ。`;
 }

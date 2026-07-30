@@ -71,6 +71,7 @@ ConsoleNotifier で配送されるので送信は発生しない。2 回連続�
 set -a && source .env && set +a
 deno task parse:live "8/20 18:30 〇〇 4名"        # 一次 Groq で parsed になること
 deno task parse:live --image path/to/screenshot.png  # vision 経路（Gemini）
+deno task parse:live "8/20 18:30 〇〇 4名 キャンセルは7日前から20%"  # 「から」表記だけ Gemini 優先
 ```
 
 確認観点（予定台帳としての一級項目）:
@@ -78,6 +79,10 @@ deno task parse:live --image path/to/screenshot.png  # vision 経路（Gemini）
 - **starts_at**: 年なし日付が「今日以降の最近傍」になる（過去日付にならない）
 - **location**: 住所・場所が service_name と分離して入る
 - 宿: チェックイン時刻 → starts_at / チェックアウト → ends_at
+- **無料キャンセル期限**: 「7日前から20%」は `192/0, 0/20`（台帳で「8日前まで無料 → 当日20%」）。
+  無料の段が無い＝無料キャンセル期限が null になり、24時間前の通知が丸ごと出なくなる。Gemini
+  の日次枠（20 req/日・画像経路と共用）が尽きると groq-llama に落ち、`168/0`（7日前まで無料）と
+  1日楽観側にずれる — これは現状の許容範囲（ADR-5 追記 2026-07-30）
 - 良い結果は `--record <name>` でフィクスチャ化して回帰コーパスに追加する
 
 ### 1.6 LINE webhook ローカルスモーク（実チャネル不要・任意）

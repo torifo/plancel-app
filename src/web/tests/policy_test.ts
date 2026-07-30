@@ -153,6 +153,25 @@ Deno.test("fromCoreStages: arbitrary parsed stages are preserved, not coerced", 
   );
 });
 
+Deno.test("fromCoreStages: a 「N日前から◯%」 policy keeps its free window", () => {
+  // What the ledger must end up with for 「7日前から20%」 (owner, 2026-07-30:
+  // 「7日目から20%とるってなってると、8日目まで無料とは自動で入らないんだね」).
+  // 7日前 is a charged day, so the last free moment is 8日前 — the parse prompt
+  // now states that convention, and this is the shape it has to produce: a
+  // deadline the ledger can show and the 24時間前 sweep can notify on. A table
+  // with no 0% stage yields freeDeadlineMs === null and silently notifies about
+  // nothing at all.
+  const fromBoundary = fromCoreStages(core([[192, 0], [0, 20]]));
+  assertEquals(fromBoundary, { stages: [{ h: 192, pct: 0 }, { h: 0, pct: 20 }] });
+  assertEquals(describePolicy(fromBoundary), "8日前まで無料 → 当日20%");
+  assertEquals(freeDeadlineMs(fromBoundary, START), startMs - 192 * H);
+
+  // Staged version of the same phrasing: 「3日前から20%、前日50%、当日80%」.
+  const staged = fromCoreStages(core([[96, 0], [48, 20], [24, 50], [0, 80]]));
+  assertEquals(describePolicy(staged), "4日前まで無料 → 2日前まで20% → 前日まで50% → 当日80%");
+  assertEquals(freeDeadlineMs(staged, START), startMs - 96 * H);
+});
+
 Deno.test("fromCoreStages: a fixed-yen fee cannot be expressed as % -> unknown", () => {
   assertEquals(fromCoreStages(core([[24, 0], [0, 0]], 5000)), "unknown");
   assertEquals(fromCoreStages("unknown"), "unknown");

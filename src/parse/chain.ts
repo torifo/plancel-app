@@ -21,7 +21,7 @@ import type { Clock } from "../core/clock/mod.ts";
 import type { FieldConflict, ParseAttempt, ParseJob, Reservation } from "../core/schema/mod.ts";
 import { maskPii } from "./pii-mask.ts";
 import type { ParseInput, Parser } from "./types.ts";
-import type { ParserChainConfig } from "./config.ts";
+import { chainForInput, type ParserChainConfig } from "./config.ts";
 import { validateParsedOutput } from "./validate.ts";
 
 export interface ParseChainIds {
@@ -83,6 +83,11 @@ export function missingFieldQuestions(job: ParseJob): string[] {
  * Runs the configured parser chain for `input.type` against `input`,
  * applying mandatory PII masking first, and returns a fully-populated
  * ParseJob (not yet persisted — callers use core/store's putParseJob).
+ *
+ * The order comes from `chainForInput`, not straight from the config: what
+ * the input says can decide which parser leads (see config.ts). Names in the
+ * chain with no registered parser are skipped, so replaying a fixture that
+ * recorded only one of them still exercises exactly that one.
  */
 export async function runParseChain(
   input: ParseInput,
@@ -94,7 +99,7 @@ export async function runParseChain(
   const { masked } = maskPii(input.content);
   const maskedInput: ParseInput = { ...input, content: masked };
 
-  const chainNames = config[input.type];
+  const chainNames = chainForInput(maskedInput, config);
   const byName = new Map(parsers.map((p) => [p.name, p]));
 
   const attempts: ParseAttempt[] = [];
