@@ -18,7 +18,7 @@
 import { z } from "zod";
 import type { Clock } from "../core/clock/mod.ts";
 import type { ParseJob } from "../core/schema/mod.ts";
-import { missingFieldQuestions, runParseChain } from "../parse/mod.ts";
+import { impliedFreeBoundaryHours, missingFieldQuestions, runParseChain } from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
 import { fromCoreStages } from "./policy.ts";
 
@@ -83,11 +83,13 @@ export async function handleParseApi(req: Request, deps: ParseApiDeps): Promise<
     }
   }
 
+  // 「N日前から◯%」型の無料境界は原文が決める（モデルの答えは1日ずれ得る）。
+  const freeAt = input.type === "text" ? impliedFreeBoundaryHours(input.content) : null;
   const fields = {
     service: typeof merged.service_name === "string" ? merged.service_name : null,
     startsAt: typeof merged.starts_at === "string" ? merged.starts_at : null,
     amount: typeof merged.amount_jpy === "number" ? merged.amount_jpy : null,
-    policy: fromCoreStages(merged.cancellation_policy),
+    policy: fromCoreStages(merged.cancellation_policy, freeAt),
     location: typeof merged.location === "string" ? merged.location : null,
     notes: typeof merged.notes === "string" ? merged.notes : null,
   };

@@ -38,7 +38,7 @@ import { z } from "zod";
 import type { Clock } from "../core/clock/mod.ts";
 import type { ParseJob } from "../core/schema/mod.ts";
 import { logger } from "../lib/log.ts";
-import { runParseChain } from "../parse/mod.ts";
+import { impliedFreeBoundaryHours, runParseChain } from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
 import { fromCoreStages } from "./policy.ts";
 import { createReservation, webCreateSchema, type WebIds } from "./store.ts";
@@ -413,7 +413,7 @@ async function intake(
       startsAt: merged.starts_at,
       amount: typeof merged.amount_jpy === "number" ? merged.amount_jpy : null,
       location: typeof merged.location === "string" ? merged.location : null,
-      policy: fromCoreStages(merged.cancellation_policy),
+      policy: fromCoreStages(merged.cancellation_policy, impliedFreeBoundaryHours(text)),
       // Forwarded mail lands as a CANDIDATE: the ledger owner confirms in the UI,
       // exactly like a LINE-registered reservation.
       confirmed: false,

@@ -8,8 +8,14 @@ export { validateParsedOutput } from "./validate.ts";
 export type { ValidationResult } from "./validate.ts";
 export { missingFieldQuestions, runParseChain } from "./chain.ts";
 export type { ParseChainIds } from "./chain.ts";
-export { loadParserChainConfig, UnknownParserError, validateParserChainConfig } from "./config.ts";
+export {
+  chainForInput,
+  loadParserChainConfig,
+  UnknownParserError,
+  validateParserChainConfig,
+} from "./config.ts";
 export type { ParserChainConfig } from "./config.ts";
+export { impliedFreeBoundaryHours, statesFeeFromBoundary } from "./policy-phrasing.ts";
 export { MockParser } from "./mock-parser.ts";
 export type { MockFixture, MockFixtureMatcher, MockParserOptions } from "./mock-parser.ts";
 export {

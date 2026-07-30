@@ -172,6 +172,47 @@ Deno.test("fromCoreStages: a 「N日前から◯%」 policy keeps its free windo
   assertEquals(freeDeadlineMs(staged, START), startMs - 96 * H);
 });
 
+Deno.test("fromCoreStages: the source text's free boundary wins over the model's", () => {
+  // Both are real answers to 「3日前から20%、前日50%、当日80%」, measured 2026-07-30:
+  // gemini-flash applies the one-day correction, llama-3.3-70b does not. The
+  // ledger must not depend on which one answered, so the boundary the TEXT
+  // implies (4日前 = 96h) is forced onto both.
+  const want = {
+    stages: [{ h: 96, pct: 0 }, { h: 48, pct: 20 }, { h: 24, pct: 50 }, { h: 0, pct: 80 }],
+  };
+  assertEquals(fromCoreStages(core([[72, 0], [48, 20], [24, 50], [0, 80]]), 96), want);
+  assertEquals(fromCoreStages(core([[96, 0], [48, 20], [24, 50], [0, 80]]), 96), want);
+
+  // 「7日前から20%」 — the owner's case (2026-07-30): 「8日目まで無料とは自動で
+  // 入らないんだね」. 7日前 is a charged day, so the deadline is 8日前.
+  const single = { stages: [{ h: 192, pct: 0 }, { h: 0, pct: 20 }] };
+  assertEquals(fromCoreStages(core([[168, 0], [0, 20]]), 192), single);
+  assertEquals(fromCoreStages(core([[192, 0], [0, 20]]), 192), single);
+  assertEquals(
+    describePolicy(fromCoreStages(core([[168, 0], [0, 20]]), 192)),
+    "8日前まで無料 → 当日20%",
+  );
+
+  // No free stage at all (what the pre-2026-07-30 prompt produced): the window
+  // is put back rather than left as "charged since you booked".
+  assertEquals(
+    fromCoreStages(core([[72, 20], [24, 50], [0, 80]]), 96),
+    { stages: [{ h: 96, pct: 0 }, { h: 72, pct: 20 }, { h: 24, pct: 50 }, { h: 0, pct: 80 }] },
+  );
+
+  // 「当日から100%」 collapses to the preset it has always been.
+  assertEquals(fromCoreStages(core([[0, 100]]), 24), "free24");
+});
+
+Deno.test("fromCoreStages: no boundary from the text leaves the table untouched", () => {
+  // 「まで」-phrased and unrecognised text pass null — the model's own free
+  // stage is the only claim available and is kept verbatim.
+  assertEquals(fromCoreStages(core([[168, 0], [72, 30], [24, 50], [0, 100]]), null), "staged");
+  assertEquals(fromCoreStages(core([[120, 0], [72, 30], [0, 100]]), undefined), FIVE_DAY);
+  // An always-free table has nothing to charge for: no free boundary is forced.
+  assertEquals(fromCoreStages(core([[0, 0]]), 96), "none");
+});
+
 Deno.test("fromCoreStages: a fixed-yen fee cannot be expressed as % -> unknown", () => {
   assertEquals(fromCoreStages(core([[24, 0], [0, 0]], 5000)), "unknown");
   assertEquals(fromCoreStages("unknown"), "unknown");

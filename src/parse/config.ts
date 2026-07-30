@@ -11,6 +11,7 @@
  * leads for a single input can depend on what that input says (see below).
  */
 import type { ParseInput, ParseInputType } from "./types.ts";
+import { statesFeeFromBoundary } from "./policy-phrasing.ts";
 
 export interface ParserChainConfig {
   text: string[];
@@ -24,37 +25,20 @@ export interface ParserChainConfig {
 const FEE_FROM_BOUNDARY_PARSER = "gemini-flash";
 
 /**
- * Does this text state a cancellation fee as STARTING at a boundary
- * (「3日前から20%」「前日より50%」「当日以降100%」) rather than as a deadline to
- * cancel by (「3日前まで無料」)?
- *
- * The two phrasings put the free window a day apart: 「7日前から20%」 means the
- * 7日前 day is already charged, so the last free moment is 8日前 — while
- * 「7日前まで無料」 means 7日前 itself is still free. A match needs three things
- * — a cancellation word somewhere, a boundary, and a charge right after that
- * boundary — because 「から」 alone is far too common a particle: 「東京駅から徒歩
- * 5分」, 「10:00からチェックイン」 and even 「3日前から満席のためキャンセル待ち」
- * all carry it without stating a fee.
- */
-export function statesFeeFromBoundary(text: string): boolean {
-  return /キャンセル|取消|解約/.test(text) &&
-    /(?:\d+\s*(?:日|時間)前|前日|当日)\s*(?:から|より|以降)[^。\n]{0,12}?(?:\d+\s*[%％]|\d+\s*円|全額|有料)/
-      .test(text);
-}
-
-/**
  * The parser order to use for THIS input: the declared chain, except that a
  * text stating its fee from a boundary puts `FEE_FROM_BOUNDARY_PARSER` first.
  *
- * Both providers now get the free stage itself right (2026-07-30 prompt fix),
- * but only Gemini applies the one-day correction; llama-3.3-70b answers
- * 「7日前から20%」 with a free window running to 7日前, which hands the ledger a
- * 無料キャンセル期限 sitting inside hours the facility already charges for —
- * the one error this ledger exists to prevent. Gemini does not simply lead the
- * whole text chain because its free tier is 20 requests/day per model, shared
- * with the image path; spending it on the inputs that need it leaves Groq to
- * answer everything else, and to answer these too once Gemini is exhausted (a
- * day-optimistic boundary being better than no answer).
+ * This is NOT what keeps the free-cancellation deadline correct — that is the
+ * import-time invariant in `fromCoreStages`, which forces the boundary the
+ * source text implies onto whatever the model returned. What the reorder buys
+ * is the rest of the table: measured 2026-07-30, gemini-flash shifts the inner
+ * tiers of a 「から」 policy correctly and llama-3.3-70b mostly does, so this is
+ * a best-effort accuracy preference, not a correctness guarantee.
+ *
+ * Which is why it stays narrow. Gemini's free tier is 20 requests/day per
+ * model, shared with the image path, so leading the whole text chain would
+ * spend the day on ordinary mail; and Groq answering these instead costs only
+ * the inner tiers, never the deadline.
  */
 export function chainForInput(input: ParseInput, config: ParserChainConfig): string[] {
   const names = config[input.type];

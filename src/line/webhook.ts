@@ -38,7 +38,12 @@ import {
   reservationInputSchema,
 } from "../mcp/tools/shared.ts";
 import type { ParseJob, Reservation } from "../core/schema/mod.ts";
-import { missingFieldQuestions, runParseChain, validateParsedOutput } from "../parse/mod.ts";
+import {
+  impliedFreeBoundaryHours,
+  missingFieldQuestions,
+  runParseChain,
+  validateParsedOutput,
+} from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
 import { logger, newCorrelationId } from "../lib/log.ts";
 import { verifyLineSignature } from "./signature.ts";
@@ -198,8 +203,9 @@ async function registerOutput(
   deps: LineWebhookDeps,
   web: WebCtx | null,
   output: Record<string, unknown>,
-  jobId: string,
+  job: Pick<ParseJob, "id" | "raw_input" | "input_type">,
 ): Promise<Registration> {
+  const jobId = job.id;
   const parsed = reservationInputSchema.safeParse({
     ...output,
     source: "line",
@@ -208,7 +214,14 @@ async function registerOutput(
   if (!parsed.success) return { ok: false };
 
   if (web !== null) {
-    const registered = await registerWebReservation(web.deps, web.user, parsed.data);
+    // 「N日前から◯%」型の無料境界は原文が決める（モデルの答えは1日ずれ得る）。
+    const freeAt = job.input_type === "text" ? impliedFreeBoundaryHours(job.raw_input) : null;
+    const registered = await registerWebReservation(
+      web.deps,
+      web.user,
+      parsed.data,
+      freeAt,
+    );
     return { ok: true, message: registered.message };
   }
 
@@ -350,7 +363,7 @@ async function handleMessage(
   log.info("parse job created", { job_id: job.id, status: job.status, correlation_id });
 
   if (job.status === "parsed") {
-    const registered = await registerOutput(deps, web, resolvedOutput(job), job.id);
+    const registered = await registerOutput(deps, web, resolvedOutput(job), job);
     if (registered.ok) {
       await deps.client.reply(replyToken, [registered.message]);
       return "registered";
@@ -429,7 +442,7 @@ async function handlePostback(
     return "postback:still-missing";
   }
 
-  const registered = await registerOutput(deps, web, output, updated.id);
+  const registered = await registerOutput(deps, web, output, updated);
   if (!registered.ok) {
     await deps.ctx.store.putParseJob(updated);
     await deps.client.reply(replyToken, [missingMessage(updated)]);

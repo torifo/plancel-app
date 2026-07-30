@@ -702,11 +702,12 @@ export async function registerWebReservation(
   deps: LineWebDeps,
   owner: WebUser,
   output: WebRegistrationInput,
+  freeAt?: number | null,
 ): Promise<{ id: string; message: LineTextMessage }> {
   // Arbitrary parsed stages are preserved as-is (src/web/policy.ts); only a
   // policy with no % expression at all stays "unknown" — 下の Quick Reply で
   // その場で埋められる。
-  const parsedPolicy = fromCoreStages(output.cancellation_policy);
+  const parsedPolicy = fromCoreStages(output.cancellation_policy, freeAt);
   const r = await createReservation(
     deps.kv,
     owner.ledgerId,

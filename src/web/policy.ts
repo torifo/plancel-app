@@ -193,11 +193,34 @@ interface CoreStageLike {
 }
 
 /**
+ * Forces the free window implied by 「N日前から◯%」 onto a parsed table.
+ *
+ * `freeAt` is what the SOURCE TEXT implies (src/parse/policy-phrasing.ts), and
+ * it decides the free boundary outright, because a model's own answer for it
+ * cannot be trusted: llama-3.3-70b reports 「7日前から20%」 as free until 7日前,
+ * i.e. free during a day the facility charges for, and that is the one error
+ * this ledger exists to prevent.
+ *
+ * Idempotent by construction: a table that already carries the right boundary
+ * comes back unchanged, so running it over a correct answer costs nothing.
+ */
+function withFreeWindowFrom(stages: WebPolicyStage[], freeAt: number): WebPolicyStage[] {
+  if (freeAt > MAX_HOURS) return stages;
+  const paid = stages.filter((s) => s.pct > 0 && s.h < freeAt);
+  if (paid.length === 0) return stages; // nothing left to charge for — leave it alone
+  return normalizeStages([{ h: freeAt, pct: 0 }, ...paid]);
+}
+
+/**
  * The ONE conversion from a parsed core cancellation policy
  * (src/core/schema/cancellation-policy.ts) into a web policy — shared by
  * /api/parse and the LINE registration path. Arbitrary stages are PRESERVED
  * (offsets rounded to whole hours); an exact preset match collapses to the
  * preset name.
+ *
+ * `freeAt` (hours before the start, implied by the source text) is applied
+ * last and overrides whatever free boundary the model produced — see
+ * `withFreeWindowFrom`.
  *
  * "unknown" is returned only when the policy cannot be expressed in this model:
  * no policy / no stages, a stage carrying a fixed-yen fee (dropping the ¥ fee
@@ -207,7 +230,7 @@ interface CoreStageLike {
  * The parameter is `unknown` because /api/parse maps merged, unvalidated LLM
  * output; a typed `CancellationPolicyOrUnknown` is assignable as-is.
  */
-export function fromCoreStages(policy: unknown): WebPolicy {
+export function fromCoreStages(policy: unknown, freeAt?: number | null): WebPolicy {
   if (policy === null || typeof policy !== "object") return "unknown";
   const raw = (policy as { stages?: unknown }).stages;
   if (!Array.isArray(raw) || raw.length === 0) return "unknown";
@@ -225,7 +248,10 @@ export function fromCoreStages(policy: unknown): WebPolicy {
   // The innermost stage's rate already applies down to the start (see `pctAt`),
   // so stating it at h=0 restates this policy — it invents no 100% stage. The
   // second pass then drops the now-redundant boundary.
-  const normalized = normalizeStages([...stages, { h: 0, pct: innermost.pct }]);
+  const restated = normalizeStages([...stages, { h: 0, pct: innermost.pct }]);
+  const normalized = freeAt === undefined || freeAt === null
+    ? restated
+    : withFreeWindowFrom(restated, freeAt);
   if (normalized.length > MAX_STAGES) return "unknown";
   return presetNameOf(normalized) ?? { stages: normalized };
 }

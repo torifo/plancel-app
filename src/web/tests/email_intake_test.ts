@@ -400,6 +400,41 @@ Deno.test("email intake: an HTML-only mail is stripped to text and parsed", asyn
   });
 });
 
+/** 「N日前から◯%」 mail: the boundary the TEXT implies must beat the model's. */
+const MAIL_FROM_BOUNDARY =
+  "【予約確認】翠嶺館 8/20 15:00 42,000円 キャンセルは7日前から20%頂戴します";
+/** What llama-3.3-70b actually answers for it (measured 2026-07-30): 168, not 192. */
+const MAIL_FROM_BOUNDARY_OUTPUT = {
+  raw_response: "{}",
+  output: {
+    service_name: "翠嶺館",
+    starts_at: "2026-08-20T15:00:00+09:00",
+    amount_jpy: 42000,
+    cancellation_policy: {
+      stages: [
+        { until_offset_hours: 168, fee_percent: 0, fee_fixed_jpy: null },
+        { until_offset_hours: 0, fee_percent: 20, fee_fixed_jpy: null },
+      ],
+    },
+  },
+};
+
+Deno.test("email intake: 「7日前から20%」 lands as 8日前まで無料, whichever model answered", async () => {
+  // Forwarded mail has no confirmation screen — whatever this path stores is
+  // what the owner sees, so the one-day correction cannot wait for a review.
+  await withKv(async (kv) => {
+    const user = await makeUser(kv);
+    const f = makeFixture(kv, {
+      parsers: [MockParser("p1", new Map([[MAIL_FROM_BOUNDARY, MAIL_FROM_BOUNDARY_OUTPUT]]))],
+    });
+    f.received = { text: MAIL_FROM_BOUNDARY };
+    const req = await signedRequest(eventBody({ to: [addressOf(user)] }));
+    assertEquals((await handleEmailWebhook(req, f.deps)).status, 200);
+    const list = await listReservations(kv, user.ledgerId);
+    assertEquals(list[0]?.policy, { stages: [{ h: 192, pct: 0 }, { h: 0, pct: 20 }] });
+  });
+});
+
 // ---- facility policy template ----
 
 Deno.test("email intake: the facility template fills a policy the mail never stated", async () => {
