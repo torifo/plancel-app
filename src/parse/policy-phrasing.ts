@@ -18,10 +18,13 @@
  * The charge has to follow the boundary for this to match: 「から」 on its own is
  * far too common a particle to key off, and a reservation mail is full of it
  * (「東京駅から徒歩5分」, 「10:00からチェックイン」, 「3日前から満席のため
- * キャンセル待ち」).
+ * キャンセル待ち」). A percentage that turns out to be a DISCOUNT
+ * (「3日前から20%オフ」) is excluded for the same reason, and it matters more
+ * here than it used to: a false match no longer just picks a parser, it
+ * overrides the deadline the ledger shows.
  */
 const FEE_FROM_BOUNDARY =
-  /(?:(\d+)\s*(日|時間)前|(前日|当日))\s*(?:から|より|以降)[^。\n]{0,12}?(?:\d+\s*[%％]|\d+\s*円|全額|有料)/g;
+  /(?:(\d+)\s*(日|時間)前|(前日|当日))\s*(?:から|より|以降)[^。\n]{0,12}?(?:\d+\s*[%％]|\d+\s*円|全額|有料)(?!\s*(?:オフ|OFF|off|割引|引き|還元|還付|返金))/g;
 
 /** A stated free deadline — 「7日前まで無料」「前日までキャンセル無料」. */
 const FREE_DEADLINE_STATED = /(?:まで|迄)[^。\n]{0,8}?無料|無料[^。\n]{0,8}?(?:まで|迄)/;

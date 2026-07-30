@@ -43,6 +43,16 @@ Deno.test("impliedFreeBoundaryHours: ordinary prose carrying から is not a pol
   assertEquals(impliedFreeBoundaryHours("2名 8000円のコース"), null);
 });
 
+Deno.test("impliedFreeBoundaryHours: a discount is not a cancellation fee", () => {
+  // A false match here overrides the deadline the ledger shows, so a percentage
+  // that turns out to be money OFF must not look like money charged.
+  assertEquals(impliedFreeBoundaryHours("キャンセル規定あり / 3日前から20%オフ"), null);
+  assertEquals(impliedFreeBoundaryHours("キャンセル規定あり / 7日前から10%割引"), null);
+  assertEquals(impliedFreeBoundaryHours("キャンセル規定あり / 前日から500円還元"), null);
+  // …but the same shape with a real fee still reads.
+  assertEquals(impliedFreeBoundaryHours("キャンセルは3日前から20%"), 96);
+});
+
 Deno.test("statesFeeFromBoundary mirrors impliedFreeBoundaryHours", () => {
   assert(statesFeeFromBoundary("キャンセル: 3日前から20%"));
   assert(statesFeeFromBoundary("キャンセルは当日以降100%"));
