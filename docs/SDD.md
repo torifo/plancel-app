@@ -113,6 +113,7 @@ interface PolicyStage {
 }
 ```
 - 検証ルール: stages は offset 降順・fee 単調非減少であること。
+- 各段の料率は自分の境界から**外側**（開始から遠い側）へ、次の段の境界まで適用される。無料期間は「段が無いこと」で暗黙に表さず、`fee_percent: 0` の段として必ず明示する（コア `src/core/domain/policy.ts` と台帳 `src/web/policy.ts` は同じ読み方をする。一致は `src/web/tests/policy_parity_test.ts` が縛る）。
 - `"unknown"` は**弾かずに登録を許容**する。インサート摩擦の最小化が優先。unknown の予約には専用通知(§6)で後追い入力を促す。
 - UI/出力上は普段「無料キャンセル: ◯月◯日まで」の1行に要約し、全段階は折りたたみで提示する。
 

@@ -7,13 +7,16 @@ import {
   previewNotifications,
 } from "../trigger.ts";
 
-// SDD §6 example: ¥8,000 reservation, free until 7 days out, then 30% / 50% / 100%.
+// SDD §6 example: ¥8,000 reservation, 「7日前まで無料 → 3日前まで30% →
+// 前日まで50% → 当日100%」. The free window is its own fee_percent:0 stage —
+// see the convention note in src/core/domain/policy.ts.
 const STARTS_AT = "2026-07-15T18:00:00.000Z";
 const EXAMPLE_POLICY: CancellationPolicy = {
   stages: [
-    { until_offset_hours: 168, fee_percent: 30, fee_fixed_jpy: null }, // 7 days
-    { until_offset_hours: 72, fee_percent: 50, fee_fixed_jpy: null }, // 3 days
-    { until_offset_hours: 24, fee_percent: 100, fee_fixed_jpy: null }, // 1 day
+    { until_offset_hours: 168, fee_percent: 0, fee_fixed_jpy: null }, // 7 days: free
+    { until_offset_hours: 72, fee_percent: 30, fee_fixed_jpy: null }, // 3 days
+    { until_offset_hours: 24, fee_percent: 50, fee_fixed_jpy: null }, // 1 day
+    { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null }, // 当日
   ],
 };
 

@@ -9,37 +9,37 @@
  *
  * ## Semantic interpretation of `until_offset_hours` (documented decision)
  *
- * SDD §3.3: "until_offset_hours: 予約開始の何時間前まで。例: 168 = 7日前"
- * and stages are stored farthest-first (descending `until_offset_hours`).
- * Each stage's fee is in effect from the moment its offset threshold is
- * reached (looking backward from `starts_at`) until the *next* (closer)
- * stage's threshold is reached. Concretely, define:
+ * SDD §3.3: `until_offset_hours` is the LATEST moment at which cancelling
+ * still costs that stage's rate — 「7日前まで30%」 is `{until_offset_hours:
+ * 168, fee_percent: 30}` — and stages are stored farthest-first (descending).
+ * A stage's rate therefore covers everything from its own boundary OUTWARD,
+ * up to the next (farther) stage's boundary. Concretely, define:
  *
  *   remainingHours = hours from `at` to `startsAt` (can be negative once
  *                    `at` is at or after `startsAt`)
  *
- * - If `remainingHours` is greater than the farthest stage's
- *   `until_offset_hours` (or there are no stages), cancellation is free:
- *   no stage applies yet (`stage: null`, 0 fee). This is the "無料キャンセル"
- *   window described in §3.3's UI summary line.
- * - Otherwise the applicable stage is the *last* stage (in the
- *   farthest-first array) whose `until_offset_hours >= remainingHours`.
- *   Because stages are fee-monotonic-non-decreasing as offset decreases,
- *   this is always the stage with the smallest `until_offset_hours` that
- *   still covers `remainingHours`.
- * - Boundary-exact convention: at the exact instant `remainingHours ===
- *   stage.until_offset_hours`, the **new** (that stage's, higher-or-equal)
- *   fee already applies — the comparison above uses `>=`, i.e. the
- *   boundary instant belongs to the stage it defines, not the previous
- *   (lower-fee) one. This matches "10日前ちょうど" being the instant the
- *   10-day stage begins.
- * - After `starts_at` (`remainingHours < 0`), the last-defined stage
- *   (closest to start, i.e. `until_offset_hours` closest to 0) continues to
- *   apply — there is no implicit "beyond 100%" stage. If the policy's last
- *   stage is `until_offset_hours: 0`, this is effectively "100% forever
- *   after start" as expected; a policy author who wants that must include
- *   such a stage explicitly. This function does not special-case "past
- *   start" beyond that.
+ * - The applicable stage is the FIRST stage (farthest-first) whose
+ *   `until_offset_hours <= remainingHours` — the outermost boundary already
+ *   reached. Fees are monotonically non-decreasing as the offset decreases,
+ *   so that is also the cheapest rate still available.
+ * - A free window is an explicit `fee_percent: 0` stage, never implied by
+ *   the absence of stages. 「7日前まで無料 → 3日前まで30% → 当日100%」 is
+ *   `[{168,0},{72,30},{0,100}]`; a table whose outermost stage charges means
+ *   the policy charges from the moment of booking, and says so.
+ * - Boundary-exact convention: at `remainingHours === until_offset_hours`
+ *   that stage's rate still applies (the comparison is `<=`), i.e. the
+ *   boundary instant is the last one at its own rate. 「7日前まで無料」 is
+ *   free at exactly 7日前.
+ * - Inside the innermost boundary — and after `starts_at`, where
+ *   `remainingHours` goes negative — the innermost stage's rate continues to
+ *   apply. There is no implicit "beyond 100%" stage.
+ *
+ * This is the same reading as `src/web/policy.ts` (`pctAt` /
+ * `freeDeadlineMs`) and the same one `src/parse/llm.ts` instructs the model
+ * to produce. Until 2026-07-30 this module read the array one band out of
+ * step with both — the same table meant 30% here and 50% in the ledger — and
+ * the two never met only because nothing in the deployed process writes core
+ * Reservations. `deno task line` standalone and the local-core MCP do.
  *
  * ## Fee amount convention (documented decision)
  *
@@ -62,7 +62,8 @@ export type CancellationPolicyOrUnknown = CancellationPolicy | "unknown";
 export type PolicyResolution =
   | {
     policyKnown: true;
-    /** The stage in effect, or `null` if still in the free window before any stage applies. */
+    /** The stage in effect — `null` only for a policy with no stages at all.
+     * A free window is a `fee_percent: 0` stage, so it reports that stage. */
     stage: PolicyStage | null;
     feePercent: number;
     feeFixedJpy: number | null;
@@ -95,18 +96,17 @@ function remainingHours(startsAt: Temporal.Instant, at: Temporal.Instant): numbe
 }
 
 /**
- * The stage in effect at `remainingHours` hours before `startsAt`, per the
+ * The stage in effect at `hoursBefore` hours before the start, per the
  * boundary convention documented at the top of this module. Returns `null`
- * if no stage applies yet (free window).
+ * only for a policy with no stages at all — a free window is a `fee_percent:
+ * 0` stage, not a missing one.
  */
 function stageAt(stages: PolicyStage[], hoursBefore: number): PolicyStage | null {
-  let current: PolicyStage | null = null;
-  for (const stage of stages) {
-    if (hoursBefore <= stage.until_offset_hours) {
-      current = stage;
-    }
-  }
-  return current;
+  // Farthest-first, and a rate covers its boundary outward, so the first
+  // boundary already reached is the one in effect. Inside the innermost
+  // boundary (and past the start) the innermost rate stands.
+  const reached = stages.filter((s) => hoursBefore >= s.until_offset_hours);
+  return reached[0] ?? stages.at(-1) ?? null;
 }
 
 /** Effective fee amount for a stage (see fee-amount convention above), or 0 for the free window. */
@@ -156,21 +156,18 @@ export function nextBoundary(
   const hoursBefore = remainingHours(startsAt, at);
   const currentStage = stageAt(policy.stages, hoursBefore);
 
-  // Stages farther from start have larger until_offset_hours; the "next"
-  // boundary (closer to start, strictly greater fee) is the stage with the
-  // largest until_offset_hours that is still strictly less than
-  // hoursBefore (i.e. not yet reached).
-  let candidate: PolicyStage | null = null;
-  for (const stage of policy.stages) {
-    if (stage.until_offset_hours < hoursBefore) {
-      if (candidate === null || stage.until_offset_hours > candidate.until_offset_hours) {
-        candidate = stage;
-      }
-    }
-  }
-  if (candidate === null) return null;
+  // A rate covers its own boundary OUTWARD, so a stage is left at the moment
+  // its boundary is crossed going in: the next fee change is the CURRENT
+  // stage's boundary, and what follows is the next stage in the
+  // (farthest-first) array. 「7日前まで無料 → 3日前まで30%」 rises at 7日前, not
+  // at 3日前.
+  const reachedIndex = policy.stages.findIndex((s) => hoursBefore >= s.until_offset_hours);
+  if (reachedIndex === -1) return null; // already inside the innermost band
+  const leaving = policy.stages[reachedIndex];
+  const candidate = policy.stages[reachedIndex + 1];
+  if (leaving === undefined || candidate === undefined) return null;
 
-  const boundaryInstant = startsAt.subtract({ hours: candidate.until_offset_hours });
+  const boundaryInstant = startsAt.subtract({ hours: leaving.until_offset_hours });
   return { at: boundaryInstant, fromStage: currentStage, toStage: candidate };
 }
 
@@ -210,16 +207,13 @@ export function estimateLoss(
  * `"unknown"`, when it has no stages, or when every stage is fee-free (an
  * edge case where the policy structurally never charges anything).
  *
- * Convention: stages only ever describe the fee schedule *from* their
- * boundary onward — the free window itself is implicit (the period before
- * the farthest stage's boundary, per `resolvePolicyAt`'s `stage: null`
- * case). So the deadline is the boundary of the first stage (farthest
- * first) whose fee is non-zero (by `fee_percent` or `fee_fixed_jpy`);
- * validation guarantees fees are monotonically non-decreasing, so once a
- * non-zero fee is found no earlier stage can undercut it. The boundary
- * instant itself is the first *charged* instant (matches the
- * boundary-exact convention in `resolvePolicyAt`), so cancellation is free
- * strictly before it.
+ * Convention: a free window is an explicit fee-free stage, so the deadline
+ * is the boundary of the LAST such stage — everything from there outward is
+ * free, and the next boundary inward starts charging. 「7日前まで無料 →
+ * 3日前まで30%」 gives start−168h. Returns null when nothing is ever charged
+ * (there is no deadline to warn about) and when the outermost stage already
+ * charges (the policy charges from the outset, so there is no free window to
+ * lose). The boundary instant itself is still free.
  */
 export function freeCancellationDeadline(
   policy: CancellationPolicyOrUnknown,
@@ -227,10 +221,10 @@ export function freeCancellationDeadline(
 ): Temporal.Instant | null {
   if (isUnknown(policy)) return null;
 
-  const firstCharged = policy.stages.find(
-    (stage) => stage.fee_percent > 0 || (stage.fee_fixed_jpy ?? 0) > 0,
-  );
-  if (firstCharged === undefined) return null;
+  const charged = (s: PolicyStage) => s.fee_percent > 0 || (s.fee_fixed_jpy ?? 0) > 0;
+  if (!policy.stages.some(charged)) return null;
+  const lastFree = [...policy.stages].reverse().find((s) => !charged(s));
+  if (lastFree === undefined) return null;
 
-  return startsAt.subtract({ hours: firstCharged.until_offset_hours });
+  return startsAt.subtract({ hours: lastFree.until_offset_hours });
 }
