@@ -47,9 +47,13 @@ const CANCELLATION_WORD = /キャンセル|取消|解約/;
  * window ends at.
  */
 export function impliedFreeBoundaryHours(text: string): number | null {
-  if (!CANCELLATION_WORD.test(text) || FREE_DEADLINE_STATED.test(text)) return null;
+  // NFKC first: booking sites write 「３日前から２０％」 in full width, and `\d`
+  // is ASCII-only, so without this the correction silently does not apply and
+  // the model's own (possibly day-optimistic) boundary stands.
+  const normalized = text.normalize("NFKC");
+  if (!CANCELLATION_WORD.test(normalized) || FREE_DEADLINE_STATED.test(normalized)) return null;
   let outermost: number | null = null;
-  for (const m of text.matchAll(FEE_FROM_BOUNDARY)) {
+  for (const m of normalized.matchAll(FEE_FROM_BOUNDARY)) {
     const named = m[3];
     const hours = named === "前日"
       ? 48 // 前日 is a charged day, so free ends the day before it

@@ -140,11 +140,15 @@ export function resolvePolicyAt(
 }
 
 /**
- * Finds the next instant at which the fee increases (the next stage
- * boundary strictly after `at`), for the §6 trigger-1 "24h before a
- * boundary" notification. Returns `null` when there is no further boundary
- * (already in/at the last stage, or the policy is unknown or has no
- * stages).
+ * Finds the next instant at which the fee increases, for the §6 trigger-1
+ * "24h before a boundary" notification. Returns `null` when there is no
+ * further boundary (already inside the innermost band, or the policy is
+ * unknown or has no stages).
+ *
+ * Standing exactly ON a boundary returns that same instant: the rate holds
+ * through it and rises immediately after, so "the next change is now" is the
+ * honest answer. The 24h window in notify/trigger.ts is half-open and ends at
+ * the boundary, so this does not fire a notification at that instant.
  */
 export function nextBoundary(
   policy: CancellationPolicyOrUnknown,

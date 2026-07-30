@@ -18,6 +18,13 @@ Deno.test("impliedFreeBoundaryHours: an hour boundary is an instant and stands a
   assertEquals(impliedFreeBoundaryHours("キャンセルは48時間前から50%"), 48);
 });
 
+Deno.test("impliedFreeBoundaryHours: full-width digits read the same as ASCII", () => {
+  // 予約サイトの規定は全角で書かれていることがある。`\d` は ASCII だけなので、
+  // 正規化しないと補正が黙って効かなくなる（＝モデルの答えがそのまま通る）。
+  assertEquals(impliedFreeBoundaryHours("キャンセルは３日前から２０％"), 96);
+  assertEquals(impliedFreeBoundaryHours("キャンセルは７日前から２０％"), 192);
+});
+
 Deno.test("impliedFreeBoundaryHours: a stated free deadline is left alone", () => {
   // 「まで無料」 names the last free moment itself — shifting it off the inner
   // 「から」 boundary would move a deadline the facility spelled out.

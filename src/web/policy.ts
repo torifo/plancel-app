@@ -203,6 +203,13 @@ interface CoreStageLike {
  *
  * Idempotent by construction: a table that already carries the right boundary
  * comes back unchanged, so running it over a correct answer costs nothing.
+ *
+ * A paid stage sitting exactly ON the new boundary is dropped rather than
+ * reconciled: it says the facility charges at an instant the text calls free,
+ * and moving it inward would invent a boundary nobody wrote. Its band then
+ * absorbs into the next rate inward, which over-warns and never under-warns.
+ * This can only happen when the text names its boundary in hours (a day-named
+ * boundary lands 24h outside every stage the model produced).
  */
 function withFreeWindowFrom(stages: WebPolicyStage[], freeAt: number): WebPolicyStage[] {
   if (freeAt > MAX_HOURS) return stages;
