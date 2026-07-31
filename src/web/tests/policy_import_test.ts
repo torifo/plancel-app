@@ -9,20 +9,19 @@
  * text says when charging starts must produce a 無料キャンセル期限, whatever the
  * model answered.
  *
- * `real-hotel-checkinout.json` is the case in point. It was recorded before
- * the 2026-07-30 prompt fix, so its stages carry no 0% stage at all, and it
- * still reads that way (re-recording needs a live Gemini call). It is the
- * strongest possible input for this test rather than a gap in it: the worst
- * answer in the corpus still lands on a usable deadline.
+ * The corpus now records the corrected answers (re-recorded 2026-07-31), so the
+ * worst case — a model answer with no free stage at all — is kept inline below
+ * rather than relying on a fixture happening to contain one.
  */
 import { assert, assertEquals } from "jsr:@std/assert@^1.0.19";
 import { impliedFreeBoundaryHours } from "../../parse/mod.ts";
-import { describePolicy, freeDeadlineMs, fromCoreStages } from "../policy.ts";
+import { boundaryMs, describePolicy, freeDeadlineMs, fromCoreStages } from "../policy.ts";
 
 const FIXTURES = new URL("../../../fixtures/parse/", import.meta.url);
 const START = "2026-08-20T19:00:00+09:00";
 const startMs = Temporal.Instant.from(START).epochMilliseconds;
-const H = 3_600_000;
+/** 無料キャンセル期限はその日の終わり（JST）— 予約の時刻ではない。 */
+const eod = (day: string) => Temporal.Instant.from(`${day}T23:59:59.999+09:00`).epochMilliseconds;
 
 interface Fixture {
   name?: string;
@@ -50,7 +49,7 @@ Deno.test("corpus: a text stating when charging starts always yields a 無料キ
     const policy = fromCoreStages(fixture.expected.output?.cancellation_policy, boundary);
     assertEquals(
       freeDeadlineMs(policy, START),
-      startMs - boundary * H,
+      boundaryMs(startMs, boundary),
       `${file}: the ledger deadline must be the boundary the text implies`,
     );
     checked++;
@@ -69,7 +68,7 @@ Deno.test("corpus: 「7日前から20%」 is recorded as 8日前まで無料", a
 
   const policy = fromCoreStages(fixture.expected.output?.cancellation_policy, 192);
   assertEquals(describePolicy(policy), "8日前まで無料 → 当日20%");
-  assertEquals(freeDeadlineMs(policy, START), startMs - 192 * H);
+  assertEquals(freeDeadlineMs(policy, START), eod("2026-08-12")); // 8日前の終わり
 });
 
 Deno.test("import: an answer with no free stage at all still lands on a deadline", () => {
@@ -91,5 +90,5 @@ Deno.test("import: an answer with no free stage at all still lands on a deadline
   // The free window is restored; the inner tiers stay where the model put them,
   // one tier pessimistic (2日前 reads 50% where the facility charges 20%).
   assertEquals(describePolicy(policy), "4日前まで無料 → 3日前まで20% → 前日まで50% → 当日80%");
-  assertEquals(freeDeadlineMs(policy, START), startMs - 96 * H);
+  assertEquals(freeDeadlineMs(policy, START), eod("2026-08-16")); // 4日前の終わり
 });

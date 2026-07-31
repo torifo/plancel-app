@@ -90,22 +90,37 @@ function isUnknown(policy: CancellationPolicyOrUnknown): policy is "unknown" {
   return policy === "unknown";
 }
 
-/** Hours from `at` to `startsAt` (positive before start, negative after). */
-function remainingHours(startsAt: Temporal.Instant, at: Temporal.Instant): number {
-  return at.until(startsAt, { largestUnit: "hours" }).total("hours");
+/**
+ * When a stage's boundary actually falls. A cancellation deadline is a DATE:
+ * 「7日前まで無料」 lasts all of that day whatever time the reservation is at,
+ * so subtracting the offset only picks the day and the boundary sits at the end
+ * of it (`src/web/policy.ts` `boundaryMs` is the same rule). `0` is the
+ * exception — its band ends at the reservation itself.
+ */
+function boundaryInstant(startsAt: Temporal.Instant, offsetHours: number): Temporal.Instant {
+  if (offsetHours <= 0) return startsAt;
+  return startsAt.subtract({ hours: offsetHours })
+    .toZonedDateTimeISO("Asia/Tokyo")
+    .withPlainTime({ hour: 23, minute: 59, second: 59, millisecond: 999 })
+    .toInstant();
 }
 
 /**
- * The stage in effect at `hoursBefore` hours before the start, per the
- * boundary convention documented at the top of this module. Returns `null`
- * only for a policy with no stages at all — a free window is a `fee_percent:
- * 0` stage, not a missing one.
+ * The stage in effect at instant `at`, per the boundary convention documented
+ * at the top of this module. Returns `null` only for a policy with no stages at
+ * all — a free window is a `fee_percent: 0` stage, not a missing one.
  */
-function stageAt(stages: PolicyStage[], hoursBefore: number): PolicyStage | null {
+function stageAt(
+  stages: PolicyStage[],
+  startsAt: Temporal.Instant,
+  at: Temporal.Instant,
+): PolicyStage | null {
   // Farthest-first, and a rate covers its boundary outward, so the first
-  // boundary already reached is the one in effect. Inside the innermost
-  // boundary (and past the start) the innermost rate stands.
-  const reached = stages.filter((s) => hoursBefore >= s.until_offset_hours);
+  // boundary not yet passed is the one in effect. Inside the innermost boundary
+  // (and past the start) the innermost rate stands.
+  const reached = stages.filter((s) =>
+    Temporal.Instant.compare(at, boundaryInstant(startsAt, s.until_offset_hours)) <= 0
+  );
   return reached[0] ?? stages.at(-1) ?? null;
 }
 
@@ -129,8 +144,7 @@ export function resolvePolicyAt(
 ): PolicyResolution {
   if (isUnknown(policy)) return { policyKnown: false };
 
-  const hoursBefore = remainingHours(startsAt, at);
-  const stage = stageAt(policy.stages, hoursBefore);
+  const stage = stageAt(policy.stages, startsAt, at);
   return {
     policyKnown: true,
     stage,
@@ -157,22 +171,26 @@ export function nextBoundary(
 ): NextBoundary | null {
   if (isUnknown(policy)) return null;
 
-  const hoursBefore = remainingHours(startsAt, at);
-  const currentStage = stageAt(policy.stages, hoursBefore);
+  const currentStage = stageAt(policy.stages, startsAt, at);
 
   // A rate covers its own boundary OUTWARD, so a stage is left at the moment
   // its boundary is crossed going in: the next fee change is the CURRENT
   // stage's boundary, and what follows is the next stage in the
   // (farthest-first) array. 「7日前まで無料 → 3日前まで30%」 rises at 7日前, not
   // at 3日前.
-  const reachedIndex = policy.stages.findIndex((s) => hoursBefore >= s.until_offset_hours);
+  const reachedIndex = policy.stages.findIndex((s) =>
+    Temporal.Instant.compare(at, boundaryInstant(startsAt, s.until_offset_hours)) <= 0
+  );
   if (reachedIndex === -1) return null; // already inside the innermost band
   const leaving = policy.stages[reachedIndex];
   const candidate = policy.stages[reachedIndex + 1];
   if (leaving === undefined || candidate === undefined) return null;
 
-  const boundaryInstant = startsAt.subtract({ hours: leaving.until_offset_hours });
-  return { at: boundaryInstant, fromStage: currentStage, toStage: candidate };
+  return {
+    at: boundaryInstant(startsAt, leaving.until_offset_hours),
+    fromStage: currentStage,
+    toStage: candidate,
+  };
 }
 
 /**
@@ -230,5 +248,5 @@ export function freeCancellationDeadline(
   const lastFree = [...policy.stages].reverse().find((s) => !charged(s));
   if (lastFree === undefined) return null;
 
-  return startsAt.subtract({ hours: lastFree.until_offset_hours });
+  return boundaryInstant(startsAt, lastFree.until_offset_hours);
 }

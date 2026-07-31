@@ -124,8 +124,9 @@ export async function runScenario(
   assert(planSettledEntry !== undefined, "no plan_settled notification enqueued");
   log(`[assert] Outbox got plan_settled notification: OK ("${planSettledEntry.message}")`);
 
-  // 4. Advance the clock 3 days (through the 宿 policy boundary).
-  clock.advance("P3D");
+  // 4. Advance the clock 4 days (through the 宿 policy boundary — boundaries sit at
+  // the end of their JST day, so 3 days no longer reaches the first window).
+  clock.advance("P4D");
   const clockAfterAdvance = clock.now().toString({ smallestUnit: "millisecond" });
   log(`\n[clock] advanced P3D → now=${clockAfterAdvance}`);
 

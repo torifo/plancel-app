@@ -212,7 +212,13 @@ Deno.test("規定モデルの写し: 無料キャンセル期限は最後の pct
   ];
 
   for (const [what, policy, hours] of RULE) {
-    const expected = hours === null ? null : START_MS - hours * HOUR_MS;
+    // 境界は「引いた先の日の終わり（JST）」。予約の時刻では切れない。
+    const expected = hours === null ? null : Temporal.Instant.from(
+      Temporal.Instant.fromEpochMilliseconds(START_MS - hours * HOUR_MS)
+        .toZonedDateTimeISO("Asia/Tokyo")
+        .withPlainTime({ hour: 23, minute: 59, second: 59, millisecond: 999 })
+        .toInstant(),
+    ).epochMilliseconds;
     assertEquals(
       freeDeadlineMs(policy, STARTS_AT),
       expected,
@@ -263,7 +269,7 @@ Deno.test("規定モデルの写し: 段階表・期限・最大キャンセル�
     for (const hoursLeft of HOURS_LEFT) {
       assertEquals(
         client.pctNow({ policy, startsAt: STARTS_AT }, START_MS - hoursLeft * HOUR_MS),
-        pctAt(policy, hoursLeft),
+        pctAt(policy, START_MS, START_MS - hoursLeft * HOUR_MS),
         `${DRIFT}\nいまの料率（pctNow / pctAt）が違います (${label}, 残り${hoursLeft}h)。`,
       );
     }

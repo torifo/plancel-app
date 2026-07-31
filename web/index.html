@@ -2669,14 +2669,29 @@
       const d = new Date(ms);
       return `${d.getMonth() + 1}/${d.getDate()}(${"日月火水木金土"[d.getDay()]})`;
     };
+    // キャンセル期限は「日付」であって時刻ではない。「7日前まで無料」はその日いっぱい
+    // 有効で、予約が15:00でも19:00でも変わらない（オーナー 2026-07-31「時間が何時に
+    // 登録されてもキャンセル期限は23:59または次の日の0:00が一般」）。開始から h 時間
+    // 引くのは"日"を選ぶためで、境界はその日の終わりに置く。15:00 のチェックインを
+    // そのまま読むと「今日まで無料」が15:00で切れ、残りの9時間が「無料期間は終了」に
+    // なっていた。h=0（当日）だけは例外で、帯は予約開始で終わる（その日の終わりに
+    // すると当日料率が開始後に始まってしまう）。
+    const JST_OFF_MS = 9 * 3600000;
+    function endOfJstDay(ms) {
+      const d = 86400000;
+      return Math.floor((ms + JST_OFF_MS) / d) * d + d - 1 - JST_OFF_MS;
+    }
+    function boundaryMs(startsAtMs, h) {
+      return h <= 0 ? startsAtMs : endOfJstDay(startsAtMs - h * 3600000);
+    }
     function freeDeadline(r) {
       const st = stagesOf(r);
       if (!st || !st.some((s) => s.pct > 0)) return null; // 不明 / いつでも無料
-      // 無料期限 = 最後の pct==0 ステージの境界（前日まで無料=24h前・5日前まで無料=120h前）。
+      // 無料期限 = 最後の pct==0 ステージの境界（前日まで無料=前日の終わり）。
       // 2026-07-25 修正: 従来の「最初の有料ステージの h」は1段ズレていた。
       const lastFree = [...st].reverse().find((s) => s.pct === 0);
       if (!lastFree) return null; // 最初から有料 — 無料期間なし
-      return startMs(r) - lastFree.h * 3600000;
+      return boundaryMs(startMs(r), lastFree.h);
     }
     function maxLoss(r) {
       const st = stagesOf(r);
@@ -2887,11 +2902,11 @@
     function pctNow(r, now) {
       const st = stagesOf(r);
       if (!st) return null;
-      const hl = (startMs(r) - now) / 3600000;
-      // st は h 降順なので、最初に越えている境界がいま効いている段。開始を過ぎたら
+      // st は h 降順なので、まだ過ぎていない最初の境界がいま効いている段。境界は
+      // 日付の変わり目（boundaryMs）で、期限表示と同じ読み方をする。開始を過ぎたら
       // 最も内側の料率が残る。
-      const crossed = st.filter((s) => hl >= s.h);
-      return (crossed[0] || st[st.length - 1]).pct;
+      const reached = st.filter((s) => now <= boundaryMs(startMs(r), s.h));
+      return (reached[0] || st[st.length - 1]).pct;
     }
     // 無料期限を過ぎた直後に発生する最低キャンセル料
     function penaltyAfterFree(r) {
@@ -2909,8 +2924,8 @@
       const color = (p) => p === 0 ? "var(--safe)" : (p >= 100 ? "var(--danger)" : "var(--lamp)");
       const segs = [];
       for (let i = 0; i < st.length; i++) {
-        const from = i === 0 ? 0 : pos(start - st[i - 1].h * 3600000);
-        const to = pos(start - st[i].h * 3600000);
+        const from = i === 0 ? 0 : pos(boundaryMs(start, st[i - 1].h));
+        const to = pos(boundaryMs(start, st[i].h));
         if (to > from) segs.push(`${color(st[i].pct)} ${from}% ${to}%`);
       }
       return segs.length ? `linear-gradient(90deg,${segs.join(",")})` : "var(--card2)";

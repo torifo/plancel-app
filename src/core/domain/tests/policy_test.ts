@@ -27,6 +27,13 @@ function hoursBefore(h: number): Temporal.Instant {
   return STARTS_AT.subtract({ hours: h });
 }
 
+/** 段の境界の実時刻: 引いた先の「日」の終わり（JST）。当日(0)は開始そのもの。 */
+function boundaryInstantOf(h: number): Temporal.Instant {
+  if (h <= 0) return STARTS_AT;
+  return hoursBefore(h).toZonedDateTimeISO("Asia/Tokyo")
+    .withPlainTime({ hour: 23, minute: 59, second: 59, millisecond: 999 }).toInstant();
+}
+
 Deno.test("resolvePolicyAt: the free window is the outermost stage, not a missing one", () => {
   const result = resolvePolicyAt(SDD_EXAMPLE_POLICY, STARTS_AT, hoursBefore(240)); // 10 days out
   assertEquals(result, {
@@ -56,8 +63,8 @@ Deno.test("resolvePolicyAt: last stage after starts_at (100% persists)", () => {
 });
 
 Deno.test("resolvePolicyAt: a boundary instant is the last one at its own rate", () => {
-  // Exactly 168h before start: 「7日前まで無料」 means 7日前 itself is still free.
-  const atBoundary = hoursBefore(168);
+  // 「7日前まで無料」 runs to the END of 7日前, not to the check-in time of day.
+  const atBoundary = boundaryInstantOf(168);
   const result = resolvePolicyAt(SDD_EXAMPLE_POLICY, STARTS_AT, atBoundary);
   assertEquals(result.policyKnown, true);
   if (result.policyKnown) {
@@ -71,8 +78,8 @@ Deno.test("resolvePolicyAt: a boundary instant is the last one at its own rate",
   assertEquals(inside.policyKnown, true);
   if (inside.policyKnown) assertEquals(inside.feePercent, 30);
 
-  // Exactly 72h: 「3日前まで30%」 — the boundary still carries 30%, not 50%.
-  const atSecondBoundary = hoursBefore(72);
+  // 「3日前まで30%」 — the last instant of 3日前 still carries 30%, not 50%.
+  const atSecondBoundary = boundaryInstantOf(72);
   const second = resolvePolicyAt(SDD_EXAMPLE_POLICY, STARTS_AT, atSecondBoundary);
   assertEquals(second.policyKnown, true);
   if (second.policyKnown) assertEquals(second.feePercent, 30);
@@ -96,20 +103,25 @@ Deno.test("resolvePolicyAt: empty stages policy is always free", () => {
 Deno.test("nextBoundary: from the free window points at the first charged stage", () => {
   // Free until 7日前, so the rise is AT 7日前 — the free stage's own boundary.
   const boundary = nextBoundary(SDD_EXAMPLE_POLICY, STARTS_AT, hoursBefore(240));
-  assertEquals(boundary?.at.toString(), hoursBefore(168).toString());
+  assertEquals(boundary?.at.toString(), boundaryInstantOf(168).toString());
   assertEquals(boundary?.fromStage?.fee_percent, 0);
   assertEquals(boundary?.toStage.fee_percent, 30);
 });
 
 Deno.test("nextBoundary: mid-schedule points at the next (closer) stage", () => {
   const boundary = nextBoundary(SDD_EXAMPLE_POLICY, STARTS_AT, hoursBefore(120)); // in 30% stage
-  assertEquals(boundary?.at.toString(), hoursBefore(72).toString());
+  assertEquals(boundary?.at.toString(), boundaryInstantOf(72).toString());
   assertEquals(boundary?.toStage.fee_percent, 50);
   assertEquals(boundary?.fromStage?.fee_percent, 30);
 });
 
 Deno.test("nextBoundary: null once in the last stage", () => {
-  const boundary = nextBoundary(SDD_EXAMPLE_POLICY, STARTS_AT, hoursBefore(12)); // in 100% stage
+  // 当日 band: past the 前日 boundary, the only stage left is the innermost.
+  const boundary = nextBoundary(
+    SDD_EXAMPLE_POLICY,
+    STARTS_AT,
+    boundaryInstantOf(24).add({ hours: 1 }),
+  );
   assertEquals(boundary, null);
 });
 
@@ -184,7 +196,7 @@ Deno.test("estimateLoss: mixed policy picks fixed floor only where defined", () 
 
 Deno.test("freeCancellationDeadline: SDD example deadline is 168h (7 days) before start", () => {
   const deadline = freeCancellationDeadline(SDD_EXAMPLE_POLICY, STARTS_AT);
-  assertEquals(deadline?.toString(), hoursBefore(168).toString());
+  assertEquals(deadline?.toString(), boundaryInstantOf(168).toString());
 });
 
 Deno.test("freeCancellationDeadline: unknown policy is null", () => {
@@ -196,7 +208,7 @@ Deno.test("freeCancellationDeadline: the last fee-free stage is the deadline", (
   // the start is the last free instant.
   assertEquals(
     freeCancellationDeadline(FIXED_FEE_POLICY, STARTS_AT)?.toString(),
-    hoursBefore(48).toString(),
+    boundaryInstantOf(48).toString(),
   );
 });
 
@@ -215,13 +227,14 @@ Deno.test("freeCancellationDeadline: policy whose every stage is fee-free is nul
 // across a stage boundary and confirm the resolved fee changes.
 Deno.test("VirtualClock crossing the 72h boundary changes the resolved stage", async () => {
   const { VirtualClock } = await import("../../clock/mod.ts");
-  const clock = new VirtualClock(hoursBefore(73));
+  // 3日前の終わり（30%の最後）をまたぐ。
+  const clock = new VirtualClock(boundaryInstantOf(72).subtract({ hours: 1 }));
 
   const before = resolvePolicyAt(SDD_EXAMPLE_POLICY, STARTS_AT, clock.now());
   assertEquals(before.policyKnown, true);
   if (before.policyKnown) assertEquals(before.feePercent, 30);
 
-  clock.advance("PT2H"); // now 71h before start, past the 72h boundary
+  clock.advance("PT2H"); // 日付が変わり、前日まで50% の帯に入る
 
   const after = resolvePolicyAt(SDD_EXAMPLE_POLICY, STARTS_AT, clock.now());
   assertEquals(after.policyKnown, true);

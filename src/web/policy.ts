@@ -120,22 +120,49 @@ export function isAlwaysFree(policy: WebPolicy): boolean {
   return stages !== null && stages.every((s) => s.pct === 0);
 }
 
+/** JST is a fixed +09:00 (no DST), so day arithmetic is a plain shift. */
+const JST_OFFSET_MS = 9 * HOUR_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/** The last instant of the JST day containing `ms` (…23:59:59.999+09:00). */
+function endOfJstDay(ms: number): number {
+  return Math.floor((ms + JST_OFFSET_MS) / DAY_MS) * DAY_MS + DAY_MS - 1 - JST_OFFSET_MS;
+}
+
+/**
+ * When a stage's boundary actually falls (epoch ms).
+ *
+ * A cancellation deadline is a DATE, not a time of day: 「7日前まで無料」 means
+ * you have all of that day, whether the reservation is at 15:00 or 19:00 (owner,
+ * 2026-07-31: 「時間が何時に登録されてもキャンセル期限は23:59または次の日の0:00が
+ * 一般」). Subtracting `h` hours from the start therefore only picks the DAY; the
+ * boundary itself sits at the end of it. Reading a 15:00 check-in literally used
+ * to expire 「今日まで無料」 at 15:00 and call the rest of the day 無料期間は終了.
+ *
+ * `h: 0`（当日）is the exception: its band ends at the reservation, not at the
+ * end of the reservation's day, or the 当日 rate would start after the start.
+ */
+export function boundaryMs(startsAtMs: number, h: number): number {
+  if (h <= 0) return startsAtMs;
+  return endOfJstDay(startsAtMs - h * HOUR_MS);
+}
+
 /**
  * The FREE-cancellation deadline (epoch ms), or null when the policy has no
  * free window to lose: "unknown", always-free, or paid from the outset.
+ *
+ * The free window ends at the LAST pct==0 stage's boundary — free24
+ * (「前日まで無料」) is the end of the day before, 「5日前まで無料」 the end of the
+ * fifth day out. (2026-07-25 fix: the old first-paid-stage reading was off by
+ * one stage on both sides.)
  */
 export function freeDeadlineMs(policy: WebPolicy, startsAt: string): number | null {
   const stages = stagesOf(policy);
   if (stages === null) return null; // unknown
   if (!stages.some((s) => s.pct > 0)) return null; // free throughout
-  // Stage semantics: `pct` applies to cancellations made until `h` hours before
-  // the start (stages descending). The free window therefore ends at the LAST
-  // pct==0 stage's boundary — free24 (「前日まで無料」) = start−24h,
-  // 「5日前まで無料」 = start−120h. (2026-07-25 fix: the old first-paid-stage
-  // reading was off by one stage on both sides.)
   const lastFree = [...stages].reverse().find((s) => s.pct === 0);
   if (lastFree === undefined) return null; // paid from the outset
-  return Temporal.Instant.from(startsAt).epochMilliseconds - lastFree.h * HOUR_MS;
+  return boundaryMs(Temporal.Instant.from(startsAt).epochMilliseconds, lastFree.h);
 }
 
 /** Worst-case cancellation fee (放置損失): amount × the highest stage %. */
@@ -146,14 +173,21 @@ export function maxLossYen(policy: WebPolicy, amount: number | null): number {
   return Math.round(amount * Math.max(...stages.map((s) => s.pct)) / 100);
 }
 
-/** Fee % for cancelling with `hoursLeft` to go; null only for "unknown". */
-export function pctAt(policy: WebPolicy, hoursLeft: number): number | null {
+/**
+ * Fee % for cancelling at `atMs`; null only for "unknown".
+ *
+ * Compares against real boundary instants (`boundaryMs`) rather than raw hours
+ * left, so the rate changes when the DATE changes — the same reading the
+ * deadline uses. Taking hours-before-start literally would raise the fee at the
+ * check-in time of day, hours before the deadline it is paired with.
+ */
+export function pctAt(policy: WebPolicy, startsAtMs: number, atMs: number): number | null {
   const stages = stagesOf(policy);
   if (stages === null) return null;
-  // Stages descend, so the first crossed boundary is the tightest one reached.
-  // Past the last boundary (h=0 → the start) the innermost rate stands.
-  const crossed = stages.filter((s) => hoursLeft >= s.h);
-  return (crossed[0] ?? stages.at(-1))?.pct ?? 0;
+  // Stages descend, so the first boundary still ahead is the one in effect.
+  // Past the innermost boundary (the start) the innermost rate stands.
+  const reached = stages.filter((s) => atMs <= boundaryMs(startsAtMs, s.h));
+  return (reached[0] ?? stages.at(-1))?.pct ?? 0;
 }
 
 /** 「5日前」「前日」「当日」「36時間前」 — a boundary as users say it. */

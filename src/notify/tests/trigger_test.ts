@@ -49,11 +49,12 @@ function at(iso: string): VirtualClock {
   return new VirtualClock(iso);
 }
 
-// The first fee boundary (free -> 30%) is 168h before start; its 24h window
-// opens 192h before start = 2026-07-07T18:00Z.
-// Temporal.Instant.toString() omits trailing-zero milliseconds.
-const BOUNDARY_1_OPEN = "2026-07-07T18:00:00Z";
-const BOUNDARY_1_AT = "2026-07-08T18:00:00Z";
+// The first fee boundary (free -> 30%) is the END of 7日前 in JST: start−168h is
+// 2026-07-09 03:00 JST, so the boundary is 2026-07-09 23:59:59.999 JST and its
+// 24h window opens a day earlier. A deadline is a date, not a time of day —
+// see boundaryInstant in src/core/domain/policy.ts.
+const BOUNDARY_1_OPEN = "2026-07-08T14:59:59.999Z";
+const BOUNDARY_1_AT = "2026-07-09T14:59:59.999Z";
 
 Deno.test("fee_boundary_24h: fires exactly when the 24h window opens", () => {
   const res = reservation();
@@ -194,7 +195,8 @@ Deno.test("notificationsForEvents: plan.settled => immediate 'remaining N' with 
 
 Deno.test("previewNotifications: 7-day simulation lists the single upcoming boundary", () => {
   const res = reservation();
-  const asOf = Temporal.Instant.from("2026-07-01T00:00:00.000Z");
+  // 既定の7日間で最初の窓（7/8 14:59:59.999Z 開始）だけを拾う位置。
+  const asOf = Temporal.Instant.from("2026-07-02T00:00:00.000Z");
   const out = previewNotifications({ reservations: [res], plans: [] }, asOf);
   const boundaries = out.filter((n) => n.trigger === "fee_boundary_24h");
   assertEquals(boundaries.length, 1);
@@ -213,10 +215,11 @@ Deno.test("previewNotifications: walks every boundary whose window opens in rang
   const fireAts = out
     .filter((n) => n.trigger === "fee_boundary_24h")
     .map((n) => n.fire_at);
+  // 各段の境界はその日の終わり（JST）。窓はその24時間前に開く。
   assertEquals(fireAts, [
-    "2026-07-07T18:00:00Z", // free -> 30%
-    "2026-07-11T18:00:00Z", // 30% -> 50%
-    "2026-07-13T18:00:00Z", // 50% -> 100%
+    "2026-07-08T14:59:59.999Z", // free -> 30%（7日前の終わり）
+    "2026-07-12T14:59:59.999Z", // 30% -> 50%（3日前の終わり）
+    "2026-07-14T14:59:59.999Z", // 50% -> 100%（前日の終わり）
   ]);
 });
 

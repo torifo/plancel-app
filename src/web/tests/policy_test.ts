@@ -12,9 +12,10 @@ import {
   webPolicySchema,
 } from "../policy.ts";
 
-const H = 3_600_000;
 const START = "2026-08-20T19:00:00+09:00";
 const startMs = Temporal.Instant.from(START).epochMilliseconds;
+/** 無料キャンセル期限はその日の終わり（JST）— 予約の時刻ではない。 */
+const eod = (day: string) => Temporal.Instant.from(`${day}T23:59:59.999+09:00`).epochMilliseconds;
 
 /** The policy the owner actually needed: 5日前まで無料 → 3日前まで30% → 当日100%. */
 const FIVE_DAY: WebPolicy = {
@@ -96,10 +97,12 @@ Deno.test("policy: stagesOf is null only for unknown", () => {
   assertEquals(stagesOf(FIVE_DAY), FIVE_DAY.stages);
 });
 
-Deno.test("policy: freeDeadlineMs for a 5日前 policy is start − 120h", () => {
-  assertEquals(freeDeadlineMs(FIVE_DAY, START), startMs - 120 * H);
-  assertEquals(freeDeadlineMs("free24", START), startMs - 24 * H);
-  assertEquals(freeDeadlineMs("staged", START), startMs - 168 * H);
+Deno.test("policy: freeDeadlineMs is the end of the last free DAY", () => {
+  // START は 8/20(木) 19:00 JST。5日前=8/15、前日=8/19、7日前=8/13、いずれもその日の
+  // 終わりまで無料（予約が19:00でも15:00でも同じ日付で切れる）。
+  assertEquals(freeDeadlineMs(FIVE_DAY, START), eod("2026-08-15"));
+  assertEquals(freeDeadlineMs("free24", START), eod("2026-08-19"));
+  assertEquals(freeDeadlineMs("staged", START), eod("2026-08-13"));
   // No free window to lose: unknown / always free / paid from the outset.
   assertEquals(freeDeadlineMs("unknown", START), null);
   assertEquals(freeDeadlineMs("none", START), null);
@@ -119,12 +122,14 @@ Deno.test("policy: maxLossYen and pctAt read the custom stage table", () => {
   assertEquals(maxLossYen(FIVE_DAY, null), 0);
   assertEquals(maxLossYen("unknown", 40000), 0);
 
-  assertEquals(pctAt(FIVE_DAY, 200), 0); // まだ無料
-  assertEquals(pctAt(FIVE_DAY, 120), 0); // 無料期限そのもの
-  assertEquals(pctAt(FIVE_DAY, 100), 30); // 5日前を過ぎた
-  assertEquals(pctAt(FIVE_DAY, 10), 100); // 3日前を過ぎた
-  assertEquals(pctAt(FIVE_DAY, -1), 100); // 開始後は最も内側の料率
-  assertEquals(pctAt("unknown", 100), null);
+  // 境界は日付の変わり目。START は 8/20(木) 19:00 JST なので 5日前=8/15 の終わり。
+  const at = (iso: string) => Temporal.Instant.from(iso).epochMilliseconds;
+  assertEquals(pctAt(FIVE_DAY, startMs, at("2026-08-10T00:00:00+09:00")), 0); // まだ無料
+  assertEquals(pctAt(FIVE_DAY, startMs, at("2026-08-15T23:59:00+09:00")), 0); // 5日前の終わり際
+  assertEquals(pctAt(FIVE_DAY, startMs, at("2026-08-16T00:30:00+09:00")), 30); // 日付が変わった
+  assertEquals(pctAt(FIVE_DAY, startMs, at("2026-08-20T09:00:00+09:00")), 100); // 当日
+  assertEquals(pctAt(FIVE_DAY, startMs, at("2026-08-20T20:00:00+09:00")), 100); // 開始後
+  assertEquals(pctAt("unknown", startMs, at("2026-08-10T00:00:00+09:00")), null);
 });
 
 Deno.test("policy: describePolicy is human Japanese, never JSON", () => {
@@ -164,12 +169,12 @@ Deno.test("fromCoreStages: a 「N日前から◯%」 policy keeps its free windo
   const fromBoundary = fromCoreStages(core([[192, 0], [0, 20]]));
   assertEquals(fromBoundary, { stages: [{ h: 192, pct: 0 }, { h: 0, pct: 20 }] });
   assertEquals(describePolicy(fromBoundary), "8日前まで無料 → 当日20%");
-  assertEquals(freeDeadlineMs(fromBoundary, START), startMs - 192 * H);
+  assertEquals(freeDeadlineMs(fromBoundary, START), eod("2026-08-12"));
 
   // Staged version of the same phrasing: 「3日前から20%、前日50%、当日80%」.
   const staged = fromCoreStages(core([[96, 0], [48, 20], [24, 50], [0, 80]]));
   assertEquals(describePolicy(staged), "4日前まで無料 → 2日前まで20% → 前日まで50% → 当日80%");
-  assertEquals(freeDeadlineMs(staged, START), startMs - 96 * H);
+  assertEquals(freeDeadlineMs(staged, START), eod("2026-08-16"));
 });
 
 Deno.test("fromCoreStages: the source text's free boundary wins over the model's", () => {

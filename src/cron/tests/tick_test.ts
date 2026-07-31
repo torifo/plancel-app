@@ -10,9 +10,10 @@ import { runTick } from "../tick.ts";
 const STARTS_AT = "2026-07-15T18:00:00.000Z";
 const EXAMPLE_POLICY: CancellationPolicy = {
   stages: [
-    { until_offset_hours: 168, fee_percent: 30, fee_fixed_jpy: null },
-    { until_offset_hours: 72, fee_percent: 50, fee_fixed_jpy: null },
-    { until_offset_hours: 24, fee_percent: 100, fee_fixed_jpy: null },
+    { until_offset_hours: 168, fee_percent: 0, fee_fixed_jpy: null }, // 7日前まで無料
+    { until_offset_hours: 72, fee_percent: 30, fee_fixed_jpy: null },
+    { until_offset_hours: 24, fee_percent: 50, fee_fixed_jpy: null },
+    { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null },
   ],
 };
 
@@ -51,8 +52,9 @@ class CapturingNotifier implements Notifier {
 Deno.test("runTick: computes, enqueues, and delivers a due fee-boundary notification", async () => {
   const store = new InMemoryStore();
   await store.putReservation(reservation());
-  // 168h boundary is 2026-07-08T18:00Z; its 24h window opens 2026-07-07T18:00Z.
-  const clock = new VirtualClock("2026-07-08T00:00:00.000Z");
+  // 無料の段を出る境界は 7日前の終わり = 2026-07-09T14:59:59.999Z（JST 7/9 23:59）。
+  // その24時間前に窓が開くので、下の時刻は窓の中。
+  const clock = new VirtualClock("2026-07-08T15:00:00.000Z");
   const notifier = new CapturingNotifier();
 
   const result = await runTick({ store, clock, notifier });
@@ -72,7 +74,7 @@ Deno.test("runTick: computes, enqueues, and delivers a due fee-boundary notifica
 Deno.test("runTick: a second tick in the same window dedupes and does not redeliver", async () => {
   const store = new InMemoryStore();
   await store.putReservation(reservation());
-  const clock = new VirtualClock("2026-07-08T00:00:00.000Z");
+  const clock = new VirtualClock("2026-07-08T15:00:00.000Z");
   const notifier = new CapturingNotifier();
 
   await runTick({ store, clock, notifier });
@@ -92,7 +94,7 @@ Deno.test("runTick: a second tick in the same window dedupes and does not redeli
 
 Deno.test("runTick: an empty store produces an all-zero result", async () => {
   const store = new InMemoryStore();
-  const clock = new VirtualClock("2026-07-08T00:00:00.000Z");
+  const clock = new VirtualClock("2026-07-08T15:00:00.000Z");
   const notifier = new CapturingNotifier();
 
   const result = await runTick({ store, clock, notifier });

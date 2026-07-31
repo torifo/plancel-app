@@ -57,7 +57,11 @@ for (const [name, pairs] of POLICIES) {
       const at = startInstant.subtract({ hours: hoursLeft });
       const resolved = resolvePolicyAt(core, startInstant, at);
       const corePct = resolved.policyKnown ? resolved.feePercent : null;
-      assertEquals(corePct, pctAt(web, hoursLeft), `${name} at ${hoursLeft}h before start`);
+      assertEquals(
+        corePct,
+        pctAt(web, startInstant.epochMilliseconds, at.epochMilliseconds),
+        `${name} at ${hoursLeft}h before start`,
+      );
     }
   });
 
@@ -75,7 +79,10 @@ for (const [name, pairs] of POLICIES) {
 
 Deno.test("policy parity: 「unknown」 is unknown on both sides", () => {
   assertEquals(resolvePolicyAt("unknown", startInstant, startInstant).policyKnown, false);
-  assertEquals(pctAt("unknown", 100), null);
+  assertEquals(
+    pctAt("unknown", startInstant.epochMilliseconds, startInstant.epochMilliseconds),
+    null,
+  );
   assertEquals(freeCancellationDeadline("unknown", startInstant), null);
   assertEquals(freeDeadlineMs("unknown", START), null);
 });

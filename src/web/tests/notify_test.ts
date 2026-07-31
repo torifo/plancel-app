@@ -1,6 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
 import { type NotifyDeps, sweepDeadlineNotifications } from "../notify.ts";
-import { freeDeadlineMs } from "../policy.ts";
+import { boundaryMs, freeDeadlineMs } from "../policy.ts";
 import { getOrCreateUserByEmail, linkLineUser } from "../users.ts";
 import type { WebPolicy, WebReservation, WebStatus } from "../store.ts";
 import { makeAuthIds } from "./users_test.ts";
@@ -163,7 +163,7 @@ Deno.test("staged free deadline is start − 168h (last free stage) and notifies
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
     const start = NOW + 180 * H; // deadline = start − 168h = now+12h (in window)
-    assertEquals(freeDeadlineMs("staged", iso(start)), start - 168 * H);
+    assertEquals(freeDeadlineMs("staged", iso(start)), boundaryMs(start, 168));
     await putResv(kv, u.ledgerId, "S1", "staged", "to_cancel", start);
     const sent: Sent[] = [];
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
@@ -178,7 +178,7 @@ Deno.test("notifies on a custom 5日前 policy boundary", async () => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
     const policy = { stages: [{ h: 120, pct: 0 }, { h: 72, pct: 30 }, { h: 0, pct: 100 }] };
     const start = NOW + 132 * H; // deadline = start − 120h = now+12h (in window)
-    assertEquals(freeDeadlineMs(policy, iso(start)), start - 120 * H);
+    assertEquals(freeDeadlineMs(policy, iso(start)), boundaryMs(start, 120));
     await putResv(kv, u.ledgerId, "C1", policy, "candidate", start);
     // A second reservation with the same policy but a deadline 6 days out.
     await putResv(kv, u.ledgerId, "C2", policy, "candidate", NOW + 264 * H);
@@ -283,10 +283,11 @@ Deno.test("retries on the next sweep when the LINE push fails", async () => {
 Deno.test("bundles every reservation crossing in one sweep into a single message", async () => {
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
-    // free24 deadline = start − 24h → all three land inside the next 24h.
+    // free24 の無料期限は「前日の終わり」。3件とも開始が 8/2(JST) なので期限は
+    // 8/1 23:59 に揃い、まとめて次の24時間に入る。
     await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
-    await putResv(kv, u.ledgerId, "R2", "free24", "confirmed", NOW + 40 * H);
-    await putResv(kv, u.ledgerId, "R3", "free24", "to_cancel", NOW + 44 * H);
+    await putResv(kv, u.ledgerId, "R2", "free24", "confirmed", NOW + 30 * H);
+    await putResv(kv, u.ledgerId, "R3", "free24", "to_cancel", NOW + 24 * H);
     const sent: Sent[] = [];
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
     assertEquals(sent.length, 1);
@@ -324,7 +325,7 @@ Deno.test("a failed bundled send writes no markers and retries the whole bundle"
   await withKv(async (kv) => {
     const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
     await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
-    await putResv(kv, u.ledgerId, "R2", "free24", "candidate", NOW + 40 * H);
+    await putResv(kv, u.ledgerId, "R2", "free24", "candidate", NOW + 30 * H);
     const sent: Sent[] = [];
     const lines: string[] = [];
     const failing: NotifyDeps = {
@@ -358,8 +359,10 @@ Deno.test("the daily email cap serves the first user and defers the rest a day",
     const ids = makeAuthIds();
     const a = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
     const b = await getOrCreateUserByEmail(kv, "b@b.jp", ids);
-    await putResv(kv, a.ledgerId, "RA", "free24", "candidate", CAP_NOW + 36 * H);
-    await putResv(kv, b.ledgerId, "RB", "free24", "candidate", CAP_NOW + 36 * H);
+    // CAP_NOW は 8/1 23:00(JST)。開始を 8/2 にすると無料期限は 8/1 23:59 で、
+    // ちょうど次の24時間に入る（期限は日付の変わり目に揃う）。
+    await putResv(kv, a.ledgerId, "RA", "free24", "candidate", CAP_NOW + 12 * H);
+    await putResv(kv, b.ledgerId, "RB", "free24", "candidate", CAP_NOW + 12 * H);
     const sent: Sent[] = [];
     const lines: string[] = [];
     const opts: QuotaOpts = { emailDailyCap: 1, logWrite: (l) => lines.push(l) };
@@ -373,11 +376,16 @@ Deno.test("the daily email cap serves the first user and defers the rest a day",
     // Same JST day → still capped.
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent, CAP_NOW, opts)), 0);
     assertEquals(sent.length, 1);
-    // Next JST day → fresh bucket, b goes out.
+    // Next JST day → fresh bucket. RB2 の期限は 8/2 の終わりなのでこの窓に入る。
+    await putResv(kv, b.ledgerId, "RB2", "free24", "candidate", CAP_NOW + 36 * H);
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent, CAP_NEXT_JST_DAY, opts)), 1);
     assertEquals(sent.length, 2);
     assertEquals(sent[1]?.email, "b@b.jp");
-    assertEquals(await notified(kv, b.id, "RB"), true);
+    assertEquals(await notified(kv, b.id, "RB2"), true);
+    // RB は上限で送れないまま日付をまたぎ、期限（8/1 の終わり）が過ぎたので二度と
+    // 送られない。期限が日付の変わり目に揃う以上、上限に当たった当日分は翌日には
+    // 救えない — 上限は 100通/日 なので実際に起きるのは利用者が100人を超えてから。
+    assertEquals(await notified(kv, b.id, "RB"), false);
     assertEquals((await quotaAt(kv, "2026-08-02")).value, 1);
   });
 });
