@@ -59,25 +59,37 @@ Deno.test("corpus: a text stating when charging starts always yields a 無料キ
   assert(checked > 0, "no fee-from-boundary fixture in the corpus");
 });
 
-Deno.test("corpus: the pre-fix 「3日前から20%」 recording still lands on 4日前まで無料", async () => {
-  const text = await Deno.readTextFile(new URL("real-hotel-checkinout.json", FIXTURES));
+Deno.test("corpus: 「7日前から20%」 is recorded as 8日前まで無料", async () => {
+  // real-lodge-fee-from-day, recorded 2026-07-31 from gemini-flash under the
+  // corrected prompt — the owner's own case (「7日目から20%とるってなってると、
+  // 8日目まで無料とは自動で入らないんだね」), now the corpus's answer to it.
+  const text = await Deno.readTextFile(new URL("real-lodge-fee-from-day.json", FIXTURES));
   const fixture = JSON.parse(text) as Fixture;
-  // Recorded 2026-07-27 from groq-llama, before the prompt stated the
-  // convention: three paid stages, no free stage, so the ledger used to read it
-  // as "20% from the moment you booked" and had no deadline to notify on.
-  assertEquals(
-    fixture.expected.output?.cancellation_policy,
-    {
-      stages: [
-        { until_offset_hours: 72, fee_percent: 20, fee_fixed_jpy: null },
-        { until_offset_hours: 24, fee_percent: 50, fee_fixed_jpy: null },
-        { until_offset_hours: 0, fee_percent: 80, fee_fixed_jpy: null },
-      ],
-    },
-  );
-  assertEquals(impliedFreeBoundaryHours(fixture.raw_input), 96);
+  assertEquals(impliedFreeBoundaryHours(fixture.raw_input), 192);
 
-  const policy = fromCoreStages(fixture.expected.output?.cancellation_policy, 96);
+  const policy = fromCoreStages(fixture.expected.output?.cancellation_policy, 192);
+  assertEquals(describePolicy(policy), "8日前まで無料 → 当日20%");
+  assertEquals(freeDeadlineMs(policy, START), startMs - 192 * H);
+});
+
+Deno.test("import: an answer with no free stage at all still lands on a deadline", () => {
+  // What groq-llama returned for 「3日前から20%、前日50%、当日80%」 before the
+  // 2026-07-30 prompt fix: three paid stages and no free stage, which the
+  // ledger read as "20% from the moment you booked" — no deadline to show and
+  // none for the 24時間前 sweep to fire on. Kept inline because the corpus now
+  // records the corrected answer, and the guarantee has to hold for the worst
+  // one too, whoever produces it next.
+  const preFix = {
+    stages: [
+      { until_offset_hours: 72, fee_percent: 20, fee_fixed_jpy: null },
+      { until_offset_hours: 24, fee_percent: 50, fee_fixed_jpy: null },
+      { until_offset_hours: 0, fee_percent: 80, fee_fixed_jpy: null },
+    ],
+  };
+  assertEquals(freeDeadlineMs(fromCoreStages(preFix), START), null); // 修正前の姿
+  const policy = fromCoreStages(preFix, 96);
+  // The free window is restored; the inner tiers stay where the model put them,
+  // one tier pessimistic (2日前 reads 50% where the facility charges 20%).
   assertEquals(describePolicy(policy), "4日前まで無料 → 3日前まで20% → 前日まで50% → 当日80%");
   assertEquals(freeDeadlineMs(policy, START), startMs - 96 * H);
 });

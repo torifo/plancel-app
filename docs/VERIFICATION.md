@@ -1,7 +1,7 @@
 # plancel 検証ガイド（ローカル検証 + ドキュメント整合 + 本番実機）
 
 > 最終更新: 2026-07-28。§1 のローカルコマンドは 2026-07-28 に再実行して期待出力を確認済み
-> （652 passed | 0 failed、replay 9/9 identical）。
+> （653 passed | 0 failed、replay 10/10 identical）。
 > §3（ログイン・カレンダー・MCP・LINE・Resend の本番トラック）は 2026-07-26 時点の実装を反映。
 > デプロイ前は §1 を上から順に全部通すこと。§2 はドキュメントを触ったとき・リリース前の照合用。 §3
 > はデプロイ後の実機確認（done-when）。
@@ -20,7 +20,7 @@
 ```sh
 deno task check     # 型 + Date直呼び禁止lint → "no_direct_date_check: OK"
 deno lint           # 0 problems
-deno task test      # 652 passed | 0 failed
+deno task test      # 653 passed | 0 failed
 deno task verify    # fmt check + 上記検査 + replayを一括実行
 ```
 
@@ -38,10 +38,10 @@ viewer/editor 権限・メンバー一覧・脱退、オーナー専用操作の
 ### 1.2 パース回帰リプレイ（必須）
 
 ```sh
-deno task replay    # → 9/9 identical, 0/9 changed（LLM 接続なし）
+deno task replay    # → 10/10 identical, 0/10 changed（LLM 接続なし）
 ```
 
-`fixtures/parse/` の回帰コーパス（実データ 6 + 合成 3）を現行チェーン・現行検証ロジックで再実行。
+`fixtures/parse/` の回帰コーパス（実データ 7 + 合成 3）を現行チェーン・現行検証ロジックで再実行。
 **プロンプト・チェーン・validate を変更したら必ずここが green であること**。
 日時・場所の読み取り（年推論 1/15→翌年 / 住所→location /
 チェックイン・アウト時刻）はこのコーパスが守っている。
@@ -154,7 +154,7 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 ## 2. ドキュメント整合チェック（既存ドキュメントの検証）
 
 ドキュメントの「実装状態を主張する記述」と実体の照合表。**コード・テスト数・タスク状態を変えたら該当行を更新すること**。
-2026-07-30 時点: 652（キャンセル規定の境界表記まわりを追加）。2026-07-28 時点: README・本ガイドのテスト数を621へ統一（予約の共有編集権限・施設の既定規定・
+2026-07-31 時点: 653（キャンセル規定の境界表記まわりを追加。コーパスに「N日前から◯%」表記の実データ2件）。2026-07-28 時点: README・本ガイドのテスト数を621へ統一（予約の共有編集権限・施設の既定規定・
 メール転送インテーク・文字サイズ3段階の追加分を含む。`specs/plancel/tasks.md` は本更新の対象外
 なので別途確認すること）。コード実装済みと本番実機acceptance未完了を分けて記載。
 

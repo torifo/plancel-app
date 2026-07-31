@@ -4,8 +4,8 @@
   "input_type": "text",
   "attempts": [
     {
-      "parser": "groq-llama",
-      "raw_response": "{\n  \"service_name\": \"城崎温泉 ゆらり庵\",\n   \"provider\": \"楽天トラベル\",\n   \"starts_at\": \"2026-11-03T15:00:00+09:00\",\n   \"ends_at\": \"2026-11-04T10:00:00+09:00\",\n   \"location\": \"兵庫県豊岡市城崎町湯島456\",\n   \"amount_jpy\": 28600,\n   \"cancellation_policy\": {\n      \"stages\": [\n         {\n            \"until_offset_hours\": 72,\n            \"fee_percent\": 20,\n            \"fee_fixed_jpy\": null\n         },\n         {\n            \"until_offset_hours\": 24,\n            \"fee_percent\": 50,\n            \"fee_fixed_jpy\": null\n         },\n         {\n            \"until_offset_hours\": 0,\n            \"fee_percent\": 80,\n            \"fee_fixed_jpy\": null\n         }\n      ]\n   },\n   \"notes\": null\n}"
+      "parser": "gemini-flash",
+      "raw_response": "{\n  \"service_name\": \"城崎温泉 ゆらり庵\",\n  \"provider\": \"楽天トラベル\",\n  \"starts_at\": \"2026-11-03T15:00:00+09:00\",\n  \"ends_at\": \"2026-11-04T10:00:00+09:00\",\n  \"location\": \"兵庫県豊岡市城崎町湯島456\",\n  \"amount_jpy\": 28600,\n  \"cancellation_policy\": {\n    \"stages\": [\n      {\n        \"until_offset_hours\": 96,\n        \"fee_percent\": 0,\n        \"fee_fixed_jpy\": null\n      },\n      {\n        \"until_offset_hours\": 48,\n        \"fee_percent\": 20,\n        \"fee_fixed_jpy\": null\n      },\n      {\n        \"until_offset_hours\": 24,\n        \"fee_percent\": 50,\n        \"fee_fixed_jpy\": null\n      },\n      {\n        \"until_offset_hours\": 0,\n        \"fee_percent\": 80,\n        \"fee_fixed_jpy\": null\n      }\n    ]\n  },\n  \"notes\": null\n}"
     }
   ],
   "expected": {
@@ -20,7 +20,12 @@
       "cancellation_policy": {
         "stages": [
           {
-            "until_offset_hours": 72,
+            "until_offset_hours": 96,
+            "fee_percent": 0,
+            "fee_fixed_jpy": null
+          },
+          {
+            "until_offset_hours": 48,
             "fee_percent": 20,
             "fee_fixed_jpy": null
           },

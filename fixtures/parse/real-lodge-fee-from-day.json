@@ -1,0 +1,38 @@
+{
+  "name": "real-lodge-fee-from-day",
+  "raw_input": "【一休.com】ご予約確認 / 星取山ロッジ（鳥取県東伯郡三朝町）2026年10月9日 18:00 チェックイン / 大人2名 42,000円 / キャンセル料は7日前から20%頂戴します",
+  "input_type": "text",
+  "attempts": [
+    {
+      "parser": "gemini-flash",
+      "raw_response": "{\n  \"service_name\": \"星取山ロッジ\",\n  \"provider\": \"一休.com\",\n  \"starts_at\": \"2026-10-09T18:00:00+09:00\",\n  \"ends_at\": null,\n  \"location\": \"鳥取県東伯郡三朝町\",\n  \"amount_jpy\": 42000,\n  \"cancellation_policy\": {\n    \"stages\": [\n      {\n        \"until_offset_hours\": 192,\n        \"fee_percent\": 0,\n        \"fee_fixed_jpy\": null\n      },\n      {\n        \"until_offset_hours\": 0,\n        \"fee_percent\": 20,\n        \"fee_fixed_jpy\": null\n      }\n    ]\n  },\n  \"notes\": null\n}"
+    }
+  ],
+  "expected": {
+    "status": "parsed",
+    "output": {
+      "service_name": "星取山ロッジ",
+      "provider": "一休.com",
+      "starts_at": "2026-10-09T18:00:00+09:00",
+      "ends_at": null,
+      "location": "鳥取県東伯郡三朝町",
+      "amount_jpy": 42000,
+      "cancellation_policy": {
+        "stages": [
+          {
+            "until_offset_hours": 192,
+            "fee_percent": 0,
+            "fee_fixed_jpy": null
+          },
+          {
+            "until_offset_hours": 0,
+            "fee_percent": 20,
+            "fee_fixed_jpy": null
+          }
+        ]
+      },
+      "notes": null
+    },
+    "conflicts": []
+  }
+}
