@@ -2975,6 +2975,35 @@
           } を決める</b></div><div class="ds">決めると残りが自動でここに並びます</div></div>`,
         );
       }
+      // 期限が目前の候補。要キャンセルでもなく、候補が2件以上のプランでもないと
+      // ここまで何にも引っかからず、単独の候補は期限が今日でも黙って過ぎていた
+      // （家族の報告 2026-07-31「今日することにのってくるかと思ったのに、
+      // のってこなかったね」）。決めないと金が減るのだから、真っ先に出す。
+      const decided = new Set(
+        Object.entries(plans).filter(([, rs]) =>
+          !rs.some((r) => r.status === "confirmed") &&
+          rs.filter((r) => r.status === "candidate").length >= 2
+        ).map(([name]) => name),
+      );
+      for (const r of active) {
+        if (r.shared || r.status !== "candidate") continue;
+        if (r.plan && decided.has(r.plan)) continue; // 「決めどき」で既に出ている
+        const dl = freeDeadline(r);
+        if (!dl || dl <= now || dl - now > 2 * DAY) continue;
+        const today = new Date(dl).toDateString() === new Date(now).toDateString();
+        const pen = penaltyAfterFree(r);
+        items.push(
+          `<div class="rail-item"><div class="lb">${
+            today ? "今日中" : `◆${fmtDate(dl)} まで`
+          }</div><div class="tt"><b>${
+            esc(r.service)
+          } を決める</b></div><div class="ds">無料で戻せるのは${
+            today ? "今日" : fmtDate(dl)
+          }まで。${
+            pen ? `過ぎると最低 ${yen(pen)} かかります。` : "過ぎるとキャンセル料がかかります。"
+          }</div></div>`,
+        );
+      }
       for (const r of active) {
         if (r.shared || !unknownPolicy(r) || r.status === "to_cancel") continue;
         items.push(
@@ -2983,7 +3012,10 @@
           } の規定を入れる</b></div><div class="ds">入れると期限を見張れます</div><div class="btns"><button class="rowbtn" data-edit="${r.id}">規定を入れる</button></div></div>`,
         );
       }
-      const todo = active.filter((r) => r.status === "to_cancel").length;
+      // 見出しの件数は「いま手を打つもの」＝キャンセル待ちと期限が目前の候補。
+      // 要キャンセルだけを数えていたので、レールに「今日中」が並んでいるのに 0件 と
+      // 出ていた（家族の報告 2026-07-31）。
+      const todo = items.filter((h) => !h.includes("rail-item soft")).length;
       q("#todoCount").textContent = todo + "件";
       // ボトムナビの「終了」。0件のときは飛び先の「キャンセル済み」の節そのものが
       // 描かれないので、押せるように見せない（.off ＋ aria-disabled。onclick 側でも
