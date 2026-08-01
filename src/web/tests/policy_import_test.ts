@@ -71,6 +71,26 @@ Deno.test("corpus: 「7日前から20%」 is recorded as 8日前まで無料", a
   assertEquals(freeDeadlineMs(policy, START), eod("2026-08-12")); // 8日前の終わり
 });
 
+Deno.test("import: a deadline stated as 「キャンセル料はかかりません」 is not moved inward", () => {
+  // 規定が無料期限を否定形で書いた場合。ここで補正を掛けると、期限は必ず内側の
+  // 「から」境界＝規定が課金を始める側へ動く（14日前 → 4日前）。無料期間が10日
+  // 伸びて見えるので、利用者は課金が始まった後に「まだ無料」と読む。
+  const text = "取消料：14日前まではキャンセル料はかかりません。3日前から50%、当日100%";
+  assertEquals(impliedFreeBoundaryHours(text), null);
+
+  const model = {
+    stages: [
+      { until_offset_hours: 336, fee_percent: 0, fee_fixed_jpy: null },
+      { until_offset_hours: 72, fee_percent: 50, fee_fixed_jpy: null },
+      { until_offset_hours: 0, fee_percent: 100, fee_fixed_jpy: null },
+    ],
+  };
+  const policy = fromCoreStages(model, impliedFreeBoundaryHours(text));
+  assertEquals(freeDeadlineMs(policy, START), eod("2026-08-06")); // 規定が書いた14日前
+  // 「無料」だけを見ていた頃に入っていた値。期限が10日後ろへ動いていた。
+  assertEquals(freeDeadlineMs(fromCoreStages(model, 96), START), eod("2026-08-16"));
+});
+
 Deno.test("import: an answer with no free stage at all still lands on a deadline", () => {
   // What groq-llama returned for 「3日前から20%、前日50%、当日80%」 before the
   // 2026-07-30 prompt fix: three paid stages and no free stage, which the

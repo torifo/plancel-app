@@ -33,6 +33,51 @@ Deno.test("impliedFreeBoundaryHours: a stated free deadline is left alone", () =
   assertEquals(impliedFreeBoundaryHours("キャンセル: 7日前まで無料、3日前まで30%、当日100%"), null);
 });
 
+Deno.test("impliedFreeBoundaryHours: a free deadline stated as a fee that is not charged", () => {
+  // 規定は同じことを「無料」以外の言い方でも書く。「無料」しか見ないと、規定が
+  // 自分で書いた期限を内側の「から」境界で上書きしてしまう。しかもそのずれは
+  // 必ず期限を後ろへ動かす（有料の開始は無料の終わりより内側にあるので）＝
+  // 施設が課金を始めた後も「まだ無料」と言い、24時間前の通知も遅れる。
+  assertEquals(
+    impliedFreeBoundaryHours(
+      "取消料：14日前まではキャンセル料はかかりません。3日前から50%、当日100%",
+    ),
+    null,
+  );
+  assertEquals(impliedFreeBoundaryHours("10日前まで無償でキャンセルできます。2日前から30%"), null);
+  assertEquals(impliedFreeBoundaryHours("7日前までキャンセル料は不要です。3日前から50%"), null);
+  assertEquals(
+    impliedFreeBoundaryHours("30日前までキャンセル料は発生しません。7日前から20%"),
+    null,
+  );
+  assertEquals(
+    impliedFreeBoundaryHours("前日18時までのキャンセルは料金をいただきません。当日以降100%"),
+    null,
+  );
+  // 料の名前が期限より先に来る語順でも同じ規定。
+  assertEquals(impliedFreeBoundaryHours("キャンセル料は3日前までかかりません。2日前から50%"), null);
+});
+
+Deno.test("impliedFreeBoundaryHours: a payment that is not due is not a free cancellation", () => {
+  // ガードが広すぎると逆側に倒れる：補正が効かないまま 0% の段が無い規定は
+  // 無料キャンセル期限が決まらず、24時間前スイープが一度も鳴らない。支払いの
+  // 話と駐車場の無料は、キャンセル料の期限を書いたことにはならない。
+  assertEquals(
+    impliedFreeBoundaryHours("事前決済のため当日のお支払いは不要です。キャンセルは3日前から20%"),
+    96,
+  );
+  assertEquals(
+    impliedFreeBoundaryHours(
+      "宿泊料金はチェックイン当日までお支払いいただきます。キャンセルは3日前から20%",
+    ),
+    96,
+  );
+  assertEquals(
+    impliedFreeBoundaryHours("駅から徒歩3分、駐車場は無料。キャンセルは3日前から20%"),
+    96,
+  );
+});
+
 Deno.test("impliedFreeBoundaryHours: ordinary prose carrying から is not a policy", () => {
   // 「から」 is far too common a particle to key off on its own, and every false
   // match costs one of Gemini's 20 requests/day.
