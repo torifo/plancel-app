@@ -2,12 +2,11 @@
  * GeminiParser — secondary TEXT parser and the ONLY image parser
  * (Task 6.1, ADR-5: vision 経路は Gemini 固定, SDD §5).
  *
- * Free-tier quota recheck (ADR-5 note), as of 2026-07: Gemini Flash on
- * the free tier is ~10 req/min / 250 req/day (Google cut free quotas
- * sharply in Dec 2025 — recheck again before deploy). Still comfortably
- * above this product's expected parse volume. Privacy: free-tier inputs may
- * be used for training, which is why chain.ts masks PII before any parser
- * sees the input (SDD §5 プライバシー).
+ * Gemini publishes exact active limits per project/model in AI Studio rather
+ * than as a stable public number (rechecked 2026-08). Preserve its quota for
+ * image parsing and targeted text review; recheck the project limits before
+ * deploy. Privacy: free-tier inputs may be used for training, which is why
+ * chain.ts masks PII before any parser sees the input (SDD §5).
  *
  * Image inputs arrive as `ParseInput.content` holding either a data URL
  * (`data:image/png;base64,...`) or a bare base64 string (assumed JPEG).

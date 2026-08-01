@@ -76,6 +76,9 @@ if (import.meta.main) {
   const job = await runParseChain(input, REAL_CHAIN_CONFIG, realParsers({ clock }), clock, ids);
 
   console.log(`status: ${job.status}`);
+  if (job.review_reasons !== undefined) {
+    console.log(`review_reasons: ${job.review_reasons.join(", ")}`);
+  }
   for (const attempt of job.attempts) {
     console.log(`\n--- attempt: ${attempt.parser} ---`);
     console.log(`raw_response: ${attempt.raw_response}`);

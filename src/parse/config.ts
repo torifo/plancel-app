@@ -35,10 +35,10 @@ const FEE_FROM_BOUNDARY_PARSER = "gemini-flash";
  * tiers of a 「から」 policy correctly and llama-3.3-70b mostly does, so this is
  * a best-effort accuracy preference, not a correctness guarantee.
  *
- * Which is why it stays narrow. Gemini's free tier is 20 requests/day per
- * model, shared with the image path, so leading the whole text chain would
- * spend the day on ordinary mail; and Groq answering these instead costs only
- * the inner tiers, never the deadline.
+ * Which is why it stays narrow. Gemini's exact active limit is project/model
+ * specific and the same quota serves images, so leading the whole text chain
+ * would spend scarce vision capacity on ordinary mail. Groq answering these
+ * instead costs only the inner tiers, never the deadline.
  */
 export function chainForInput(input: ParseInput, config: ParserChainConfig): string[] {
   const names = config[input.type];

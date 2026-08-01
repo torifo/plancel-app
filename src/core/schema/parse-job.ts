@@ -38,6 +38,15 @@ export type ParseJobStatus = z.infer<typeof parseJobStatusSchema>;
 export const parseJobInputTypeSchema = z.enum(["text", "image"]);
 export type ParseJobInputType = z.infer<typeof parseJobInputTypeSchema>;
 
+export const parserReviewReasonSchema = z.enum([
+  "validation_warning",
+  "multiple_calendar_dates",
+  "checkin_checkout",
+  "location_omitted",
+  "policy_omitted",
+]);
+export type ParserReviewReason = z.infer<typeof parserReviewReasonSchema>;
+
 export const parseJobSchema = z.object({
   id: ulidSchema,
   input_type: parseJobInputTypeSchema,
@@ -45,6 +54,9 @@ export const parseJobSchema = z.object({
   attempts: z.array(parseAttemptSchema),
   status: parseJobStatusSchema,
   conflicts: z.array(fieldConflictSchema),
+  /** Why a valid primary parse was sent to a second provider. Absent on
+   * historical jobs and on the ordinary single-provider path. */
+  review_reasons: z.array(parserReviewReasonSchema).optional(),
   created_at: isoDateTimeSchema,
 });
 

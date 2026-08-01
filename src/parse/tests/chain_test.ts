@@ -155,6 +155,144 @@ Deno.test("runParseChain: raw_response is preserved verbatim in attempts", async
   assertEquals(job.attempts[0]?.raw_response, rawResponse);
 });
 
+Deno.test("runParseChain: ordinary valid Groq output does not spend Gemini quota", async () => {
+  const content = "8/20 18:30 銀座レストラン 4名";
+  const groq = MockParser(
+    "groq-llama",
+    new Map([[
+      content,
+      {
+        raw_response: "groq",
+        output: { service_name: "銀座レストラン", starts_at: "2026-08-20T09:30:00Z" },
+      },
+    ]]),
+  );
+  const gemini = MockParser(
+    "gemini-flash",
+    new Map([[
+      content,
+      {
+        raw_response: "gemini",
+        output: { service_name: "誤って呼ばれた", starts_at: "2026-08-21T09:30:00Z" },
+      },
+    ]]),
+  );
+
+  const job = await runParseChain(
+    { type: "text", content, correlation_id: "corr-groq-only" },
+    { text: ["groq-llama", "gemini-flash"], image: ["gemini-flash"] },
+    [groq, gemini],
+    CLOCK,
+    ids(),
+  );
+
+  assertEquals(job.status, "parsed");
+  assertEquals(job.attempts.map((attempt) => attempt.parser), ["groq-llama"]);
+  assertEquals(job.review_reasons, undefined);
+});
+
+Deno.test("runParseChain: suspicious Groq output gets a Gemini review without prose conflicts", async () => {
+  const content = "予約日 7/1、利用日 8/20 19:00 銀座レストラン";
+  const groqOutput = {
+    service_name: "銀座レストラン",
+    starts_at: "2026-08-20T10:00:00Z",
+    notes: "4名",
+  };
+  const geminiOutput = {
+    service_name: "銀座レストラン",
+    starts_at: "2026-08-20T10:00:00Z",
+    notes: "人数: 4名、予約日: 7月1日",
+  };
+  const groq = MockParser(
+    "groq-llama",
+    new Map([[content, { raw_response: "groq", output: groqOutput }]]),
+  );
+  const gemini = MockParser(
+    "gemini-flash",
+    new Map([[content, { raw_response: "gemini", output: geminiOutput }]]),
+  );
+
+  const job = await runParseChain(
+    { type: "text", content, correlation_id: "corr-reviewed" },
+    { text: ["groq-llama", "gemini-flash"], image: ["gemini-flash"] },
+    [groq, gemini],
+    CLOCK,
+    ids(),
+  );
+
+  assertEquals(job.status, "parsed");
+  assertEquals(job.attempts.map((attempt) => attempt.parser), ["groq-llama", "gemini-flash"]);
+  assertEquals(job.review_reasons, ["multiple_calendar_dates"]);
+  assertEquals(job.conflicts, []);
+});
+
+Deno.test("runParseChain: equivalent timezone serializations do not create a false conflict", async () => {
+  const content = "予約日 7/1、利用日 8/20 19:00 銀座レストラン";
+  const groq = MockParser(
+    "groq-llama",
+    new Map([[
+      content,
+      {
+        raw_response: "groq",
+        output: {
+          service_name: "銀座レストラン",
+          starts_at: "2026-08-20T19:00:00+09:00",
+        },
+      },
+    ]]),
+  );
+  const gemini = MockParser(
+    "gemini-flash",
+    new Map([[
+      content,
+      {
+        raw_response: "gemini",
+        output: { service_name: "銀座レストラン", starts_at: "2026-08-20T10:00:00Z" },
+      },
+    ]]),
+  );
+
+  const job = await runParseChain(
+    { type: "text", content, correlation_id: "corr-timezone" },
+    { text: ["groq-llama", "gemini-flash"], image: ["gemini-flash"] },
+    [groq, gemini],
+    CLOCK,
+    ids(),
+  );
+
+  assertEquals(job.status, "parsed");
+  assertEquals(job.conflicts, []);
+});
+
+Deno.test("runParseChain: unavailable Gemini review preserves a valid Groq result", async () => {
+  const content = "予約日 7/1、利用日 8/20 19:00 銀座レストラン";
+  const groq = MockParser(
+    "groq-llama",
+    new Map([[
+      content,
+      {
+        raw_response: "groq",
+        output: { service_name: "銀座レストラン", starts_at: "2026-08-20T10:00:00Z" },
+      },
+    ]]),
+  );
+  const gemini = MockParser("gemini-flash", new Map());
+
+  const job = await runParseChain(
+    { type: "text", content, correlation_id: "corr-review-unavailable" },
+    { text: ["groq-llama", "gemini-flash"], image: ["gemini-flash"] },
+    [groq, gemini],
+    CLOCK,
+    ids(),
+  );
+
+  assertEquals(job.status, "parsed");
+  assertEquals(job.attempts.length, 2);
+  assertEquals(job.attempts[1]?.output, null);
+  assertEquals(job.review_reasons, ["multiple_calendar_dates"]);
+  assertEquals(job.conflicts, []);
+});
+
 Deno.test("runParseChain: parsers receive the PII-masked text, not the raw input", async () => {
   let received: ParseInput | null = null;
   const spy: Parser = {

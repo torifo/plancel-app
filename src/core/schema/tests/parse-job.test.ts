@@ -51,3 +51,19 @@ Deno.test("parseJobSchema rejects missing correlation_id on an attempt", () => {
   });
   assertEquals(result.success, false);
 });
+
+Deno.test("parseJobSchema accepts known parser review reasons", () => {
+  const result = parseJobSchema.safeParse({
+    ...validParseJob,
+    review_reasons: ["multiple_calendar_dates", "location_omitted"],
+  });
+  assertEquals(result.success, true);
+});
+
+Deno.test("parseJobSchema rejects unknown parser review reasons", () => {
+  const result = parseJobSchema.safeParse({
+    ...validParseJob,
+    review_reasons: ["model_felt_uncertain"],
+  });
+  assertEquals(result.success, false);
+});

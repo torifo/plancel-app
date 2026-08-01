@@ -1,15 +1,16 @@
 /**
  * Real-provider parser registry (Task 6.1, ADR-5, SDD §5).
  *
- * The production chain: text = Groq (primary) → Gemini Flash (secondary);
+ * The production chain: text = Groq (primary) → targeted Gemini Flash review;
  * image = Gemini Flash only (vision 固定). `parsers.config.json` declares
- * the same chain since the 2026-07-11 cutover; the replay corpus in
+ * the same chain since the 2026-07-11 cutover; review-policy.ts decides when
+ * a valid Groq result still needs a second opinion. The replay corpus in
  * `fixtures/parse/` is the regression gate for any prompt/chain change.
  *
  * One input class overrides that order per call — see `chainForInput` in
  * config.ts: a policy written 「N日前から◯%」 needs the parser that reads the
- * boundary a day correctly, and Gemini's free tier is too small (20/day,
- * shared with the image path) to lead on every text.
+ * boundary a day correctly, while Gemini's project/model quota is also needed
+ * by the image path and should not be spent on every ordinary text.
  */
 import type { Clock } from "../core/clock/mod.ts";
 import type { Parser } from "./types.ts";

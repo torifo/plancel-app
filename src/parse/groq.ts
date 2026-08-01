@@ -1,7 +1,7 @@
 /**
  * GroqParser — primary TEXT parser (Task 6.1, ADR-5: Groq Llama 3.3 70B).
  *
- * Free-tier quota recheck (ADR-5 note), as of 2026-07:
+ * Free-tier quota recheck (ADR-5 note), as of 2026-08:
  * llama-3.3-70b-versatile on the free plan is ~30 req/min, 1,000 req/day,
  * 100K tokens/day — the tokens/day cap is the binding constraint, still far
  * above this product's expected parse volume (a few reservations/day).

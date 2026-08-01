@@ -18,10 +18,19 @@
  *     (nothing at all could be extracted from the input)
  */
 import type { Clock } from "../core/clock/mod.ts";
-import type { FieldConflict, ParseAttempt, ParseJob, Reservation } from "../core/schema/mod.ts";
+import type {
+  FieldConflict,
+  ParseAttempt,
+  ParseJob,
+  ParserReviewReason,
+  Reservation,
+} from "../core/schema/mod.ts";
 import { maskPii } from "./pii-mask.ts";
 import type { ParseInput, Parser } from "./types.ts";
 import { chainForInput, type ParserChainConfig } from "./config.ts";
+import { GEMINI_PARSER_NAME } from "./gemini.ts";
+import { GROQ_PARSER_NAME } from "./groq.ts";
+import { parserReviewReasons } from "./review-policy.ts";
 import { validateParsedOutput } from "./validate.ts";
 
 export interface ParseChainIds {
@@ -36,6 +45,17 @@ export interface ParseChainIds {
  * one attempt are considered — a field appearing in just one attempt is
  * not a disagreement, just partial information.
  */
+function conflictValue(field: string, value: unknown): string {
+  if ((field === "starts_at" || field === "ends_at") && typeof value === "string") {
+    try {
+      return `instant:${Temporal.Instant.from(value).epochNanoseconds}`;
+    } catch {
+      // Invalid datetimes are still compared below in their original form.
+    }
+  }
+  return JSON.stringify(value);
+}
+
 function detectFieldConflicts(attempts: ParseAttempt[]): FieldConflict[] {
   const byField = new Map<string, { parser: string; value: unknown }[]>();
 
@@ -51,10 +71,11 @@ function detectFieldConflicts(attempts: ParseAttempt[]): FieldConflict[] {
 
   const conflicts: FieldConflict[] = [];
   for (const [field, options] of byField) {
-    // TODO: Values are compared via JSON.stringify, so semantically-equal datetimes in
-    // different serializations (+09:00 vs Z) would over-trigger conflicts. Add field-type-aware
-    // normalization when real LLM parsers land (Task 6.1/L5).
-    const distinctValues = new Set(options.map((o) => JSON.stringify(o.value)));
+    // `notes` is deliberately free-form enrichment. Two providers can state
+    // the same facts at different detail levels; asking a user to adjudicate
+    // prose does not protect any structured reservation invariant.
+    if (field === "notes") continue;
+    const distinctValues = new Set(options.map((o) => conflictValue(field, o.value)));
     if (distinctValues.size > 1) {
       conflicts.push({ field, options });
     }
@@ -104,8 +125,10 @@ export async function runParseChain(
 
   const attempts: ParseAttempt[] = [];
   let winnerFound = false;
+  const reviewReasons: ParserReviewReason[] = [];
 
-  for (const name of chainNames) {
+  for (let index = 0; index < chainNames.length; index += 1) {
+    const name = chainNames[index]!;
     const parser = byName.get(name);
     if (!parser || !parser.supports(maskedInput)) continue;
 
@@ -128,6 +151,16 @@ export async function runParseChain(
 
     if (validation.ok) {
       winnerFound = true;
+      const geminiStillAvailable = parser.name === GROQ_PARSER_NAME &&
+        chainNames.slice(index + 1).includes(GEMINI_PARSER_NAME) &&
+        byName.get(GEMINI_PARSER_NAME)?.supports(maskedInput) === true;
+      if (geminiStillAvailable) {
+        const reasons = parserReviewReasons(maskedInput, output, validation);
+        if (reasons.length > 0) {
+          reviewReasons.push(...reasons);
+          continue;
+        }
+      }
       break;
     }
   }
@@ -154,6 +187,7 @@ export async function runParseChain(
     attempts,
     status,
     conflicts,
+    ...(reviewReasons.length > 0 ? { review_reasons: reviewReasons } : {}),
     created_at: ids.nowIso(),
   };
 }

@@ -80,7 +80,7 @@ Deno.test("impliedFreeBoundaryHours: a payment that is not due is not a free can
 
 Deno.test("impliedFreeBoundaryHours: ordinary prose carrying から is not a policy", () => {
   // 「から」 is far too common a particle to key off on its own, and every false
-  // match costs one of Gemini's 20 requests/day.
+  // match spends Gemini capacity reserved for targeted review and images.
   assertEquals(impliedFreeBoundaryHours("東京駅から徒歩5分 / キャンセルは有料です"), null);
   assertEquals(impliedFreeBoundaryHours("10:00からチェックイン可能。キャンセル規定あり"), null);
   assertEquals(impliedFreeBoundaryHours("3日前から満席のためキャンセル待ちです"), null);
