@@ -140,6 +140,7 @@ interface ParseJob {
   attempts: ParseAttempt[];  // パーサー毎の結果履歴
   status: "parsed" | "needs_review" | "resolved" | "failed";
   conflicts: FieldConflict[]; // パーサー間で食い違ったフィールド
+  review_reasons?: ParserReviewReason[]; // validなGroqをGemini査読へ回した機械判定理由
   created_at: string;
 }
 interface ParseAttempt {
@@ -174,11 +175,12 @@ Reservation:
 ```
 入力 → 経路判定
   画像   → Gemini Flash(vision必須のため固定)
-  テキスト → 一次: 軽量無料枠(Groq等) → 二次: Gemini Flash
+  テキスト → 一次: Groq → 怪しい入力だけ二次: Gemini Flash査読
         (例外: 「N日前から◯%」型の規定を含むテキストだけ Gemini Flash を先に試す。ADR-5 追記)
         ↓
   機械的バリデーション(Zod)
-    ├ 必須充足 & ルール通過 → 登録
+    ├ 必須充足 & ルール通過、査読条件なし → 登録
+    ├ ルール通過でも警告/複数暦日/時刻・場所・規定の疑義 → Gemini査読
     ├ 欠損 or ルール違反 → 次段パーサーで再試行
     └ 全段失敗 → ParseJob(needs_review)化し、欠損フィールドだけ人間に質問
 ```
@@ -192,7 +194,12 @@ Reservation:
 
 ### 方針
 - **LLM 出力の confidence 自己申告は判定に使わない。**
+- Gemini査読条件は`review-policy.ts`の決定的ルールだけで判定し、理由を`ParseJob.review_reasons`に保存する。
+  通常入力はGroqだけで完了し、画像用Gemini枠を温存する。査読が429/無回答でもvalidなGroq結果を維持する。
+- 後段パーサーの出力はルール検証を通った場合だけ採用する。全段が不完全な場合に限り、確認画面用の部分情報を保持する。
+- `starts_at`/`ends_at`は`Temporal.Instant`へ正規化してから比較し、`+09:00`と`Z`の同一時刻を食い違い扱いしない。
 - 複数パーサーの出力が食い違った場合、**食い違ったフィールドのみ** FieldConflict として人間にワンタップ選択を求める。全文再入力は絶対にさせない。
+  ただし自由記述`notes`の表現差は構造化項目の精度を守らないためFieldConflictにせず、後段の補足を採用する。
 - パーサーは `Parser` interface で抽象化。チェーン構成(順序・組合せ)は設定ファイルで宣言し、コード変更なしで差し替え可能にする。フェーズ2で有料モデルへの置換は設定変更のみで完了すること。
 - プライバシー: Gemini 無料枠は入力が学習利用され得る。送信前に電話番号・メールアドレスをマスクする前処理を必須で挟む。
 
@@ -320,7 +327,7 @@ interface DomainEvent {
 | 2 | デプロイ先は **Deno Deploy(新プラットフォーム/console.deno.com)で確定**(2026-07-06 改訂) | 無料枠が厳しくなったら VPS + SQLite に退避(Store 抽象で退避経路は確保済み)。注意: ①無料枠は organization 合算(月100万req/帯域100GB/KV 1GiB)で、超過時は全アプリ一時停止 — 他サービスと同居させる場合は公開系と分離を検討 ②デプロイ最初のタスクは「ローカル MCP から新 Deploy の KV へリモート接続(旧 KV Connect 相当)できるかの実測スパイク」。不可なら書き込み用の薄い HTTP 層を追加するか VPS へ |
 | 3 | **Event** エンティティを導入 | 排他なしの束ね。「Trip」は旅行に限定されるため不採用。confirm_quota も採用(既定1) |
 | 4 | MCP は追加・取得 + `report_cancelled` + `void_reservation` + `set_policy` | 汎用 update / 物理 delete のみ v1.x 先送り(#7 で改訂) |
-| 5 | テキスト一次パーサーは **Groq(Llama 3.3 70B)**、二次 Gemini Flash | 二次を画像経路と同一プロバイダに揃え実装共通化。**無料枠条件は流動的なため実装着手時に現行クォータを再確認すること**。**2026-07-30 追記**: 「N日前から◯%」型の規定を含むテキストだけ per-input で Gemini 優先(`chainForInput`)。groq-llama はこの表記の内側の段を取り違えやすいため。無料境界そのものは原文から決めて取り込み時に上書きする（`impliedFreeBoundaryHours` → `fromCoreStages`）ので、どのモデルが答えても同じ。全面入替にしないのは Gemini 無料枠が 20 req/日/モデルで、画像経路と共用のため |
+| 5 | テキスト一次パーサーは **Groq(Llama 3.3 70B)**、二次 Gemini Flash | 二次を画像経路と同一プロバイダに揃え実装共通化。**無料枠条件は流動的なためデプロイ前に現行クォータを再確認すること**。**2026-07-30 追記**: 「N日前から◯%」型の規定を含むテキストだけ per-input で Gemini 優先(`chainForInput`)。無料境界は原文から上書きする。**2026-08-01 追記**: 通常テキストはGroqだけで完了し、決定的な疑義条件だけGemini査読。Geminiの正確な有効枠はGoogle AI Studioのプロジェクト/モデル表示を正とし、画像経路用の枠を温存する |
 | 6 | デバッグ容易性を第一級要件に格上げ(§10) | Clock 抽象・イベントログ・Outbox・リプレイ基盤・通知プレビューを MVP-1 に含める。実装コストより追跡可能性を優先。MVP-1 は外部接続ゼロで完結 |
 | 7 | 旧残課題2件を MVP に取り込み解消 | 修正手段 = `void_reservation`(voided イベント追記)→ 再作成。unknown 解消 = `set_policy`(policy.provided イベント)。いずれも書き換えではなく追記系操作として実装し、イベントログと整合させる |
 | 8 | 天気連携を v1.x に採用(2026-07-05) | 気象庁公開 JSON(キー不要・実質レート制限なし・予算0と整合)を `WeatherProvider` interface の背後に置く(Mock+リプレイ、Parser/Notifier と同規律)。天気は通知の enrichment + 新トリガー `weather_alert`(台風接近×未確定候補×無料期限前)であり、コア発火判定は天気を知らない純関数のまま。予報改訂の再通知は冪等キーに予報世代を含める。無料期限が予報信頼ウィンドウ(約5〜7日)の外にある場合は「予報値」ではなく「損失曲線上の保険判断」として提示する。location 自由文字列→地域コード解決は失敗時「地域不明=天気なし」に落とす |

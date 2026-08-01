@@ -150,7 +150,7 @@
 ## Progress
 
 - **実装タスク: 20/20 完了**（Wave 1〜8。Task 6.2/6.3 はコード完了として集計）
-- **自動検証（2026-07-27）**: 514 tests green / scenario OK / replay 9/9 identical
+- **自動検証（2026-08-01）**: 669 tests green / scenario OK / replay 10/10 identical
 - **本番で確認済み**: Deno Deploy稼働、LINE env反映、署名なしwebhookの401、LINE
   ConsoleのWebhook検証成功
 - **未完了の外部acceptance**: LINE実機のテキスト/画像登録とQuick
@@ -166,6 +166,10 @@
   件（レストラン確認メール / 宿の段階ポリシー / 口語 unknown、全件 groq-llama 一発通過）→ 既存 mock
   フィクスチャ 3 件はパーサー名を実名に移行して温存 → `parsers.config.json`
   を実チェーン（groq→gemini / image=gemini）へ切替
+- **Task 6.1 精度・枠最適化（2026-08-01）**: 通常テキストはGroq一発で完了し、ルール警告・複数暦日・
+  チェックイン/アウト併記・住所/キャンセル条件の読み落とし時だけGemini査読を追加。査読理由を
+  ParseJobへ保存し、日時のタイムゾーン表記違いは同一時刻として比較。無効な後段出力は有効なGroq結果を
+  上書きしない。「N日前から◯%」と画像は従来どおりGemini優先/固定
 - **検証の力点修正（2026-07-11 オーナーFB）**: plancel は家計簿ではなく予定台帳 —
   一級の検証対象は**日時と場所**（金額・ポリシーは二次）。対応: ①プロンプトに Clock
   経由で「今日の日付（JST）」を注入し年無し日付の将来解釈ルールを追加（`reservationPromptForClock`、Clock

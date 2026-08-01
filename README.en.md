@@ -17,7 +17,7 @@ notified **right before each fee boundary** with the concrete amount at stake. p
 ```sh
 deno task seed        # load demo data
 deno task scenario    # one-command E2E: confirm → advance 3 days → list notifications
-deno task test        # 653 tests — completes with zero external connections
+deno task test        # 669 tests — completes with zero external connections
 deno task verify      # fmt + check + lint + test + replay in one go
 ```
 
@@ -52,7 +52,7 @@ core is deterministically testable offline.
 | `src/core/`   | Zod schemas (single source), Clock abstraction, Store abstraction (Deno KV / InMemory), pure-function state transitions, event-log folding |
 | `src/notify/` | Pure fire-decision + idempotent Outbox + Notifier (Console / LINE / Email=Resend)                                                          |
 | `src/mcp/`    | Entry point for Claude (stdio, 11 tools + flag-gated debug tools). No parsing intelligence                                                 |
-| `src/parse/`  | Validation-driven fallback parser chain (Groq / Gemini + Mock), PII masking, replay regression harness                                     |
+| `src/parse/`  | Groq-primary parser chain with targeted Gemini review (Gemini-only vision), PII masking, replay regression harness                      |
 | `src/line/`   | LINE Bot webhook (signature check, per-user LINE link resolving the sender, one-tap Quick Reply review) + LINE notifier                    |
 | `src/cron/`   | Thin 15-minute boundary check (Deno Deploy `Deno.cron` / VPS systemd timer)                                                                |
 | `src/web/`    | Web ledger, authentication, sharing, iCal / Google Calendar sync, Web API, and PWA asset serving                                           |
@@ -70,7 +70,7 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
   interface)
 - **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (live in production
   since 2026-07-26; signature path device-verified)
-- **Tests**: 653 via `deno test`, shared contract suite across both Store implementations,
+- **Tests**: 669 via `deno test`, shared contract suite across both Store implementations,
   one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)

@@ -17,7 +17,7 @@
 ```sh
 deno task seed        # デモデータ投入
 deno task scenario    # E2E: 確定 → 3日進める → 通知列挙 を1コマンドで体験
-deno task test        # 653 tests — 外部サービス接続ゼロで完結
+deno task test        # 669 tests — 外部サービス接続ゼロで完結
 deno task verify      # fmt + check + lint + test + replay を一括実行
 ```
 
@@ -49,7 +49,7 @@ MCPから利用する。非決定性の源（**時刻・外部送信・LLM**）�
 | `src/core/`   | Zod スキーマ（単一ソース）・Clock 抽象・Store 抽象（Deno KV / InMemory）・純粋関数の状態遷移・イベントログ畳み込み |
 | `src/notify/` | 発火判定（純粋関数）＋ Outbox（冪等配送）＋ Notifier（Console / LINE / Email=Resend）                              |
 | `src/mcp/`    | Claude 向け入口（stdio・11ツール＋フラグ付き debug ツール）。パース知能は持たない                                  |
-| `src/parse/`  | バリデーション駆動フォールバックのパーサーチェーン（Groq / Gemini + Mock）・PII マスク・リプレイ回帰基盤           |
+| `src/parse/`  | Groq主系＋条件付きGemini査読のパーサーチェーン（画像はGemini）・PIIマスク・リプレイ回帰基盤                     |
 | `src/line/`   | LINE Bot webhook（署名検証・ユーザー毎の LINE 連携で送信者解決・Quick Reply ワンタップ差し戻し）＋ LINENotifier    |
 | `src/cron/`   | 15分毎の境界チェック（Deno Deploy `Deno.cron` / VPS systemd timer 両対応の薄い層）                                 |
 | `src/web/`    | 台帳・認証・共有・iCal / Google Calendar同期・Web API・PWAアセット配信                                             |
@@ -66,7 +66,7 @@ MCPから利用する。非決定性の源（**時刻・外部送信・LLM**）�
 - **ストア**: Deno KV（追記型イベントログ + 導出キャッシュ。Store 抽象で SQLite に差し替え可）
 - **入口**: Claude MCP（`@modelcontextprotocol/sdk`）＋ LINE Bot webhook（2026-07-26
   本番開通・署名検証まで実機確認済み）
-- **テスト**: `deno test` 653件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
+- **テスト**: `deno test` 669件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
 
 ## 使い方（Claude MCP）
 
