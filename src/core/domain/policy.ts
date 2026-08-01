@@ -15,24 +15,23 @@
  * A stage's rate therefore covers everything from its own boundary OUTWARD,
  * up to the next (farther) stage's boundary. Concretely, define:
  *
- *   remainingHours = hours from `at` to `startsAt` (can be negative once
- *                    `at` is at or after `startsAt`)
+ *   boundary = the end of the JST calendar day selected by
+ *              `startsAt - until_offset_hours`, except offset 0 which is the
+ *              reservation start itself. The offset selects a date; it is not
+ *              a literal N*24-hour deadline.
  *
- * - The applicable stage is the FIRST stage (farthest-first) whose
- *   `until_offset_hours <= remainingHours` — the outermost boundary already
- *   reached. Fees are monotonically non-decreasing as the offset decreases,
- *   so that is also the cheapest rate still available.
+ * - The applicable stage is the FIRST stage (farthest-first) whose boundary
+ *   has not passed yet. Fees are monotonically non-decreasing as the offset
+ *   decreases, so that is also the cheapest rate still available.
  * - A free window is an explicit `fee_percent: 0` stage, never implied by
  *   the absence of stages. 「7日前まで無料 → 3日前まで30% → 当日100%」 is
  *   `[{168,0},{72,30},{0,100}]`; a table whose outermost stage charges means
  *   the policy charges from the moment of booking, and says so.
- * - Boundary-exact convention: at `remainingHours === until_offset_hours`
- *   that stage's rate still applies (the comparison is `<=`), i.e. the
- *   boundary instant is the last one at its own rate. 「7日前まで無料」 is
- *   free at exactly 7日前.
- * - Inside the innermost boundary — and after `starts_at`, where
- *   `remainingHours` goes negative — the innermost stage's rate continues to
- *   apply. There is no implicit "beyond 100%" stage.
+ * - Boundary-exact convention: at the boundary instant that stage's rate
+ *   still applies (the comparison is `<=`), i.e. the boundary is the last
+ *   instant at its own rate. 「7日前まで無料」 is free through 7日前 23:59:59.
+ * - Inside the innermost boundary — and after `starts_at` — the innermost
+ *   stage's rate continues to apply. There is no implicit "beyond 100%" stage.
  *
  * This is the same reading as `src/web/policy.ts` (`pctAt` /
  * `freeDeadlineMs`) and the same one `src/parse/llm.ts` instructs the model
