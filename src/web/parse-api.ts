@@ -18,7 +18,12 @@
 import { z } from "zod";
 import type { Clock } from "../core/clock/mod.ts";
 import type { ParseJob } from "../core/schema/mod.ts";
-import { impliedFreeBoundaryHours, missingFieldQuestions, runParseChain } from "../parse/mod.ts";
+import {
+  impliedFreeBoundaryHours,
+  mergedParsedOutput,
+  missingFieldQuestions,
+  runParseChain,
+} from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
 import { fromCoreStages } from "./policy.ts";
 
@@ -73,15 +78,7 @@ export async function handleParseApi(req: Request, deps: ParseApiDeps): Promise<
     console.error("parse-api: saveJob failed (ignored):", err);
   }
 
-  // Merged output across attempts (later attempts override earlier), same
-  // pragmatic shape the LINE webhook uses for prefill purposes.
-  const merged: Record<string, unknown> = {};
-  for (const a of job.attempts) {
-    if (!a.output) continue;
-    for (const [k, v] of Object.entries(a.output)) {
-      if (v !== undefined && v !== null) merged[k] = v;
-    }
-  }
+  const merged = mergedParsedOutput(job);
 
   // 「N日前から◯%」型の無料境界は原文が決める（モデルの答えは1日ずれ得る）。
   const freeAt = input.type === "text" ? impliedFreeBoundaryHours(input.content) : null;

@@ -17,6 +17,7 @@ import type { FieldConflict, ParseAttempt, ParseJob, ParseJobStatus } from "../c
 import type { ParserChainConfig } from "./config.ts";
 import type { ParseChainIds } from "./chain.ts";
 import { runParseChain } from "./chain.ts";
+import { lastUsableParseOutput } from "./output.ts";
 import type { ParseInput, ParseInputType, Parser, ParseResult } from "./types.ts";
 
 /** Same shape as `ParseAttempt.output` (schema-derived partial, not TS's
@@ -60,14 +61,14 @@ export interface ReplayFixture {
  * just status drift.
  */
 export function recordFixture(job: ParseJob): ReplayFixture {
-  const winner = job.attempts.find((a) => a.validation_errors.length === 0);
+  const winner = lastUsableParseOutput(job);
   return {
     raw_input: job.raw_input,
     input_type: job.input_type,
     attempts: job.attempts.map((a) => ({ parser: a.parser, raw_response: a.raw_response })),
     expected: {
       status: job.status,
-      output: winner ? winner.output : job.attempts.at(-1)?.output ?? null,
+      output: winner,
       conflicts: job.conflicts,
     },
   };
@@ -134,10 +135,10 @@ function diffOutcome(expected: ReplayExpected, job: ParseJob): ReplayDiff {
 
   if (expected.output !== undefined) {
     const before = JSON.stringify(expected.output);
-    const winner = job.attempts.find((a) => a.validation_errors.length === 0);
-    const after = JSON.stringify(winner ? winner.output : job.attempts.at(-1)?.output ?? null);
+    const winner = lastUsableParseOutput(job);
+    const after = JSON.stringify(winner);
     if (before !== after) {
-      changes.push({ field: "output", before: expected.output, after: winner?.output ?? null });
+      changes.push({ field: "output", before: expected.output, after: winner });
     }
   }
 

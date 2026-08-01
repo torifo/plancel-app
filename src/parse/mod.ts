@@ -18,6 +18,7 @@ export type { ParserChainConfig } from "./config.ts";
 export { impliedFreeBoundaryHours, statesFeeFromBoundary } from "./policy-phrasing.ts";
 export { MockParser } from "./mock-parser.ts";
 export type { MockFixture, MockFixtureMatcher, MockParserOptions } from "./mock-parser.ts";
+export { isUsableParseAttempt, lastUsableParseOutput, mergedParsedOutput } from "./output.ts";
 export {
   extractReservationJson,
   RESERVATION_PARSE_PROMPT,

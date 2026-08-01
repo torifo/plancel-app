@@ -40,6 +40,7 @@ import {
 import type { ParseJob, Reservation } from "../core/schema/mod.ts";
 import {
   impliedFreeBoundaryHours,
+  mergedParsedOutput,
   missingFieldQuestions,
   runParseChain,
   validateParsedOutput,
@@ -116,21 +117,9 @@ function chainIds(ctx: ToolContext) {
   };
 }
 
-/** Merges all non-null attempt outputs in chain order (later overrides earlier). */
-function mergedOutput(job: ParseJob): Record<string, unknown> {
-  const merged: Record<string, unknown> = {};
-  for (const attempt of job.attempts) {
-    if (!attempt.output) continue;
-    for (const [k, v] of Object.entries(attempt.output)) {
-      if (v !== undefined && v !== null) merged[k] = v;
-    }
-  }
-  return merged;
-}
-
 /** Applies every single-option (= resolved) conflict onto the merged output. */
 function resolvedOutput(job: ParseJob): Record<string, unknown> {
-  const output = mergedOutput(job);
+  const output = mergedParsedOutput(job);
   for (const conflict of job.conflicts) {
     const only = conflict.options.length === 1 ? conflict.options[0] : undefined;
     if (only !== undefined) output[conflict.field] = only.value;

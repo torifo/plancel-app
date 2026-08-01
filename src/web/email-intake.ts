@@ -38,7 +38,7 @@ import { z } from "zod";
 import type { Clock } from "../core/clock/mod.ts";
 import type { ParseJob } from "../core/schema/mod.ts";
 import { logger } from "../lib/log.ts";
-import { impliedFreeBoundaryHours, runParseChain } from "../parse/mod.ts";
+import { impliedFreeBoundaryHours, mergedParsedOutput, runParseChain } from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
 import { fromCoreStages } from "./policy.ts";
 import { createReservation, webCreateSchema, type WebIds } from "./store.ts";
@@ -222,18 +222,6 @@ async function allowForward(kv: Deno.Kv, userId: string, cap: number): Promise<b
   return true;
 }
 
-/** Merges every non-null attempt output in chain order (later wins). */
-function mergedOutput(job: ParseJob): Record<string, unknown> {
-  const merged: Record<string, unknown> = {};
-  for (const attempt of job.attempts) {
-    if (!attempt.output) continue;
-    for (const [k, v] of Object.entries(attempt.output)) {
-      if (v !== undefined && v !== null) merged[k] = v;
-    }
-  }
-  return merged;
-}
-
 const NOTE_UNREADABLE = "転送メールから予約情報を読み取れませんでした。";
 
 function unreadableText(subject: string | null, baseUrl: string): string {
@@ -406,7 +394,7 @@ async function intake(
     }
   }
 
-  const merged = mergedOutput(job);
+  const merged = mergedParsedOutput(job);
   const create = job.status === "parsed"
     ? webCreateSchema.safeParse({
       service: merged.service_name,
