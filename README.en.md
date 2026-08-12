@@ -17,7 +17,7 @@ notified **right before each fee boundary** with the concrete amount at stake. p
 ```sh
 deno task seed        # load demo data
 deno task scenario    # one-command E2E: confirm → advance 3 days → list notifications
-deno task test        # 669 tests — completes with zero external connections
+deno task test        # 687 tests — completes with zero external connections
 deno task verify      # fmt + check + lint + test + replay in one go
 ```
 
@@ -70,7 +70,7 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
   interface)
 - **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (live in production
   since 2026-07-26; signature path device-verified)
-- **Tests**: 669 via `deno test`, shared contract suite across both Store implementations,
+- **Tests**: 687 via `deno test`, shared contract suite across both Store implementations,
   one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)
