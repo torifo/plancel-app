@@ -313,6 +313,7 @@ Deno.test("webhook: 「確認」 -> web-ledger summary + action Quick Reply", as
       plan: "夏旅",
       service: "湖畔の湯宿 蛍",
       startsAt: "2026-08-22T15:00:00+09:00",
+      endsAt: null,
       amount: 40000,
       location: null,
       policy: "staged",
@@ -322,6 +323,7 @@ Deno.test("webhook: 「確認」 -> web-ledger summary + action Quick Reply", as
       plan: "夏旅",
       service: "翠嶺館",
       startsAt: "2026-08-23T15:00:00+09:00",
+      endsAt: null,
       amount: null,
       location: null,
       policy: "unknown",
@@ -348,6 +350,70 @@ Deno.test("webhook: 「確認」 -> web-ledger summary + action Quick Reply", as
     assertStringIncludes(items[0]?.action.label ?? "", "確定:");
     // The per-reservation action comes first, then the rest of the command menu.
     assertEquals(menuTexts(msg), ["締切", "今日", "今週", "使い方"]);
+  });
+});
+
+Deno.test("webhook: 「確認」 leaves finished reservations out of the list and the total", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds } = await makeWebDeps(kv);
+    // 7/20 に終わった宿。開始日昇順なので、直さない限り一覧の先頭に居座り、
+    // もう失いようのない ¥30,000 を最大キャンセル料に足していた。
+    await createReservation(kv, owner.ledgerId, {
+      plan: null,
+      service: "先月の宿",
+      startsAt: "2026-07-20T15:00:00+09:00",
+      endsAt: null,
+      amount: 30000,
+      location: null,
+      policy: "staged",
+      confirmed: true,
+    }, webIds);
+    // 連泊は最終日まで「これから」。7/31 チェックイン・8/2 チェックアウトは
+    // NOW（8/1）時点でまだ滞在中。
+    await createReservation(kv, owner.ledgerId, {
+      plan: null,
+      service: "滞在中の宿",
+      startsAt: "2026-07-31T15:00:00+09:00",
+      endsAt: "2026-08-02T10:00:00+09:00",
+      amount: 20000,
+      location: null,
+      policy: "free24",
+      confirmed: true,
+    }, webIds);
+
+    const { deps, replies } = makeDeps({ web });
+    assertEquals((await post(deps, [textEvent("確認")])).handled, ["web:check"]);
+    const body = replies[0]?.messages[0]?.text ?? "";
+    assertStringIncludes(body, "@owner の台帳の予約 1件");
+    assertStringIncludes(body, "滞在中の宿");
+    assertEquals(body.includes("先月の宿"), false);
+    assertStringIncludes(body, "最大キャンセル料 ¥20,000");
+    // 消えたのではなく外しただけだと分かる1行を添える。
+    assertStringIncludes(body, "終わった予約 1件は台帳から外しています。");
+  });
+});
+
+Deno.test("webhook: a ledger with only finished reservations does not read as empty", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds } = await makeWebDeps(kv);
+    await createReservation(kv, owner.ledgerId, {
+      plan: null,
+      service: "先月の宿",
+      startsAt: "2026-07-20T15:00:00+09:00",
+      endsAt: null,
+      amount: 30000,
+      location: null,
+      policy: "staged",
+      confirmed: true,
+    }, webIds);
+
+    const { deps, replies } = makeDeps({ web });
+    assertEquals((await post(deps, [textEvent("確認")])).handled, ["web:check"]);
+    const body = replies[0]?.messages[0]?.text ?? "";
+    // 「まだありません」は嘘になる（過去の予約は持っている）。
+    assertEquals(body.includes("予約はまだありません"), false);
+    assertStringIncludes(body, "これからの予約はありません");
+    assertStringIncludes(body, "終わった予約 1件");
   });
 });
 
@@ -417,6 +483,7 @@ function seedResv(
     plan: null,
     service: fields.service,
     startsAt: fields.startsAt,
+    endsAt: null,
     amount: fields.amount ?? null,
     location: null,
     policy: fields.policy ?? "free24",
@@ -608,6 +675,7 @@ Deno.test("webhook: webact confirm -> siblings to_cancel + calendar sync request
     const base = {
       plan: "夏旅",
       startsAt: "2026-08-22T15:00:00+09:00",
+      endsAt: null,
       amount: null,
       location: null,
       policy: "free24" as const,
@@ -644,6 +712,7 @@ Deno.test("webhook: webact cancel -> reservation cancelled; stale id -> polite r
       plan: null,
       service: "翠嶺館",
       startsAt: "2026-08-22T15:00:00+09:00",
+      endsAt: null,
       amount: null,
       location: null,
       policy: "free24",
@@ -1151,6 +1220,7 @@ Deno.test("webhook: 確認 shows ONLY the sender's own ledger (isolation)", asyn
     const base = {
       plan: null,
       startsAt: "2026-08-22T15:00:00+09:00",
+      endsAt: null,
       amount: null,
       location: null,
       policy: "free24" as const,
@@ -1204,6 +1274,7 @@ Deno.test("webhook: a webact postback for another user's reservation id does not
       plan: null,
       service: "オーナーの宿",
       startsAt: "2026-08-22T15:00:00+09:00",
+      endsAt: null,
       amount: null,
       location: null,
       policy: "free24",

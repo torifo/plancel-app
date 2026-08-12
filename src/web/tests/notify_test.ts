@@ -81,6 +81,7 @@ async function putResv(
     plan: null,
     service: `svc-${id}`,
     startsAt: iso(startMs),
+    endsAt: null,
     amount: 10000,
     location: null,
     policy,

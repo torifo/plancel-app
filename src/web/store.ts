@@ -25,6 +25,15 @@ export const webReservationSchema = z.object({
   plan: z.string().nullable(),
   service: z.string().min(1),
   startsAt: z.string().min(1),
+  /**
+   * When it ends — a stay's checkout. Only the day matters (see
+   * ./lifecycle.ts), and without it the start's own day has to stand for the
+   * whole reservation, which files a multi-night trip into history on its first
+   * morning. The parser has always extracted it (`ends_at` in src/parse/llm.ts);
+   * this ledger was the one place dropping it. Defaulted so pre-2026-08-12
+   * records still parse.
+   */
+  endsAt: z.string().nullable().default(null),
   amount: z.number().nullable(),
   // Optional venue (店名/住所). Defaulted so pre-2026-07-22 records still parse.
   location: z.string().nullable().default(null),
@@ -52,6 +61,7 @@ export const webCreateSchema = z.object({
   plan: z.string().nullable().default(null),
   service: z.string().min(1),
   startsAt: z.string().min(1),
+  endsAt: z.string().nullable().default(null),
   amount: z.number().nullable().default(null),
   location: z.string().nullable().default(null),
   policy: webPolicySchema.default("unknown"),
@@ -63,6 +73,7 @@ export const webPatchSchema = z.object({
   plan: z.string().nullable().optional(),
   service: z.string().min(1).optional(),
   startsAt: z.string().min(1).optional(),
+  endsAt: z.string().nullable().optional(),
   amount: z.number().nullable().optional(),
   location: z.string().nullable().optional(),
   policy: webPolicySchema.optional(),
@@ -143,6 +154,7 @@ export async function createReservation(
     plan: input.plan,
     service: input.service,
     startsAt: input.startsAt,
+    endsAt: input.endsAt,
     amount: input.amount,
     location: input.location,
     policy,
@@ -193,6 +205,7 @@ export async function patchReservation(
     ...(patch.plan !== undefined ? { plan: patch.plan } : {}),
     ...(patch.service !== undefined ? { service: patch.service } : {}),
     ...(patch.startsAt !== undefined ? { startsAt: patch.startsAt } : {}),
+    ...(patch.endsAt !== undefined ? { endsAt: patch.endsAt } : {}),
     ...(patch.amount !== undefined ? { amount: patch.amount } : {}),
     ...(patch.location !== undefined ? { location: patch.location } : {}),
     ...(patch.policy !== undefined ? { policy: patch.policy } : {}),

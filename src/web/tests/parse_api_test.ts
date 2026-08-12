@@ -46,6 +46,7 @@ Deno.test("parse api: pasted mail -> parsed fields mapped to the web shape", asy
       output: {
         service_name: "鮨さいとう 東京店",
         starts_at: "2026-08-15T19:00:00+09:00",
+        ends_at: "2026-08-15T21:30:00+09:00",
         amount_jpy: 33000,
         location: "東京都中央区銀座1-2-3",
         cancellation_policy: {
@@ -66,6 +67,8 @@ Deno.test("parse api: pasted mail -> parsed fields mapped to the web shape", asy
   assertEquals(body.status, "parsed");
   assertEquals(body.fields.service, "鮨さいとう 東京店");
   assertEquals(body.fields.startsAt, "2026-08-15T19:00:00+09:00");
+  // モデルが読み取った終了日時はフォームまで運ぶ（終わった予約の判定に使う）。
+  assertEquals(body.fields.endsAt, "2026-08-15T21:30:00+09:00");
   assertEquals(body.fields.amount, 33000);
   assertEquals(body.fields.policy, "free24");
   assertEquals(body.fields.location, "東京都中央区銀座1-2-3");

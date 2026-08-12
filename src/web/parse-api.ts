@@ -85,6 +85,9 @@ export async function handleParseApi(req: Request, deps: ParseApiDeps): Promise<
   const fields = {
     service: typeof merged.service_name === "string" ? merged.service_name : null,
     startsAt: typeof merged.starts_at === "string" ? merged.starts_at : null,
+    // 宿のチェックアウト。終わった予約の判定に使う（./lifecycle.ts）ので、
+    // 読み取れていたら捨てずにフォームまで運ぶ。
+    endsAt: typeof merged.ends_at === "string" ? merged.ends_at : null,
     amount: typeof merged.amount_jpy === "number" ? merged.amount_jpy : null,
     policy: fromCoreStages(merged.cancellation_policy, freeAt),
     location: typeof merged.location === "string" ? merged.location : null,

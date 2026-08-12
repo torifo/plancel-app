@@ -1374,17 +1374,26 @@
       font-size: calc(12.5px * var(--fs));
       color: var(--soft);
     }
-    .cancelled-sec {
+    /* 履歴（終わった予約＋キャンセル済み）。台帳の下に畳んで置く節。 */
+    .history-sec {
       margin-top: 28px;
       border-top: 1px dashed var(--line);
       padding-top: 14px;
     }
-    .cancelled-sec h3 {
+    .history-sec h3 {
       font-size: calc(14px * var(--fs));
       color: var(--soft);
       margin-bottom: 4px;
     }
-    .cancelled-row {
+    .history-sec h3 + .hint {
+      margin-bottom: 10px;
+    }
+    /* 2つ目の小見出しは、上の節の行と間を空ける。 */
+    .history-sec .resv + h3 {
+      margin-top: 18px;
+    }
+    .cancelled-row,
+    .finished-row {
       opacity: .72;
       animation: fallAway .5s ease-out backwards;
     }
@@ -2239,6 +2248,9 @@
           <div><label>予約日 <span class="req">*</span></label><input id="f_date" type="date"></div>
           <div><label>時刻</label><input id="f_time" type="time" value="18:00"></div>
         </div>
+        <label>終了日（任意・連泊のとき）</label>
+        <input id="f_end_date" type="date">
+        <div class="hint" style="margin:4px 0 0">宿のチェックアウト日。入れると、その日が終わるまで台帳に残ります。空のままなら予約日で判定します。</div>
         <label>金額（円）</label>
         <input id="f_amount" type="number" inputmode="numeric" placeholder="例: 18000">
         <label>キャンセル料</label>
@@ -2551,6 +2563,9 @@
     }
     let data = [];
     let editingId = null;
+    // 編集中の予約が持っていた終了時刻（"HH:MM"）。フォームは終了「日」しか見せない
+    // ので、読み取れていた時刻をここに退避して保存時に戻す。
+    let formEndTime = null;
     // ログイン切れ・通信断の言い回し。台帳・LINE 連携・転送メールで同じ事象なので
     // 1か所に置く（LINE の節はここより後ろなので、宣言はこちらが先）。
     const LINE_RELOAD = "ログインの有効期限が切れました。ページを再読み込みしてからやり直してください。";
@@ -2684,6 +2699,14 @@
     function boundaryMs(startsAtMs, h) {
       return h <= 0 ? startsAtMs : endOfJstDay(startsAtMs - h * 3600000);
     }
+    // 終わった予約 = 終わる日（endsAt があればその日、無ければ開始日）の終わりを
+    // 過ぎたもの。サーバ側 src/web/lifecycle.ts と同じ規則で、そこにテストがある。
+    // 逆転した endsAt は開始日を採る（壊れた終了日で未来の予約を隠さない）。
+    function finishedAt(r) {
+      const end = r.endsAt ? Date.parse(r.endsAt) : NaN;
+      return endOfJstDay(Math.max(startMs(r), Number.isNaN(end) ? -Infinity : end));
+    }
+    const isFinished = (r, now) => now > finishedAt(r);
     function freeDeadline(r) {
       const st = stagesOf(r);
       if (!st || !st.some((s) => s.pct > 0)) return null; // 不明 / いつでも無料
@@ -2766,7 +2789,14 @@
       q("#demoBar").classList.toggle("on", viewingDemo);
       if (ME) q("#meEmail").textContent = ME.email;
       const now = Date.now();
-      const active = data.filter((r) => r.status !== "cancelled");
+      const live = data.filter((r) => r.status !== "cancelled");
+      // 台帳＝これから起こること。終わった予約は履歴へ落とし、合計からも外す
+      // （もう失いようのない金額を「最大キャンセル料」に足さない）。状態は保存
+      // せず日付から導出する — 規則は finishedAt / src/web/lifecycle.ts。
+      const active = live.filter((r) => !isFinished(r, now));
+      // 履歴は新しく終わった順。台帳本体は開始日昇順のまま。
+      const finished = live.filter((r) => isFinished(r, now))
+        .sort((a, b) => finishedAt(b) - finishedAt(a));
       // キャンセル済みは自動では消さない（オーナー 2026-07-22）：
       // 復元・日付変更・完全削除をユーザーが選ぶまで下に残す。共有された予約は
       // メンバー側では操作できないので、この編集可能なセクションには含めない。
@@ -2780,13 +2810,13 @@
         : "◆ 近い無料キャンセル期限なし";
       q("#stLoss").textContent = yen(active.reduce((s, r) => s + maxLoss(r), 0));
       renderDateScale(now);
-      renderRail(active, cancelled.length, now);
+      renderRail(active, finished.length + cancelled.length, now);
       q("#planList").innerHTML = [...new Set(data.map((r) => r.plan).filter(Boolean))].map((p) =>
         `<option value="${p}">`
       ).join("");
 
       const list = q("#list");
-      if (active.length === 0 && cancelled.length === 0) {
+      if (active.length === 0 && finished.length === 0 && cancelled.length === 0) {
         // 一度も読めていないうちは「予約が無い」と断定できない。始め方の案内を出すと
         // 既存の台帳が消えたように見えるので、読めていないことだけを言う。
         if (!dataLoaded) {
@@ -2841,10 +2871,25 @@
           rs.map(rowHtml).join("")
         }${decide}</div>`;
       }).join("");
-      if (cancelled.length) {
-        list.innerHTML += `<div class="cancelled-sec"><h3>キャンセル済み（${cancelled.length}件）</h3>
-          <p class="hint" style="margin-bottom:10px">ここに残っている間は「復元」や日付を変えての取り直しができます。不要なら「完全に削除」で消し去れます。</p>
-          ${cancelled.map(cancelledRowHtml).join("")}</div>`;
+      // 台帳が空でも履歴があるなら「まだ予約がありません」の案内は出ていない。
+      // 何も言わないと読み込み失敗のように見えるので、空である理由を書く。
+      if (active.length === 0) {
+        list.innerHTML =
+          `<div class="empty"><h3>これからの予約はありません</h3><p class="hint" style="margin-bottom:0">終わった予約は下の履歴に残っています。新しい予約は右下の「＋」から登録できます。</p></div>`;
+      }
+      if (finished.length || cancelled.length) {
+        const sections = [];
+        if (finished.length) {
+          sections.push(`<h3>終わった予約（${finished.length}件）</h3>
+          <p class="hint">日付が過ぎたものは台帳から外し、合計にも入れていません。データは残っているので、日付を直せば台帳に戻ります。</p>
+          ${finished.map(finishedRowHtml).join("")}`);
+        }
+        if (cancelled.length) {
+          sections.push(`<h3>キャンセル済み（${cancelled.length}件）</h3>
+          <p class="hint">ここに残っている間は「復元」や日付を変えての取り直しができます。不要なら「完全に削除」で消し去れます。</p>
+          ${cancelled.map(cancelledRowHtml).join("")}`);
+        }
+        list.innerHTML += `<div class="history-sec">${sections.join("")}</div>`;
       }
       document.querySelectorAll("[data-restore]").forEach((b) =>
         b.onclick = () => act("POST", `/api/reservations/${b.dataset.restore}/restore`)
@@ -2860,7 +2905,11 @@
       );
       document.querySelectorAll("[data-del]").forEach((b) =>
         b.onclick = () => {
-          if (confirm("この予約を削除しますか？")) act("DELETE", `/api/reservations/${b.dataset.del}`);
+          // キャンセル済みの「完全に削除」と同じハード削除なのに、こちらだけ戻せない
+          // ことを言っていなかった。押される機会は履歴のほうが多い。
+          if (confirm("この予約を削除すると元に戻せません。よろしいですか？")) {
+            act("DELETE", `/api/reservations/${b.dataset.del}`);
+          }
         }
       );
       document.querySelectorAll("[data-del-hard]").forEach((b) =>
@@ -2880,6 +2929,37 @@
           }
         }
       );
+    }
+    // 終わった予約が「どの状態のまま終わったか」。決めないまま流れたのか、要キャンセル
+    // のまま放置したのかは、履歴でしか読めなくなるので残す。
+    const FINISHED_LABEL = {
+      confirmed: "確定していた",
+      candidate: "未確定のまま",
+      to_cancel: "要キャンセルのまま",
+    };
+    // 終わった予約の行。カウントダウン帯とキャプションは出さない — 期限の話はもう
+    // 終わっているのに、帯は残り時間が潰れて満杯に見え、キャプションは「無料期間は
+    // 終了」＝あったものを逃したと読ませてしまう。
+    function finishedRowHtml(r) {
+      const endMs = r.endsAt ? Date.parse(r.endsAt) : NaN;
+      const span = !Number.isNaN(endMs) && endMs > startMs(r)
+        ? `${fmtDate(startMs(r))}〜${fmtDate(endMs)}`
+        : fmtDate(startMs(r));
+      // 共有された予約は自分のものではないので、履歴でも編集・削除は出さない。
+      const acts = r.shared
+        ? ""
+        : `<button class="rowbtn" data-edit="${r.id}">日付変更・編集</button><button class="rowbtn danger" data-del="${r.id}">削除</button>`;
+      const shareTag = r.shared
+        ? `<div class="share-tag">共有: ${esc(r.shared.ownerDisplayName)}</div>`
+        : "";
+      return `<div class="resv finished-row">
+        <div><div class="name">${esc(r.service)}</div><div class="sub">${span}${
+        r.amount ? " · " + yen(r.amount) : ""
+      }</div><span class="pill ${r.status}">${FINISHED_LABEL[r.status] || "終了"}</span>${shareTag}</div>
+        <div class="sub" style="align-self:center">${
+        r.plan ? "プラン: " + esc(r.plan) : ""
+      }</div>
+        <div class="ract">${acts}</div></div>`;
     }
     function cancelledRowHtml(r) {
       return `<div class="resv cancelled-row">
@@ -3017,9 +3097,11 @@
       // 出ていた（家族の報告 2026-07-31）。
       const todo = items.filter((h) => !h.includes("rail-item soft")).length;
       q("#todoCount").textContent = todo + "件";
-      // ボトムナビの「終了」。0件のときは飛び先の「キャンセル済み」の節そのものが
-      // 描かれないので、押せるように見せない（.off ＋ aria-disabled。onclick 側でも
-      // 弾く）。読み上げ名は見えている文字と食い違わせず、件数まで含める。
+      // ボトムナビの「終了」＝履歴（終わった予約＋キャンセル済み）の件数。ラベルだけ
+      // 先に「終了」を名乗っていて、中身はキャンセル済みしか無かった。0件のときは
+      // 飛び先の節そのものが描かれないので、押せるように見せない（.off ＋
+      // aria-disabled。onclick 側でも弾く）。読み上げ名は見えている文字と食い違わせず、
+      // 件数まで含める。
       q("#bnDoneCount").textContent = doneCount;
       const bnDone = q("#bnDone");
       bnDone.classList.toggle("off", doneCount === 0);
@@ -3029,7 +3111,7 @@
         doneCount === 0 ? "終了した予約はまだありません" : `終了した予約 ${doneCount}件`,
       );
       q("#rail").innerHTML = (items.length ? items.join("") : railIdleHtml(active, now)) +
-        `<div class="rail-done">処理済み ${doneCount}件</div>`;
+        `<div class="rail-done">終了 ${doneCount}件</div>`;
     }
     // 日付の境目で数える残り日数（時刻差ではないので「あと0日」が出ない）
     const dayStart = (ms) => new Date(ms).setHours(0, 0, 0, 0);
@@ -3582,6 +3664,18 @@
       q("#f_time").value = `${String(d.getHours()).padStart(2, "0")}:${
         String(d.getMinutes()).padStart(2, "0")
       }`;
+      // 終了日は「日」だけ見せる（判定に使うのは日だけ — finishedAt）。読み取れて
+      // いたチェックアウト時刻は formEndTime に取っておき、日付を直しても 10:00 が
+      // 23:59 に書き換わらないようにする。
+      const e = (r && r.endsAt) ? new Date(r.endsAt) : null;
+      formEndTime = e
+        ? `${String(e.getHours()).padStart(2, "0")}:${String(e.getMinutes()).padStart(2, "0")}`
+        : null;
+      q("#f_end_date").value = e
+        ? `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${
+          String(e.getDate()).padStart(2, "0")
+        }`
+        : "";
       q("#f_amount").value = (r && r.amount != null) ? r.amount : "";
       // テンプレ関連の状態を1件ごとに巻き戻す。tplLookedUp は空にする: 取り込みや
       // 編集では施設名が JS から入るので blur も change も飛ばず、ここで名前を
@@ -3639,6 +3733,16 @@
         return;
       }
       const startsAt = new Date(date + "T" + (q("#f_time").value || "18:00") + ":00").toISOString();
+      // 終了日は任意。時刻は読み取れていたものを使い、無ければその日の終わり。
+      const endDate = q("#f_end_date").value;
+      const endsAt = endDate
+        ? new Date(endDate + "T" + (formEndTime || "23:59") + ":00").toISOString()
+        : null;
+      if (endsAt && endsAt < startsAt) {
+        // サーバ側は遅い方を採るので害は無いが、入れた値が効かないので先に言う。
+        alert("終了日は予約日と同じ日か、それより後にしてください。");
+        return;
+      }
       const plan = q("#f_plan").value.trim() || null;
       const amount = q("#f_amount").value ? Number(q("#f_amount").value) : null;
       const location = q("#f_location").value.trim() || null;
@@ -3653,6 +3757,7 @@
             plan,
             service,
             startsAt,
+            endsAt,
             amount,
             location,
             policy,
@@ -3666,6 +3771,7 @@
             plan,
             service,
             startsAt,
+            endsAt,
             amount,
             location,
             policy,
@@ -3729,6 +3835,7 @@
       openAdd({
         service: f.service || "",
         startsAt: f.startsAt || null,
+        endsAt: f.endsAt || null,
         amount: f.amount,
         location: f.location || null,
         policy: f.policy || "unknown",
@@ -4554,7 +4661,7 @@
       // 0件のときは飛び先が無い＝押しても何も起きないので、押させない（見た目も .off）。
       if (q("#bnDone").classList.contains("off")) return;
       setView("ledger");
-      const el = document.querySelector(".cancelled-sec");
+      const el = document.querySelector(".history-sec");
       if (el) el.scrollIntoView({ behavior: "smooth" });
     };
     q("#bnImport").onclick = openImport;

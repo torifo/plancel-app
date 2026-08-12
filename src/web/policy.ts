@@ -124,8 +124,14 @@ export function isAlwaysFree(policy: WebPolicy): boolean {
 const JST_OFFSET_MS = 9 * HOUR_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-/** The last instant of the JST day containing `ms` (…23:59:59.999+09:00). */
-function endOfJstDay(ms: number): number {
+/**
+ * The last instant of the JST day containing `ms` (…23:59:59.999+09:00).
+ *
+ * Exported because a cancellation deadline is not the only thing in this ledger
+ * that is a date rather than a time of day — see `finishedAtMs` in
+ * ./lifecycle.ts, which decides when a reservation is over.
+ */
+export function endOfJstDay(ms: number): number {
   return Math.floor((ms + JST_OFFSET_MS) / DAY_MS) * DAY_MS + DAY_MS - 1 - JST_OFFSET_MS;
 }
 

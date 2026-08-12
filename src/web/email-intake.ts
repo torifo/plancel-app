@@ -399,6 +399,9 @@ async function intake(
     ? webCreateSchema.safeParse({
       service: merged.service_name,
       startsAt: merged.starts_at,
+      // 型を確かめてから渡す: 変な値をそのまま渡すと safeParse が転けて、
+      // 読めていた予約ごと「読み取れませんでした」になる。
+      endsAt: typeof merged.ends_at === "string" ? merged.ends_at : null,
       amount: typeof merged.amount_jpy === "number" ? merged.amount_jpy : null,
       location: typeof merged.location === "string" ? merged.location : null,
       policy: fromCoreStages(merged.cancellation_policy, impliedFreeBoundaryHours(text)),

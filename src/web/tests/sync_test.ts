@@ -101,6 +101,7 @@ const RESV = {
   plan: null,
   service: "宿",
   startsAt: "2026-08-01T15:00:00+09:00",
+  endsAt: null,
   amount: null,
   location: null,
   policy: "unknown" as const,

@@ -58,6 +58,7 @@ import {
   type WebPolicyPreset,
   webPolicyPresetSchema,
 } from "../web/policy.ts";
+import { isFinished } from "../web/lifecycle.ts";
 import type { LineQuickReplyItem, LineTextMessage } from "./types.ts";
 
 /** Access to the WEB ledgers, injected into the webhook (optional). */
@@ -327,10 +328,30 @@ function footer(active: WebReservation[], nowMs: number): string {
 
 const text = (t: string): LineTextMessage => ({ type: "text", text: t });
 
-/** THIS user's active reservations, cancelled ones dropped. */
-async function activeOf(deps: LineWebDeps, owner: WebUser): Promise<WebReservation[]> {
+/**
+ * THIS user's ledger split into what is still ahead and what is already over.
+ *
+ * A reservation whose day has passed used to stay in every count and in the
+ * 最大キャンセル料 total — money that can no longer be lost, and (because the
+ * list is ordered by start) shown above everything that has yet to happen.
+ * Being over is derived from the date, never stored (../web/lifecycle.ts).
+ */
+async function splitByFinished(
+  deps: LineWebDeps,
+  owner: WebUser,
+): Promise<{ active: WebReservation[]; finished: WebReservation[] }> {
   const all = await listReservations(deps.kv, owner.ledgerId);
-  return all.filter((r) => r.status !== "cancelled");
+  const nowMs = deps.nowMs();
+  const live = all.filter((r) => r.status !== "cancelled");
+  return {
+    active: live.filter((r) => !isFinished(r, nowMs)),
+    finished: live.filter((r) => isFinished(r, nowMs)),
+  };
+}
+
+/** THIS user's active reservations: cancelled dropped, and anything over. */
+async function activeOf(deps: LineWebDeps, owner: WebUser): Promise<WebReservation[]> {
+  return (await splitByFinished(deps, owner)).active;
 }
 
 /** Summary of THIS user's active web-ledger reservations + action Quick Reply. */
@@ -339,11 +360,18 @@ export async function buildCheckReply(
   owner: WebUser,
 ): Promise<LineTextMessage> {
   const label = accountLabel(owner);
-  const active = await activeOf(deps, owner);
+  const { active, finished } = await splitByFinished(deps, owner);
+  // 終わった分の件数は添えるだけ。「まだありません」と言い切ると、過去の予約が
+  // あるのに台帳が空だと読めてしまう。
+  const finishedNote = finished.length === 0
+    ? []
+    : [`終わった予約 ${finished.length}件は台帳から外しています。`];
   if (active.length === 0) {
     return withMenu(
       text(
-        `${label} の台帳に予約はまだありません。予約メールやスクショを送れば登録できます。`,
+        finished.length === 0
+          ? `${label} の台帳に予約はまだありません。予約メールやスクショを送れば登録できます。`
+          : `${label} にこれからの予約はありません。${finishedNote[0]}`,
       ),
       "check",
     );
@@ -353,8 +381,13 @@ export async function buildCheckReply(
   const body = shown.map(line);
   if (active.length > shown.length) body.push(`…ほか${active.length - shown.length}件`);
   const message = text(
-    [`${label} の台帳の予約 ${active.length}件`, ...body, "", footer(active, deps.nowMs())]
-      .join("\n"),
+    [
+      `${label} の台帳の予約 ${active.length}件`,
+      ...body,
+      "",
+      footer(active, deps.nowMs()),
+      ...finishedNote,
+    ].join("\n"),
   );
   // Per-reservation actions never crowd the command menu out of the strip.
   const items = quickReplyItems(active, MAX_QUICK_REPLY - COMMAND_MENU.length);
@@ -684,6 +717,8 @@ export function applyWebPostback(
 export interface WebRegistrationInput {
   service_name: string;
   starts_at: string;
+  /** 宿ならチェックアウト。終わった予約の判定に使う（src/web/lifecycle.ts）。 */
+  ends_at?: string | null;
   amount_jpy?: number | null;
   location?: string | null;
   cancellation_policy?: CancellationPolicyOrUnknown;
@@ -715,6 +750,7 @@ export async function registerWebReservation(
       plan: null,
       service: output.service_name,
       startsAt: output.starts_at,
+      endsAt: output.ends_at ?? null,
       amount: output.amount_jpy ?? null,
       location: output.location ?? null,
       policy: parsedPolicy,

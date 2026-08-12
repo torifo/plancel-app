@@ -339,6 +339,38 @@ Deno.test("web api: location is optional, stored, and editable", async () => {
   });
 });
 
+Deno.test("web api: endsAt is optional, stored, and editable", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const created = (await (await handleWebApi(
+      kv,
+      reqOf("POST", "/api/reservations", "t", {
+        service: "宿",
+        startsAt: "2026-09-01T15:00:00+09:00",
+        policy: "unknown",
+      }),
+      ids,
+    )).json()).reservation;
+    // 省略時は null。連泊でない予約に終了日を強制しない（判定は開始日に落ちる）。
+    assertEquals(created.endsAt, null);
+
+    const edited = (await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${created.id}`, "t", { endsAt: "2026-09-03T10:00:00+09:00" }),
+      ids,
+    )).json()).reservation;
+    assertEquals(edited.endsAt, "2026-09-03T10:00:00+09:00");
+
+    // 日程が縮んだときに終了日だけ消せる（null で明示できる）。
+    const cleared = (await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${created.id}`, "t", { endsAt: null }),
+      ids,
+    )).json()).reservation;
+    assertEquals(cleared.endsAt, null);
+  });
+});
+
 Deno.test("web api: confirmed reservation cannot move to another plan", async () => {
   await withKv(async (kv) => {
     const ids = makeIds();
