@@ -4597,7 +4597,18 @@
       const dtok = realToken() + "::demo";
       try {
         const cur = await api("GET", "/api/reservations", null, dtok);
-        if (cur.reservations.length === 0) {
+        // 日付は「今から N 日後」で作られるので、置いたまま日が経つと全部終わって
+        // 履歴に落ち、デモが「これからの予約はありません」で開く。これから起きる
+        // 予約が1件も無くなったら、古い見本を消して作り直す。
+        const now = Date.now();
+        const stale = cur.reservations.length > 0 &&
+          cur.reservations.every((r) => r.status === "cancelled" || isFinished(r, now));
+        if (stale) {
+          for (const r of cur.reservations) {
+            await api("DELETE", `/api/reservations/${r.id}`, null, dtok);
+          }
+        }
+        if (cur.reservations.length === 0 || stale) {
           const mk = (plan, service, days, amount, policy, confirmed) => ({
             plan,
             service,
