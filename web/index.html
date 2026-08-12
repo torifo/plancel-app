@@ -3775,13 +3775,21 @@
       const startsAt = new Date(date + "T" + (q("#f_time").value || "18:00") + ":00").toISOString();
       // 終了日は任意。時刻は読み取れていたものを使い、無ければその日の終わり。
       const endDate = q("#f_end_date").value;
-      const endsAt = endDate
-        ? new Date(endDate + "T" + (formEndTime || "23:59") + ":00").toISOString()
-        : null;
-      if (endsAt && endsAt < startsAt) {
-        // サーバ側は遅い方を採るので害は無いが、入れた値が効かないので先に言う。
+      if (endDate && endDate < date) {
+        // 判定に使うのは日だけなので、比べるのも日。合成した時刻で比べると、
+        // 15:00 チェックイン・10:00 チェックアウトの宿を同じ日に縮めたときに、
+        // この案内が言う「同じ日」自体が弾かれていた。
         alert("終了日は予約日と同じ日か、それより後にしてください。");
         return;
+      }
+      let endsAt = endDate
+        ? new Date(endDate + "T" + (formEndTime || "23:59") + ":00").toISOString()
+        : null;
+      // 同じ日に縮めた結果、読み取れていたチェックアウト時刻が開始より前に来た場合は
+      // その日の終わりに置く。日としては正しく、カレンダーも「始まる前に終わる予定」に
+      // ならない（src/web/calendar/ics.ts は開始以前の終了を1時間に落とす）。
+      if (endsAt !== null && endsAt <= startsAt) {
+        endsAt = new Date(endDate + "T23:59:00").toISOString();
       }
       const plan = q("#f_plan").value.trim() || null;
       const amount = q("#f_amount").value ? Number(q("#f_amount").value) : null;
