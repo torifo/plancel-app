@@ -2808,8 +2808,10 @@
         .sort((a, b) => finishedAt(b) - finishedAt(a));
       // キャンセル済みは自動では消さない（オーナー 2026-07-22）：
       // 復元・日付変更・完全削除をユーザーが選ぶまで下に残す。共有された予約は
-      // メンバー側では操作できないので、この編集可能なセクションには含めない。
-      const cancelled = data.filter((r) => r.status === "cancelled" && !r.shared)
+      // メンバー側では復元も削除もできないが、だからといって外すと台帳にも履歴にも
+      // 出ない行になり、メンバーからは「予約が消えた」ようにしか見えない。行として
+      // は出し、操作は「脱退」だけにする（cancelledRowHtml）。
+      const cancelled = data.filter((r) => r.status === "cancelled")
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       const dls = active.map(freeDeadline).filter((d) => d && d > now).sort((a, b) => a - b);
       q("#chipNext").innerHTML = dls.length
@@ -2899,8 +2901,13 @@
           ${finished.map(finishedRowHtml).join("")}`);
         }
         if (cancelled.length) {
+          // 案内する操作は、実際にその行に出ているものだけ。共有された予約しか無い
+          // メンバーに「復元できます」と言っても、その行にボタンは無い。
+          const hint = cancelled.some((r) => !r.shared)
+            ? "ここに残っている間は「復元」や日付を変えての取り直しができます。不要なら「完全に削除」で消し去れます。"
+            : "共有された予約はオーナーがキャンセルしました。自分の台帳から外すなら「脱退」を押してください。";
           sections.push(`<h3>キャンセル済み（${cancelled.length}件）</h3>
-          <p class="hint">ここに残っている間は「復元」や日付を変えての取り直しができます。不要なら「完全に削除」で消し去れます。</p>
+          <p class="hint">${hint}</p>
           ${cancelled.map(cancelledRowHtml).join("")}`);
         }
         list.innerHTML += `<div class="history-sec">${sections.join("")}</div>`;
@@ -2976,14 +2983,22 @@
         <div class="ract">${acts}</div></div>`;
     }
     function cancelledRowHtml(r) {
+      // 共有された予約はオーナーのもの: 復元も削除もサーバが 403 で弾くので出さない。
+      // 履歴から消したいときの手段は「脱退」（自分の台帳から外れるだけ）。
+      const acts = r.shared
+        ? `<button class="rowbtn" data-leave="${r.id}">脱退</button>`
+        : `<button class="rowbtn" data-restore="${r.id}">↩ 復元</button><button class="rowbtn" data-edit="${r.id}">日付変更・編集</button><button class="rowbtn danger" data-del-hard="${r.id}">完全に削除</button>`;
+      const shareTag = r.shared
+        ? `<div class="share-tag">共有: ${esc(r.shared.ownerDisplayName)}</div>`
+        : "";
       return `<div class="resv cancelled-row">
         <div><div class="name">${esc(r.service)}</div><div class="sub">${fmtDate(startMs(r))}${
         r.amount ? " · " + yen(r.amount) : ""
-      }</div><span class="pill cancelled">キャンセル済み</span></div>
+      }</div><span class="pill cancelled">キャンセル済み</span>${shareTag}</div>
         <div class="sub" style="align-self:center">${
         r.plan ? "プラン: " + esc(r.plan) : ""
       }</div>
-        <div class="ract"><button class="rowbtn" data-restore="${r.id}">↩ 復元</button><button class="rowbtn" data-edit="${r.id}">日付変更・編集</button><button class="rowbtn danger" data-del-hard="${r.id}">完全に削除</button></div></div>`;
+        <div class="ract">${acts}</div></div>`;
     }
     function esc(s) {
       return String(s).replace(
