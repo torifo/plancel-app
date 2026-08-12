@@ -6,7 +6,7 @@
  */
 import type { WebReservation } from "../store.ts";
 import { describePolicy } from "../policy.ts";
-import { startsAtToInstant } from "./ics.ts";
+import { eventEndInstant, startsAtToInstant } from "./ics.ts";
 
 const BASE = "https://www.googleapis.com/calendar/v3";
 export const PLANCEL_CALENDAR_SUMMARY = "plancel";
@@ -76,7 +76,9 @@ export function eventBody(r: WebReservation): Record<string, unknown> {
     // Google Calendar renders `location` with its own maps link.
     ...(r.location !== null ? { location: r.location } : {}),
     start: { dateTime: start.toString({ smallestUnit: "second" }) },
-    end: { dateTime: start.add({ hours: 1 }).toString({ smallestUnit: "second" }) },
+    end: {
+      dateTime: eventEndInstant(r, start).toString({ smallestUnit: "second" }),
+    },
     extendedProperties: { private: { plancelId: r.id } },
   };
 }

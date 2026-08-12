@@ -5,7 +5,8 @@
  * reservations; calendar apps poll it on their own schedule (Google up
  * to ~24h, iCloud 15min+ — the Google API push path covers immediacy).
  *
- * Model notes: reservations have no end time → events are a flat 1 hour.
+ * Model notes: an event runs to the reservation's `endsAt` (a stay's checkout)
+ * and falls back to a flat hour when there is none — see `eventEndInstant`.
  * `startsAt` without a UTC offset is interpreted as Asia/Tokyo.
  */
 import type { WebReservation } from "../store.ts";
@@ -25,6 +26,24 @@ export function startsAtToInstant(startsAt: string): Temporal.Instant | null {
       return null;
     }
   }
+}
+
+/**
+ * When the event ends: the checkout (`endsAt`) when it reads and lands after the
+ * start, otherwise an hour after the start.
+ *
+ * A three-night stay used to publish as a one-hour event on its first afternoon,
+ * because this ledger kept no end at all until 2026-08-12. An `endsAt` at or
+ * before the start is a bad parse rather than a shorter stay, and the hour
+ * fallback beats an event that ends before it begins — some calendar clients
+ * reject that outright instead of showing something odd.
+ */
+export function eventEndInstant(
+  r: Pick<WebReservation, "endsAt">,
+  start: Temporal.Instant,
+): Temporal.Instant {
+  const end = r.endsAt === null ? null : startsAtToInstant(r.endsAt);
+  return end !== null && Temporal.Instant.compare(end, start) > 0 ? end : start.add({ hours: 1 });
 }
 
 function icsUtc(instant: Temporal.Instant): string {
@@ -48,6 +67,7 @@ export function buildIcs(reservations: WebReservation[]): string {
     if (r.status !== "confirmed") continue;
     const start = startsAtToInstant(r.startsAt);
     if (start === null) continue;
+    const end = eventEndInstant(r, start);
     const stamp = startsAtToInstant(r.updated_at) ?? start;
     const desc = [
       r.plan !== null ? `プラン: ${r.plan}` : null,
@@ -61,7 +81,7 @@ export function buildIcs(reservations: WebReservation[]): string {
       `UID:${icsEscape(r.id)}@plancel`,
       `DTSTAMP:${icsUtc(stamp)}`,
       `DTSTART:${icsUtc(start)}`,
-      `DTEND:${icsUtc(start.add({ hours: 1 }))}`,
+      `DTEND:${icsUtc(end)}`,
       `SUMMARY:${icsEscape(r.service)}`,
       // LOCATION lets calendar apps offer their own maps link for the venue.
       ...(r.location !== null ? [`LOCATION:${icsEscape(r.location)}`] : []),

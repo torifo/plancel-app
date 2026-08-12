@@ -102,3 +102,30 @@ Deno.test("feed handler: valid secret serves the user's ledger, bad secret 404s"
     kv.close();
   }
 });
+
+// 連泊は台帳が持っているチェックアウトまで伸ばす。持っていなかった頃の1時間固定を
+// そのままにすると、3泊の旅行がチェックイン日の1時間の予定として書き出される。
+Deno.test("calendar events run to the checkout, or an hour when there is none", () => {
+  const stay = resv({ startsAt: "2026-08-01T15:00:00+09:00", endsAt: "2026-08-04T10:00:00+09:00" });
+  const ics = buildIcs([stay]);
+  assertStringIncludes(ics, "DTSTART:20260801T060000Z");
+  assertStringIncludes(ics, "DTEND:20260804T010000Z");
+  assertEquals(
+    (eventBody(stay) as { end: { dateTime: string } }).end.dateTime,
+    "2026-08-04T01:00:00Z",
+  );
+
+  // endsAt 無しは従来どおり1時間。
+  assertStringIncludes(buildIcs([resv({})]), "DTEND:20260801T110000Z");
+
+  // 開始と同じか手前の endsAt は誤パース。終わりが始まりより前の予定はカレンダー
+  // 側が拒むことがあるので、1時間に落とす。
+  for (const bad of ["2026-08-01T19:00:00+09:00", "2026-07-01T10:00:00+09:00", "来週の金曜"]) {
+    const r = resv({ startsAt: "2026-08-01T19:00:00+09:00", endsAt: bad });
+    assertEquals(
+      (eventBody(r) as { end: { dateTime: string } }).end.dateTime,
+      "2026-08-01T11:00:00Z",
+      `endsAt=${bad} は1時間に落ちる`,
+    );
+  }
+});
