@@ -104,3 +104,23 @@ Deno.test("validateParsedOutput: a normal future starts_at produces no year warn
   assertEquals(result.ok, true);
   assertEquals(result.warnings, []);
 });
+
+Deno.test("validateParsedOutput: ends_at problems warn without stopping the chain", () => {
+  const base = { service_name: "○○旅館", starts_at: "2026-08-01T15:00:00Z" };
+  // 読めない終了日時は保存時に落ちる（src/web/instant.ts）。落ちたことが分かる
+  // ようにしておかないと、連泊の判定が黙って開始日だけに戻る。
+  const junk = validateParsedOutput({ ...base, ends_at: "来週の金曜" }, NOW);
+  assertEquals(junk.ok, true);
+  assertEquals(junk.warnings, ["ends_at is not a valid ISO 8601 datetime; it will be dropped"]);
+
+  const reversed = validateParsedOutput({ ...base, ends_at: "2026-07-20T01:00:00Z" }, NOW);
+  assertEquals(reversed.ok, true);
+  assertEquals(reversed.warnings, ["ends_at is before starts_at; requires confirmation"]);
+
+  // まともな連泊は無言で通る。
+  const stay = validateParsedOutput({ ...base, ends_at: "2026-08-04T01:00:00Z" }, NOW);
+  assertEquals(stay.ok, true);
+  assertEquals(stay.warnings, []);
+  // 無ければ何も言わない（宿泊以外はそもそも終了日時を持たない）。
+  assertEquals(validateParsedOutput({ ...base, ends_at: null }, NOW).warnings, []);
+});

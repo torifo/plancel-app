@@ -12,6 +12,7 @@
 import { z } from "zod";
 import { webPolicySchema } from "./policy.ts";
 import { isFinished } from "./lifecycle.ts";
+import { normalizeInstant, normalizeRequiredInstant, toInstantOrNull } from "./instant.ts";
 import { getTemplate } from "./policy-template.ts";
 
 // The policy model (presets + arbitrary stage tables) and its math live in
@@ -116,7 +117,11 @@ export async function listReservations(kv: Deno.Kv, token: string): Promise<WebR
     const parsed = webReservationSchema.safeParse(e.value);
     if (parsed.success) out.push(parsed.data);
   }
-  out.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  // 並べるのは瞬間で。文字列比較だと、同じ時刻を "…+09:00" と "…Z" で持つ2件の
+  // 前後が入れ替わる（正規化前に書かれた記録が混ざり得る）。読めない開始は最後に。
+  const at = (r: WebReservation) =>
+    toInstantOrNull(r.startsAt)?.epochMilliseconds ?? Number.MAX_SAFE_INTEGER;
+  out.sort((a, b) => at(a) - at(b) || a.startsAt.localeCompare(b.startsAt));
   return out;
 }
 
@@ -154,8 +159,11 @@ export async function createReservation(
     id: ids.newId(),
     plan: input.plan,
     service: input.service,
-    startsAt: input.startsAt,
-    endsAt: input.endsAt,
+    // 保存する時刻は正規形にそろえる（./instant.ts）。オフセットの無い文字列や
+    // "+09" のような書き方は、読む側によって意味が変わる（サーバは Temporal、
+    // ブラウザは Date.parse）ので、同じ台帳を見て終わった予約の判定が食い違う。
+    startsAt: normalizeRequiredInstant(input.startsAt),
+    endsAt: normalizeInstant(input.endsAt),
     amount: input.amount,
     location: input.location,
     policy,
@@ -205,8 +213,8 @@ export async function patchReservation(
     ...cur,
     ...(patch.plan !== undefined ? { plan: patch.plan } : {}),
     ...(patch.service !== undefined ? { service: patch.service } : {}),
-    ...(patch.startsAt !== undefined ? { startsAt: patch.startsAt } : {}),
-    ...(patch.endsAt !== undefined ? { endsAt: patch.endsAt } : {}),
+    ...(patch.startsAt !== undefined ? { startsAt: normalizeRequiredInstant(patch.startsAt) } : {}),
+    ...(patch.endsAt !== undefined ? { endsAt: normalizeInstant(patch.endsAt) } : {}),
     ...(patch.amount !== undefined ? { amount: patch.amount } : {}),
     ...(patch.location !== undefined ? { location: patch.location } : {}),
     ...(patch.policy !== undefined ? { policy: patch.policy } : {}),

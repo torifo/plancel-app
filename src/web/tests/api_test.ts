@@ -390,7 +390,23 @@ Deno.test("web api: endsAt is optional, stored, and editable", async () => {
       reqOf("PATCH", `${BASE}/${created.id}`, "t", { endsAt: "2026-09-03T10:00:00+09:00" }),
       ids,
     )).json()).reservation;
-    assertEquals(edited.endsAt, "2026-09-03T10:00:00+09:00");
+    // 保存形は正規形（同じ瞬間）。読む側で解釈が分かれない形にそろえる。
+    assertEquals(edited.endsAt, "2026-09-03T01:00:00.000Z");
+
+    // オフセットの無い値・読めない値は保存時にそろえる（./instant.ts）。
+    // ブラウザと サーバで「終わった予約」の判定が分かれるのを入口で止める。
+    const loose = (await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${created.id}`, "t", { endsAt: "2026-09-03T10:00" }),
+      ids,
+    )).json()).reservation;
+    assertEquals(loose.endsAt, "2026-09-03T01:00:00.000Z");
+    const junk = (await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${created.id}`, "t", { endsAt: "来週の金曜" }),
+      ids,
+    )).json()).reservation;
+    assertEquals(junk.endsAt, null);
 
     // 日程が縮んだときに終了日だけ消せる（null で明示できる）。
     const cleared = (await (await handleWebApi(

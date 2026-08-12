@@ -2708,7 +2708,10 @@
     // して受けるので、そのままだと同じ台帳を見て片方だけが履歴へ落とす。どちらとも
     // 読めなければ「ずっと未来」＝台帳に残す（間違って見えている方が、間違って
     // 片付けられるよりまし）。
-    const HAS_TZ = /(?:Z|[+-]\d{2}:?\d{2})$/;
+    // 保存時に正規形へそろえてある（src/web/instant.ts）ので、ここは厳しくてよい。
+    // 小文字 z も Temporal は受けるので、こちらも受ける。"+09"（時だけのオフセット）は
+    // Temporal は受けるが Date.parse が読めないため、正規化に任せる。
+    const HAS_TZ = /(?:[Zz]|[+-]\d{2}:?\d{2})$/;
     const instantMs = (s) => (typeof s === "string" && HAS_TZ.test(s)) ? Date.parse(s) : NaN;
     function finishedAt(r) {
       const ok = (v) => Number.isNaN(v) ? -Infinity : v;

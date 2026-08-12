@@ -67,6 +67,27 @@ export function validateParsedOutput(
     }
   }
 
+  // ends_at（宿はチェックアウト）は必須ではないが、読めない値や開始より手前の値は
+  // 黙って捨てられて「終わった予約」の判定が開始日だけに戻る。チェーンは止めず、
+  // 査読に回す材料として警告だけ出す（src/parse/review-policy.ts）。
+  if (output.ends_at !== undefined && output.ends_at !== null && output.ends_at !== "") {
+    let endsAt: Temporal.Instant | null = null;
+    try {
+      endsAt = Temporal.Instant.from(output.ends_at);
+    } catch {
+      warnings.push("ends_at is not a valid ISO 8601 datetime; it will be dropped");
+    }
+    if (endsAt !== null && output.starts_at !== undefined && output.starts_at !== null) {
+      try {
+        if (Temporal.Instant.compare(endsAt, Temporal.Instant.from(output.starts_at)) < 0) {
+          warnings.push("ends_at is before starts_at; requires confirmation");
+        }
+      } catch {
+        // starts_at 自体が読めない場合は上で errors に入っている。
+      }
+    }
+  }
+
   if (output.amount_jpy !== undefined && output.amount_jpy !== null) {
     if (typeof output.amount_jpy !== "number" || output.amount_jpy < 0) {
       errors.push("amount_jpy must be >= 0");

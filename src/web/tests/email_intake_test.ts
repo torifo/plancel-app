@@ -377,7 +377,8 @@ Deno.test("email intake: the fetched body is parsed into a candidate reservation
     const list = await listReservations(kv, owner.ledgerId);
     assertEquals(list.length, 1);
     assertEquals(list[0]?.service, "翠嶺館");
-    assertEquals(list[0]?.startsAt, "2026-08-20T15:00:00+09:00");
+    // モデルが返した "+09:00" は保存時に正規形へそろう（同じ瞬間・src/web/instant.ts）。
+    assertEquals(list[0]?.startsAt, "2026-08-20T06:00:00.000Z");
     assertEquals(list[0]?.amount, 42000);
     assertEquals(list[0]?.location, "長野県");
     assertEquals(list[0]?.policy, "staged");

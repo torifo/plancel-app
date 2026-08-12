@@ -12,20 +12,18 @@
 import type { WebReservation } from "../store.ts";
 import { listReservations } from "../store.ts";
 import { describePolicy } from "../policy.ts";
+import { toInstantOrNull } from "../instant.ts";
 import { findUserByIcsSecret } from "../users.ts";
 import { listSharedReservations } from "../sharing.ts";
 
-/** "2026-08-01T19:00:00+09:00" | "2026-08-01T19:00" → Instant (JST default). */
+/**
+ * "2026-08-01T19:00:00+09:00" | "2026-08-01T19:00" → Instant (JST default).
+ *
+ * Kept as this module's name for the same reading the store normalises with, so
+ * a feed and the ledger can never disagree about what a timestamp meant.
+ */
 export function startsAtToInstant(startsAt: string): Temporal.Instant | null {
-  try {
-    return Temporal.Instant.from(startsAt);
-  } catch {
-    try {
-      return Temporal.PlainDateTime.from(startsAt).toZonedDateTime("Asia/Tokyo").toInstant();
-    } catch {
-      return null;
-    }
-  }
+  return toInstantOrNull(startsAt);
 }
 
 /**
