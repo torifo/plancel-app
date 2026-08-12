@@ -705,6 +705,51 @@ Deno.test("webhook: webact confirm -> siblings to_cancel + calendar sync request
   });
 });
 
+Deno.test("webhook: webact confirm counts only the siblings it actually changed", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds } = await makeWebDeps(kv);
+    const base = {
+      plan: "夏旅",
+      endsAt: null,
+      amount: null,
+      location: null,
+      policy: "free24" as const,
+      confirmed: false,
+    };
+    // NOW は 2026-08-01。7月の候補はもう終わっていて、確定の巻き添えにならない。
+    await createReservation(kv, owner.ledgerId, {
+      ...base,
+      service: "先月の候補",
+      startsAt: "2026-07-10T15:00:00+09:00",
+    }, webIds);
+    await createReservation(kv, owner.ledgerId, {
+      ...base,
+      service: "生きている候補",
+      startsAt: "2026-08-22T15:00:00+09:00",
+    }, webIds);
+    const winner = await createReservation(kv, owner.ledgerId, {
+      ...base,
+      service: "確定する宿",
+      startsAt: "2026-08-25T15:00:00+09:00",
+    }, webIds);
+
+    const { deps, replies } = makeDeps({ web });
+    await post(deps, [{
+      type: "postback",
+      replyToken: "reply-n",
+      source: { type: "user", userId: OWNER },
+      postback: { data: `webact|confirm|${winner.id}` },
+    }]);
+
+    // 実際に要キャンセルになるのは1件。2件と言うと、していない書き換えを報告する。
+    assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "同プランの残り1件");
+    assertEquals(
+      (await getReservation(kv, owner.ledgerId, winner.id))?.status,
+      "confirmed",
+    );
+  });
+});
+
 Deno.test("webhook: webact cancel -> reservation cancelled; stale id -> polite reply", async () => {
   await withKv(async (kv) => {
     const { web, owner, webIds, mutated } = await makeWebDeps(kv);

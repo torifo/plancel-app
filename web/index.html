@@ -3301,10 +3301,13 @@
     function askConfirm(id) {
       const r = data.find((x) => x.id === id);
       if (!r) return;
-      // 数え方はサーバと同じ — 同じプラン名・候補のまま・自分の台帳のもの。
+      // 数え方はサーバと同じ — 同じプラン名・候補のまま・自分の台帳のもの・まだ
+      // 終わっていないもの。終わった候補はサーバが巻き添えにしないので、数に入れると
+      // 「要キャンセルになります」と言った件数が実際に変わる件数より多くなる。
       const others = r.plan
         ? data.filter((x) =>
-          !x.shared && x.id !== id && x.plan === r.plan && x.status === "candidate"
+          !x.shared && x.id !== id && x.plan === r.plan && x.status === "candidate" &&
+          !isFinished(x, Date.now())
         )
         : [];
       const shown = others.slice(0, 3).map((x) => x.service).join("・");

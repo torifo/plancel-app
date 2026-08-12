@@ -580,8 +580,14 @@ export async function applyWebAction(
   }
 
   // Count the plan siblings settleSiblings() is about to flip, before the write.
+  // 数え方はサーバの確定処理と同じ: 同じプランの候補のうち、まだ終わっていないもの
+  // （終わった候補は巻き添えにしない — src/web/store.ts）。ここだけ数え方が違うと、
+  // 実際には書き換えていない件数を「要キャンセルにしました」と報告してしまう。
+  const nowMs = deps.nowMs();
   const siblings = before.plan === null ? 0 : (await listReservations(deps.kv, ledger)).filter(
-    (r) => r.id !== id && r.plan === before.plan && r.status === "candidate",
+    (r) =>
+      r.id !== id && r.plan === before.plan && r.status === "candidate" &&
+      !isFinished(r, nowMs),
   ).length;
   let r;
   try {
