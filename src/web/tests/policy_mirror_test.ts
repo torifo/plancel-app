@@ -1,5 +1,7 @@
 /**
- * Pins the CLIENT MIRROR in web/index.html to src/web/policy.ts.
+ * Pins the CLIENT MIRROR in web/index.html to src/web/policy.ts — and, at the
+ * end of this file, to src/web/lifecycle.ts (the 「終わった予約」 rule, mirrored
+ * the same way for the same reason).
  *
  * Why this file exists: the whole cancellation-fee model is implemented twice —
  * once here in TypeScript and once as plain JS inside the single-file web app
@@ -39,6 +41,7 @@ import {
   type WebPolicy,
   webPolicyStageSchema,
 } from "../policy.ts";
+import { finishedAtMs, isFinished } from "../lifecycle.ts";
 import { webStatusSchema } from "../store.ts";
 import { LINE_CODE_TTL_MS } from "../users.ts";
 import { STATUS_LABEL } from "../../line/web-commands.ts";
@@ -77,6 +80,8 @@ interface Mirror {
   maxLoss(r: { policy: unknown; amount: number | null }): number;
   describePolicy(policy: unknown): string;
   pctNow(r: { policy: unknown; startsAt: string }, now: number): number | null;
+  finishedAt(r: { startsAt: string; endsAt: string | null }): number;
+  isFinished(r: { startsAt: string; endsAt: string | null }, now: number): boolean;
 }
 
 /** Extracts the mirror out of the shipped HTML and evaluates it. */
@@ -105,6 +110,7 @@ async function loadMirror(): Promise<Mirror> {
     return {
       PRESET_STAGES, POL_MAX_STAGES, POL_MAX_HOURS: ${maxHours},
       stagesOfPolicy, freeDeadline, maxLoss, describePolicy, pctNow,
+      finishedAt, isFinished,
     };
   `);
   return factory() as Mirror;
@@ -309,5 +315,65 @@ Deno.test("LINE 連携コードの有効期限: クライアントの控えが�
     LINE_CODE_TTL_MS / 1000,
     "web/index.html の LINE_CODE_SEC が src/web/users.ts の LINE_CODE_TTL_MS と違います" +
       "（コードの残り時間表示が実際の有効期限とズレます）。",
+  );
+});
+
+/**
+ * 「終わった予約」の判定も二重実装（src/web/lifecycle.ts ＝ サーバ・正 と
+ * web/index.html の写し）。片方だけ直すと、同じ台帳を見て web が履歴へ落としたものを
+ * LINE が「これから」と数え、最大キャンセル料の合計まで食い違う。
+ *
+ * 壊れた値でこそズレるので、読めない日時も表に入れてある: サーバは
+ * Temporal.Instant.from、クライアントは Date.parse で、オフセットの無い
+ * "2026-08-01T10:00" の扱いが素のままだと分かれる。
+ */
+Deno.test("終わった予約の判定: クライアント写しがサーバとズレない", async () => {
+  const mirror = await loadMirror();
+  const DRIFT_LIFECYCLE =
+    "終わった予約の判定の二重実装がズレています: src/web/lifecycle.ts（サーバ・正）と " +
+    "web/index.html の写し（finishedAt / isFinished）。サーバ側を正として写しを合わせてください。";
+  const NOW = Temporal.Instant.from("2026-08-12T10:00:00+09:00").epochMilliseconds;
+  const cases: { startsAt: string; endsAt: string | null }[] = [
+    { startsAt: "2026-07-20T15:00:00+09:00", endsAt: null }, // 過ぎた
+    { startsAt: "2026-09-01T15:00:00+09:00", endsAt: null }, // これから
+    { startsAt: "2026-08-12T19:00:00+09:00", endsAt: null }, // 今日（まだ終わらない）
+    { startsAt: "2026-08-10T15:00:00+09:00", endsAt: "2026-08-14T10:00:00+09:00" }, // 滞在中
+    { startsAt: "2026-08-05T15:00:00+09:00", endsAt: "2026-08-07T10:00:00+09:00" }, // 終わった連泊
+    { startsAt: "2026-09-01T15:00:00+09:00", endsAt: "2026-07-01T10:00:00+09:00" }, // 逆転
+    { startsAt: "2026-07-20T15:00:00+09:00", endsAt: "来週の金曜" }, // 読めない終了
+    { startsAt: "2026-08-01T10:00", endsAt: null }, // オフセット無し
+    { startsAt: "???", endsAt: "2026-08-05T10:00:00+09:00" }, // 開始が読めない
+    { startsAt: "???", endsAt: null }, // どちらも読めない
+    { startsAt: "", endsAt: "" },
+  ];
+  for (const r of cases) {
+    const label = `${r.startsAt} 〜 ${r.endsAt}`;
+    const server = finishedAtMs(r);
+    assertEquals(mirror.finishedAt(r), server, `${DRIFT_LIFECYCLE}\n終了時刻が違います: ${label}`);
+    // 境界そのものでも比べる。NOW 1点だけだと「境界は終了か」の1ミリ秒ぶんの取り違え
+    // （> と >=）が両側でズレていても表を通ってしまう。
+    const probes = Number.isFinite(server) ? [NOW, server - 1, server, server + 1] : [NOW];
+    for (const at of probes) {
+      assertEquals(
+        mirror.isFinished(r, at),
+        isFinished(r, at),
+        `${DRIFT_LIFECYCLE}\n終了かどうかが違います: ${label} / 判定時刻 ${at}`,
+      );
+    }
+  }
+  // 境界の読み方そのもの（境界ちょうどはまだ終わっていない）を両実装で固定する。
+  const boundary = finishedAtMs({ startsAt: "2026-08-20T19:00:00+09:00", endsAt: null });
+  for (const impl of [mirror.isFinished, isFinished]) {
+    assertEquals(impl({ startsAt: "2026-08-20T19:00:00+09:00", endsAt: null }, boundary), false);
+    assertEquals(impl({ startsAt: "2026-08-20T19:00:00+09:00", endsAt: null }, boundary + 1), true);
+  }
+  // 等値だけだと両方同時に壊れた場合を通してしまうので、規則そのものも1つ固定する。
+  assertEquals(
+    mirror.finishedAt({
+      startsAt: "2026-08-10T15:00:00+09:00",
+      endsAt: "2026-08-14T10:00:00+09:00",
+    }),
+    Temporal.Instant.from("2026-08-14T23:59:59.999+09:00").epochMilliseconds,
+    "終わった予約の境界は「終わる日（JST）の終わり」です。",
   );
 });

@@ -161,6 +161,37 @@ Deno.test("web api: confirm settles siblings in the same plan -> to_cancel", asy
   });
 });
 
+Deno.test("web api: confirm leaves a sibling whose day has passed alone", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds(); // 時計は 2026-07-16
+    const mk = (service: string, startsAt: string) =>
+      handleWebApi(
+        kv,
+        reqOf("POST", "/api/reservations", "t", {
+          plan: "夏の宿",
+          service,
+          startsAt,
+          policy: "unknown",
+        }),
+        ids,
+      );
+    await mk("先週の宿", "2026-07-10T15:00:00+09:00"); // もう終わっている候補
+    const winner = (await (await mk("来月の宿", "2026-08-20T15:00:00+09:00")).json()).reservation;
+
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${winner.id}/confirm`, "t"), ids);
+
+    const list =
+      (await (await handleWebApi(kv, reqOf("GET", "/api/reservations", "t"), ids)).json())
+        .reservations;
+    // 終わった候補に to_cancel を書くと、履歴が「要キャンセルのまま放置した」と
+    // 言い出す。もう電話するところは無いので候補のまま残す。
+    assertEquals(
+      list.find((r: { service: string }) => r.service === "先週の宿").status,
+      "candidate",
+    );
+  });
+});
+
 Deno.test("web api: confirm rejects cancelled and to_cancel transitions", async () => {
   await withKv(async (kv) => {
     const ids = makeIds();

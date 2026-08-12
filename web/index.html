@@ -2700,11 +2700,20 @@
       return h <= 0 ? startsAtMs : endOfJstDay(startsAtMs - h * 3600000);
     }
     // 終わった予約 = 終わる日（endsAt があればその日、無ければ開始日）の終わりを
-    // 過ぎたもの。サーバ側 src/web/lifecycle.ts と同じ規則で、そこにテストがある。
+    // 過ぎたもの。サーバ側 src/web/lifecycle.ts と同じ規則で、テストはそこにある。
     // 逆転した endsAt は開始日を採る（壊れた終了日で未来の予約を隠さない）。
+    //
+    // 読めない値の扱いまで揃える必要がある: サーバは Temporal.Instant.from で、
+    // オフセットの無い "2026-08-01T10:00" を拒む。Date.parse はこれをローカル時刻と
+    // して受けるので、そのままだと同じ台帳を見て片方だけが履歴へ落とす。どちらとも
+    // 読めなければ「ずっと未来」＝台帳に残す（間違って見えている方が、間違って
+    // 片付けられるよりまし）。
+    const HAS_TZ = /(?:Z|[+-]\d{2}:?\d{2})$/;
+    const instantMs = (s) => (typeof s === "string" && HAS_TZ.test(s)) ? Date.parse(s) : NaN;
     function finishedAt(r) {
-      const end = r.endsAt ? Date.parse(r.endsAt) : NaN;
-      return endOfJstDay(Math.max(startMs(r), Number.isNaN(end) ? -Infinity : end));
+      const ok = (v) => Number.isNaN(v) ? -Infinity : v;
+      const latest = Math.max(ok(instantMs(r.startsAt)), ok(instantMs(r.endsAt)));
+      return latest === -Infinity ? Infinity : endOfJstDay(latest);
     }
     const isFinished = (r, now) => now > finishedAt(r);
     function freeDeadline(r) {
@@ -2874,8 +2883,13 @@
       // 台帳が空でも履歴があるなら「まだ予約がありません」の案内は出ていない。
       // 何も言わないと読み込み失敗のように見えるので、空である理由を書く。
       if (active.length === 0) {
+        // 下に何が残っているかは場合によって違う。終わった予約が無いのに
+        // 「終わった予約は下にあります」と書くと、無いものを案内してしまう。
+        const below = finished.length
+          ? (cancelled.length ? "終わった予約とキャンセル済み" : "終わった予約")
+          : "キャンセル済み";
         list.innerHTML =
-          `<div class="empty"><h3>これからの予約はありません</h3><p class="hint" style="margin-bottom:0">終わった予約は下の履歴に残っています。新しい予約は右下の「＋」から登録できます。</p></div>`;
+          `<div class="empty"><h3>これからの予約はありません</h3><p class="hint" style="margin-bottom:0">${below}は下の履歴に残っています。新しい予約は右下の「＋」から登録できます。</p></div>`;
       }
       if (finished.length || cancelled.length) {
         const sections = [];
@@ -3667,7 +3681,12 @@
       // 終了日は「日」だけ見せる（判定に使うのは日だけ — finishedAt）。読み取れて
       // いたチェックアウト時刻は formEndTime に取っておき、日付を直しても 10:00 が
       // 23:59 に書き換わらないようにする。
-      const e = (r && r.endsAt) ? new Date(r.endsAt) : null;
+      // 読めない endsAt（LLM が「来週の金曜」を返すことがあり、保存時に型までは
+      // 見ていない）は無いものとして扱う。new Date(...) は不正でも truthy なので、
+      // 素通しすると formEndTime が "NaN:NaN" になり、終了日を選んだ瞬間に保存が
+      // 例外で止まっていた。
+      const endMs = r ? instantMs(r.endsAt) : NaN;
+      const e = Number.isNaN(endMs) ? null : new Date(endMs);
       formEndTime = e
         ? `${String(e.getHours()).padStart(2, "0")}:${String(e.getMinutes()).padStart(2, "0")}`
         : null;

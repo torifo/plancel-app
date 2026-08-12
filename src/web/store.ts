@@ -11,6 +11,7 @@
  */
 import { z } from "zod";
 import { webPolicySchema } from "./policy.ts";
+import { isFinished } from "./lifecycle.ts";
 import { getTemplate } from "./policy-template.ts";
 
 // The policy model (presets + arbitrary stage tables) and its math live in
@@ -234,6 +235,7 @@ export async function confirmReservation(
     }
 
     const now = ids.nowIso();
+    const nowMs = Temporal.Instant.from(now).epochMilliseconds;
     const next: WebReservation = {
       ...cur,
       status: "confirmed",
@@ -276,7 +278,12 @@ export async function confirmReservation(
             `plan "${cur.plan}" already has a confirmed reservation`,
           );
         }
-        if (parsed.data.status === "candidate") siblings.push(entry);
+        // 日が過ぎた候補は巻き添えにしない。もう電話するところが無いのに
+        // to_cancel を書くと、履歴が「要キャンセルのまま放置した」と、実際には
+        // 起きていないことを言い出す（終わった予約の状態は過去についての事実）。
+        if (parsed.data.status === "candidate" && !isFinished(parsed.data, nowMs)) {
+          siblings.push(entry);
+        }
       }
 
       tx = tx.check(guard);
