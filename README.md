@@ -17,7 +17,7 @@
 ```sh
 deno task seed        # デモデータ投入
 deno task scenario    # E2E: 確定 → 3日進める → 通知列挙 を1コマンドで体験
-deno task test        # 687 tests — 外部サービス接続ゼロで完結
+deno task test        # 690 tests — 外部サービス接続ゼロで完結
 deno task verify      # fmt + check + lint + test + replay を一括実行
 ```
 
@@ -66,7 +66,7 @@ MCPから利用する。非決定性の源（**時刻・外部送信・LLM**）�
 - **ストア**: Deno KV（追記型イベントログ + 導出キャッシュ。Store 抽象で SQLite に差し替え可）
 - **入口**: Claude MCP（`@modelcontextprotocol/sdk`）＋ LINE Bot webhook（2026-07-26
   本番開通・署名検証まで実機確認済み）
-- **テスト**: `deno test` 687件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
+- **テスト**: `deno test` 690件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
 
 ## 使い方（Claude MCP）
 

@@ -54,7 +54,7 @@ plancel と opulse（現 opulse-monitor）は **1 つの org に軽量2アプリ
   | `POST /api/parse`            | 貼り付けメール／画像の取り込み（**ログイン必須**・401 で拒否） |
   | `/api/reservations…`         | 予約 CRUD ＋ 共有（招待・権限、下記）（ログインまたは API トークン必須） |
   | `/api/policy-templates…`     | 施設の既定規定（下記・台帳ごとに非公開）                       |
-  | `GET /healthz`               | ヘルスチェック（`ok`）                                         |
+  | `GET /healthz`               | ヘルスチェック（`ok <ビルドID>`。下記「どのビルドが入っているか」）|
   | `POST /webhook`              | LINE webhook（LINE env 未設定時は 503）                        |
   | `POST /webhook/email`        | メール転送インテーク（Resend inbound webhook、下記 §3.1）      |
 - **予約の共有（招待）と権限**（オーナー
@@ -344,8 +344,8 @@ Claude Desktop の設定例（`claude_desktop_config.json`）:
    データは分離される（ストレージ/読み書きクォータは 2 アプリ合算）。
 5. **環境変数を設定**: §3 の表のとおり。少なくとも `GROQ_API_KEY` / `GEMINI_API_KEY` /
    `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `PLANCEL_KEK`、必要に応じ容量・管理者・LINE 系。
-6. **デプロイ**: `main` に push（または「Deploy」実行）。`GET .../healthz` が `ok`
-   を返すことを確認。PWAを更新した場合、`sw.js` の `CACHE_VERSION` も上げる。利用者はマイページの
+6. **デプロイ**: `main` に push（または「Deploy」実行）。`GET .../healthz` が
+   `ok <ビルドID>` を返し、**ビルドIDが push 前と変わっている**ことを確認。PWAを更新した場合、`sw.js` の `CACHE_VERSION` も上げる。利用者はマイページの
    「更新を確認」から新しいService Workerを取得し、「今すぐ更新」で待機版を適用できる。
 7. **LINE webhook URL 設定**（LINE を使う場合）: Messaging API の Webhook URL を
    `https://plancel-app.torifo.deno.net/webhook` にし、「Webhookの利用」をオン、検証を通す。
@@ -358,6 +358,24 @@ Claude Desktop の設定例（`claude_desktop_config.json`）:
    `LINE_ALLOWED_USER_IDS` も空にする（公開アカウントでは空が正しい。設定したままだと未連携の人が
    連携コードを送れない）。既に連携済みだったオーナーは、初回だけマイページで連携コードを
    発行して LINE に送り直す（旧 env ベースの紐付けは KV に残らないため移行データは無い）。**
+
+### どのビルドが入っているかを外から確かめる（2026-08-12）
+
+Deploy はデプロイを識別するヘッダを返さず、`/healthz` も `ok` しか言わなかったので、push した
+コードが本番に入ったかどうかを外から確かめる手段が無かった（同じ `ok` がどちらでも返る）。
+いまは走っているビルドのIDを返す。
+
+```sh
+curl -s https://plancel-app.torifo.deno.net/healthz   # → ok <ビルドID>
+```
+
+- 中身は `DENO_DEPLOY_BUILD_ID`（走っているビルド＝デプロイごとに変わる）。無ければ
+  `DENO_DEPLOYMENT_ID`（アプリ・ビルド・コンテキスト・環境変数・接続を含むデプロイ設定のID）。
+  どちらも無いローカルでは `dev`。実装は `src/lib/build.ts`。
+- **push の前に一度叩いてIDを控え、後で変わったかを見る**のが確実。ビルドIDとコミットの対応は
+  Deploy のダッシュボード（console.deno.com/torifo/plancel-app）で確認できる。
+- コミットSHAそのものを載せてはいない。ビルド工程を持たない構成では、そのコミット自身のSHAを
+  そのコミットの中に書けない（書けるのは1つ前のSHAで、かえって誤解を招く）。
 
 ### LINE トークのコマンド（リッチメニュー前提・2026-07-28）
 

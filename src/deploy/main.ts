@@ -45,6 +45,7 @@ import { SystemClock } from "../core/clock/mod.ts";
 import { KvStore } from "../core/store/mod.ts";
 import { ulid } from "../lib/ulid.ts";
 import { logger } from "../lib/log.ts";
+import { healthzBody } from "../lib/build.ts";
 import { loadParserChainConfig, realParsers } from "../parse/mod.ts";
 import { runTick } from "../cron/tick.ts";
 import { createLineClient } from "../line/client.ts";
@@ -381,7 +382,8 @@ if (import.meta.main) {
       });
     }
     if (req.method === "GET" && url.pathname === "/healthz") {
-      return new Response("ok");
+      // 本番に何が入っているかを外から言える唯一の場所（src/lib/build.ts）。
+      return new Response(healthzBody(env));
     }
     if (isEmailWebhookPath(url.pathname)) {
       return await handleEmailWebhook(req, emailIntakeDeps);

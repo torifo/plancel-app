@@ -14,6 +14,7 @@
 import { createDefaultContext } from "../mcp/context.ts";
 import { loadParserChainConfig, realParsers } from "../parse/mod.ts";
 import { logger } from "../lib/log.ts";
+import { healthzBody } from "../lib/build.ts";
 import { createLineClient } from "./client.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "./webhook.ts";
 
@@ -51,7 +52,7 @@ if (import.meta.main) {
       return new Response(null, { status: result.status });
     }
     if (req.method === "GET" && url.pathname === "/healthz") {
-      return new Response("ok");
+      return new Response(healthzBody());
     }
     return new Response("not found", { status: 404 });
   });

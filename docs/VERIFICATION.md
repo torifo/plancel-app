@@ -1,7 +1,7 @@
 # plancel 検証ガイド（ローカル検証 + ドキュメント整合 + 本番実機）
 
 > 最終更新: 2026-08-12。§1 のローカルコマンドは 2026-08-12 に再実行して期待出力を確認済み
-> （687 passed | 0 failed、replay 10/10 identical）。
+> （690 passed | 0 failed、replay 10/10 identical）。
 > §3（ログイン・カレンダー・MCP・LINE・Resend の本番トラック）は 2026-07-26 時点の実装を反映。
 > デプロイ前は §1 を上から順に全部通すこと。§2 はドキュメントを触ったとき・リリース前の照合用。 §3
 > はデプロイ後の実機確認（done-when）。
@@ -20,7 +20,7 @@
 ```sh
 deno task check     # 型 + Date直呼び禁止lint → "no_direct_date_check: OK"
 deno lint           # 0 problems
-deno task test      # 687 passed | 0 failed
+deno task test      # 690 passed | 0 failed
 deno task verify    # fmt check + 上記検査 + replayを一括実行
 ```
 
@@ -96,7 +96,7 @@ deno task parse:live "8/20 18:30 〇〇 4名 キャンセルは7日前から20%"
 LINE_CHANNEL_SECRET=dummy-secret LINE_CHANNEL_ACCESS_TOKEN=dummy-token \
 LINE_ALLOWED_USER_IDS=U-owner PORT=18080 deno task line &
 
-curl -s http://localhost:18080/healthz                     # → ok
+curl -s http://localhost:18080/healthz                     # → ok dev
 BODY='{"events":[{"type":"message","replyToken":"r1","source":{"type":"user","userId":"U-stranger"},"message":{"id":"m1","type":"text","text":"test"}}]}'
 SIG=$(deno eval --unstable-temporal 'import { signLineBody } from "./src/line/signature.ts"; console.log(await signLineBody("dummy-secret", Deno.args[0]));' "$BODY")
 curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:18080/webhook -H 'x-line-signature: invalid' -d "$BODY"   # → 401
@@ -116,7 +116,7 @@ curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:18080/webhook -H
 LINE_CHANNEL_SECRET=dummy LINE_CHANNEL_ACCESS_TOKEN=dummy \
 LINE_ALLOWED_USER_IDS=U-owner PORT=18091 deno task deploy:serve &
 
-curl -s http://localhost:18091/healthz    # → ok
+curl -s http://localhost:18091/healthz    # → ok dev（ローカルはビルドIDが無い）
 # 起動ログに cron registered（notifier: line/email/console）と webhook configured が出る
 ```
 
@@ -145,7 +145,7 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 - [ ] `.env` / `local/` がコミットされていない（`git check-ignore .env local/` で確認）
 - [ ] 無料枠の現行条件を再確認（ADR-5 / ADR-10: Groq・Gemini・LINE 月200通・Resend）
 - [x] Deno Deploy本番、マネージドKV、Web UI、認証・共有・Calendar・remote MCPの配線を実装
-- [x] 本番read-only smoke（2026-07-26）: `GET /healthz` = 200 `ok`、未ログイン `GET /auth/me` = 401
+- [x] 本番read-only smoke（2026-07-26）: `GET /healthz` = 200 `ok <ビルドID>`、未ログイン `GET /auth/me` = 401
 - [x] デプロイ後: LINE webhook URL 設定（2026-07-26 完了: env 設定→再デプロイで 503→401、LINE
       console「検証」成功。プロバイダー plancel / channel 2010848177 / Bot @791wbdma）
 - [ ] デプロイ後: LINE をユーザー毎に連携（マイページで連携コード発行 → トークに送信 →
@@ -158,8 +158,8 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 ## 2. ドキュメント整合チェック（既存ドキュメントの検証）
 
 ドキュメントの「実装状態を主張する記述」と実体の照合表。**コード・テスト数・タスク状態を変えたら該当行を更新すること**。
-2026-08-12 時点: 687（終わった予約の履歴化＝日付からの導出・`endsAt` の保持と正規化・
-クライアント写しの固定・カレンダーの終了時刻を追加）。
+2026-08-12 時点: 690（終わった予約の履歴化＝日付からの導出・`endsAt` の保持と正規化・
+クライアント写しの固定・カレンダーの終了時刻・healthz のビルドIDを追加）。
 2026-08-01 時点: 669（Groq主系＋条件付きGemini査読、意味的日時比較、採用出力の検証を追加）。
 2026-07-31 時点: 653（キャンセル規定の境界表記まわりを追加。コーパスに「N日前から◯%」表記の実データ2件）。2026-07-28 時点: README・本ガイドのテスト数を621へ統一（予約の共有編集権限・施設の既定規定・
 メール転送インテーク・文字サイズ3段階の追加分を含む。`specs/plancel/tasks.md` は本更新の対象外
@@ -208,7 +208,7 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 
 ```sh
 BASE=https://plancel-app.torifo.deno.net
-curl -s "$BASE/healthz"                                   # → ok
+curl -s "$BASE/healthz"                                   # → ok <ビルドID>（push 前と変わっていること）
 curl -s -o /dev/null -w '%{http_code}\n' "$BASE/auth/me"  # → 401（未ログイン）
 # 管理者トークンでの台帳直アクセス（PLANCEL_ADMIN_TOKEN を設定している場合）:
 curl -s "$BASE/api/reservations" \
