@@ -6,8 +6,8 @@ export { maskPii } from "./pii-mask.ts";
 export type { PiiKind, PiiMaskResult, PiiMatch } from "./pii-mask.ts";
 export { validateParsedOutput } from "./validate.ts";
 export type { ValidationResult } from "./validate.ts";
-export { missingFieldQuestions, runParseChain } from "./chain.ts";
-export type { ParseChainIds } from "./chain.ts";
+export { allParsersFailed, missingFieldQuestions, parserFailures, runParseChain } from "./chain.ts";
+export type { ParseChainIds, ParserFailure } from "./chain.ts";
 export {
   chainForInput,
   loadParserChainConfig,

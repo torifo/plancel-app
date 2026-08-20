@@ -1,7 +1,12 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
 import { VirtualClock } from "../../core/clock/mod.ts";
 import type { ParserChainConfig } from "../config.ts";
-import { missingFieldQuestions, runParseChain } from "../chain.ts";
+import {
+  allParsersFailed,
+  missingFieldQuestions,
+  parserFailures,
+  runParseChain,
+} from "../chain.ts";
 import { MockParser } from "../mock-parser.ts";
 import type { ParseInput, Parser, ParseResult } from "../types.ts";
 
@@ -322,4 +327,65 @@ Deno.test("runParseChain: parsers receive the PII-masked text, not the raw input
   );
   // raw_input on the ParseJob keeps the original, unmasked text for records.
   assertEquals(job.raw_input, rawInput);
+});
+
+// Task 8.3 / ADR-13: "no model answered" and "no model could read this" both
+// end as status "failed", but they need opposite answers from every surface,
+// so the difference has to survive out of the chain.
+const PROVIDER_DOWN = {
+  raw_response: "error: groq http 404: model_not_found",
+  output: null,
+};
+
+Deno.test("parserFailures: names the providers that never answered", async () => {
+  const text = "8/1 19時 〇〇";
+  const job = await runParseChain(
+    { type: "text", content: text, correlation_id: "c" },
+    { text: ["p1", "p2"], image: [] } as ParserChainConfig,
+    [
+      MockParser("p1", new Map([[text, PROVIDER_DOWN]])),
+      MockParser("p2", new Map([[text, { raw_response: "{}", output: {} }]])),
+    ],
+    new VirtualClock("2026-07-16T00:00:00Z"),
+    { ulid: () => "J1", nowIso: () => "2026-07-16T00:00:00.000Z" },
+  );
+
+  assertEquals(parserFailures(job), [{
+    parser: "p1",
+    error: "groq http 404: model_not_found",
+  }]);
+  // p2 did answer, so something IS known about the text itself.
+  assertEquals(allParsersFailed(job), false);
+});
+
+Deno.test("allParsersFailed: true only when nothing read the input at all", async () => {
+  const text = "8/1 19時 〇〇";
+  const job = await runParseChain(
+    { type: "text", content: text, correlation_id: "c" },
+    { text: ["p1", "p2"], image: [] } as ParserChainConfig,
+    [
+      MockParser("p1", new Map([[text, PROVIDER_DOWN]])),
+      MockParser("p2", new Map([[text, { raw_response: "error: gemini http 503", output: null }]])),
+    ],
+    new VirtualClock("2026-07-16T00:00:00Z"),
+    { ulid: () => "J2", nowIso: () => "2026-07-16T00:00:00.000Z" },
+  );
+
+  assertEquals(job.status, "failed");
+  assertEquals(allParsersFailed(job), true);
+});
+
+Deno.test("allParsersFailed: a model that answered nothing useful is not a failure", async () => {
+  const text = "？？？";
+  const job = await runParseChain(
+    { type: "text", content: text, correlation_id: "c" },
+    { text: ["p1"], image: [] } as ParserChainConfig,
+    [MockParser("p1", new Map())], // answers, but has nothing to say
+    new VirtualClock("2026-07-16T00:00:00Z"),
+    { ulid: () => "J3", nowIso: () => "2026-07-16T00:00:00.000Z" },
+  );
+
+  assertEquals(job.status, "failed");
+  assertEquals(parserFailures(job), []);
+  assertEquals(allParsersFailed(job), false);
 });

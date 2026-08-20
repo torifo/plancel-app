@@ -140,3 +140,56 @@ Deno.test("parse api: image content routes through the image chain (vision)", as
   assertEquals(body.status, "parsed");
   assertEquals(body.fields.service, "宿");
 });
+
+// ADR-13: a provider that stopped answering used to be indistinguishable from
+// a mail nobody could read — same 200, same "failed", and nothing in the log.
+Deno.test("parse api: no provider answered -> reason unavailable, logged as an error", async () => {
+  const text = "8/15 19:00 鮨さいとう";
+  const dead = MockParser(
+    "p1",
+    new Map([[text, { raw_response: "error: groq http 404: model_not_found", output: null }]]),
+  );
+  const lines: string[] = [];
+  const { deps } = makeDeps([dead]);
+  deps.logWrite = (line) => lines.push(line);
+
+  const body = await (await handleParseApi(reqOf({ type: "text", content: text }), deps)).json();
+
+  assertEquals(body.status, "failed");
+  assertEquals(body.reason, "unavailable");
+  assertEquals(lines.length, 1);
+  const record = JSON.parse(lines[0]!);
+  assertEquals(record.level, "error");
+  assertEquals(record.component, "web.parse");
+  assertEquals(record.failures, [{ parser: "p1", error: "groq http 404: model_not_found" }]);
+});
+
+Deno.test("parse api: a model that read nothing -> reason unreadable", async () => {
+  const lines: string[] = [];
+  const { deps } = makeDeps([MockParser("p1", new Map())]);
+  deps.logWrite = (line) => lines.push(line);
+
+  const body = await (await handleParseApi(reqOf({ type: "text", content: "？？？" }), deps))
+    .json();
+
+  assertEquals(body.status, "failed");
+  assertEquals(body.reason, "unreadable");
+  assertEquals(JSON.parse(lines[0]!).level, "info");
+});
+
+Deno.test("parse api: a parsed job says nothing about a reason", async () => {
+  const text = "8/15 19:00 鮨さいとう";
+  const p1 = MockParser(
+    "p1",
+    new Map([[text, {
+      raw_response: "{}",
+      output: { service_name: "鮨さいとう", starts_at: "2026-08-15T19:00:00+09:00" },
+    }]]),
+  );
+  const { deps } = makeDeps([p1]);
+
+  const body = await (await handleParseApi(reqOf({ type: "text", content: text }), deps)).json();
+
+  assertEquals(body.status, "parsed");
+  assertEquals(body.reason, null);
+});

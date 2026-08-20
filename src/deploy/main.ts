@@ -46,7 +46,12 @@ import { KvStore } from "../core/store/mod.ts";
 import { ulid } from "../lib/ulid.ts";
 import { logger } from "../lib/log.ts";
 import { healthzBody } from "../lib/build.ts";
-import { loadParserChainConfig, realParsers } from "../parse/mod.ts";
+import {
+  GEMINI_DEFAULT_MODEL,
+  GROQ_DEFAULT_MODEL,
+  loadParserChainConfig,
+  realParsers,
+} from "../parse/mod.ts";
 import { runTick } from "../cron/tick.ts";
 import { createLineClient } from "../line/client.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../line/webhook.ts";
@@ -84,6 +89,18 @@ if (import.meta.main) {
   // One parser chain shared by every intake surface (web /api/parse, LINE).
   const parsers = realParsers({ clock });
   const chainConfig = await loadParserChainConfig();
+  // Which model this build actually asks for, said out loud at boot. Providers
+  // retire models without notice (ADR-13) and the chain swallows that as a
+  // fall-through, so the running model has to be readable from outside
+  // without a deploy.
+  log.info("parsers configured", {
+    text: chainConfig.text,
+    image: chainConfig.image,
+    groqModel: GROQ_DEFAULT_MODEL,
+    geminiModel: GEMINI_DEFAULT_MODEL,
+    groqKey: env.get("GROQ_API_KEY") !== undefined,
+    geminiKey: env.get("GEMINI_API_KEY") !== undefined,
+  });
 
   // Webhook deps only when LINE is configured; healthz always serves.
   const channelSecret = env.get("LINE_CHANNEL_SECRET");

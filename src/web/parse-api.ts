@@ -18,10 +18,13 @@
 import { z } from "zod";
 import type { Clock } from "../core/clock/mod.ts";
 import type { ParseJob } from "../core/schema/mod.ts";
+import { logger } from "../lib/log.ts";
 import {
+  allParsersFailed,
   impliedFreeBoundaryHours,
   mergedParsedOutput,
   missingFieldQuestions,
+  parserFailures,
   runParseChain,
 } from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
@@ -34,6 +37,8 @@ export interface ParseApiDeps {
   ids: { ulid(): string; nowIso(): string };
   /** Persists the ParseJob for the replay corpus (best-effort). */
   saveJob: (job: ParseJob) => Promise<void>;
+  /** Injectable log sink for tests; defaults to stdout. */
+  logWrite?: (line: string) => void;
 }
 
 const parseReqSchema = z.object({
@@ -56,6 +61,7 @@ async function readJson(req: Request): Promise<unknown> {
 }
 
 export async function handleParseApi(req: Request, deps: ParseApiDeps): Promise<Response> {
+  const log = logger("web.parse", deps.logWrite !== undefined ? { write: deps.logWrite } : {});
   const token = req.headers.get("x-plancel-token")?.trim();
   if (!token) return json({ error: "missing x-plancel-token" }, 400);
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -72,10 +78,27 @@ export async function handleParseApi(req: Request, deps: ParseApiDeps): Promise<
     ulid: deps.ids.ulid,
     nowIso: deps.ids.nowIso,
   });
+
+  // Every intake surface but this one already said how its parse went; this
+  // one said nothing, so a provider that had stopped answering was invisible
+  // from the outside for as long as nobody complained (ADR-13). The failures
+  // carry the provider's own words, which is what names the cause.
+  const failures = parserFailures(job);
+  const outcome = {
+    job_id: job.id,
+    status: job.status,
+    input_type: job.input_type,
+    correlation_id: input.correlation_id,
+    ...(failures.length > 0 ? { failures } : {}),
+  };
+  if (allParsersFailed(job)) log.error("no parser could answer", outcome);
+  else if (failures.length > 0) log.warn("a parser could not answer", outcome);
+  else log.info("parse job created", outcome);
+
   try {
     await deps.saveJob(job);
   } catch (err) {
-    console.error("parse-api: saveJob failed (ignored):", err);
+    log.warn("saveJob failed (ignored)", { job_id: job.id, err: String(err) });
   }
 
   const merged = mergedParsedOutput(job);
@@ -99,6 +122,12 @@ export async function handleParseApi(req: Request, deps: ParseApiDeps): Promise<
     job_id: job.id,
     fields,
     missing: missingFieldQuestions(job),
+    // Why it failed, decided here rather than sniffed out of `detail` in the
+    // browser: "no provider answered" asks the person to wait, "nothing could
+    // be read" asks them to paste something else. `detail` stays for the
+    // console — it is the provider's or the model's own English, never a
+    // sentence to show a person.
+    reason: job.status === "failed" ? (allParsersFailed(job) ? "unavailable" : "unreadable") : null,
     detail: job.status === "failed" ? job.attempts.at(-1)?.raw_response ?? null : null,
   });
 }

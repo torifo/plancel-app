@@ -39,9 +39,11 @@ import {
 } from "../mcp/tools/shared.ts";
 import type { ParseJob, Reservation } from "../core/schema/mod.ts";
 import {
+  allParsersFailed,
   impliedFreeBoundaryHours,
   mergedParsedOutput,
   missingFieldQuestions,
+  parserFailures,
   runParseChain,
   validateParsedOutput,
 } from "../parse/mod.ts";
@@ -349,7 +351,18 @@ async function handleMessage(
     chainIds(deps.ctx),
   );
   await deps.ctx.store.putParseJob(job);
-  log.info("parse job created", { job_id: job.id, status: job.status, correlation_id });
+  const failures = parserFailures(job);
+  const outcome = {
+    job_id: job.id,
+    status: job.status,
+    correlation_id,
+    ...(failures.length > 0 ? { failures } : {}),
+  };
+  // A provider that has stopped answering must not read as "the user sent
+  // something unreadable" (ADR-13) — the level is what makes it findable.
+  if (allParsersFailed(job)) log.error("no parser could answer", outcome);
+  else if (failures.length > 0) log.warn("a parser could not answer", outcome);
+  else log.info("parse job created", outcome);
 
   if (job.status === "parsed") {
     const registered = await registerOutput(deps, web, resolvedOutput(job), job);

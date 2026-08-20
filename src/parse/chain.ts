@@ -83,6 +83,42 @@ function detectFieldConflicts(attempts: ParseAttempt[]): FieldConflict[] {
   return conflicts;
 }
 
+/** The prefix `parserError()` (llm.ts) writes in front of every provider failure. */
+const PROVIDER_ERROR_PREFIX = "error: ";
+
+export interface ParserFailure {
+  parser: string;
+  /** The provider's own words: "groq http 404: ...", "gemini request failed: ...". */
+  error: string;
+}
+
+/**
+ * The attempts that never got an answer out of their provider at all — a
+ * missing key, an HTTP status, a network error, an empty body.
+ *
+ * A parser never throws (groq.ts/gemini.ts), so without this the caller
+ * cannot tell "the model said nothing useful about this text" from "we could
+ * not reach a model". Those need opposite responses: one asks the person to
+ * paste something clearer, the other asks them to wait. A model answering
+ * under `response_format: json_object` cannot produce this prefix itself.
+ */
+export function parserFailures(job: ParseJob): ParserFailure[] {
+  return job.attempts
+    .filter((a) => a.output === null && a.raw_response.startsWith(PROVIDER_ERROR_PREFIX))
+    .map((a) => ({
+      parser: a.parser,
+      error: a.raw_response.slice(PROVIDER_ERROR_PREFIX.length),
+    }));
+}
+
+/**
+ * True when every parser that ran failed to answer, so the input was never
+ * actually read by anything. Nothing can be concluded about the text itself.
+ */
+export function allParsersFailed(job: ParseJob): boolean {
+  return job.attempts.length > 0 && parserFailures(job).length === job.attempts.length;
+}
+
 /**
  * Derives a human-facing list of missing/invalid field questions from
  * attempts that failed validation — used by consumers (e.g. the LINE bot,

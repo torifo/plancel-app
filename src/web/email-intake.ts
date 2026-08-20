@@ -38,7 +38,13 @@ import { z } from "zod";
 import type { Clock } from "../core/clock/mod.ts";
 import type { ParseJob } from "../core/schema/mod.ts";
 import { logger } from "../lib/log.ts";
-import { impliedFreeBoundaryHours, mergedParsedOutput, runParseChain } from "../parse/mod.ts";
+import {
+  allParsersFailed,
+  impliedFreeBoundaryHours,
+  mergedParsedOutput,
+  parserFailures,
+  runParseChain,
+} from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
 import { fromCoreStages } from "./policy.ts";
 import { createReservation, webCreateSchema, type WebIds } from "./store.ts";
@@ -412,12 +418,19 @@ async function intake(
     : null;
   if (create === null || !create.success) {
     await notifyUnreadable(user, subject, deps, log);
-    log.warn("forwarded mail could not be parsed; nothing written", {
+    // Name the providers that never answered: without them "could not be
+    // parsed" reads as a mail problem even when no model was reachable at
+    // all (ADR-13).
+    const failures = parserFailures(job);
+    const fields = {
       userId: user.id,
       email_id: event.email_id,
       job_id: job.id,
       status: job.status,
-    });
+      ...(failures.length > 0 ? { failures } : {}),
+    };
+    if (allParsersFailed(job)) log.error("no parser could answer a forwarded mail", fields);
+    else log.warn("forwarded mail could not be parsed; nothing written", fields);
     return empty(200);
   }
 
