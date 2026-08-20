@@ -1,10 +1,19 @@
 /**
- * GroqParser — primary TEXT parser (Task 6.1, ADR-5: Groq Llama 3.3 70B).
+ * GroqParser — primary TEXT parser (Task 6.1, ADR-5, ADR-13).
  *
- * Free-tier quota recheck (ADR-5 note), as of 2026-08:
- * llama-3.3-70b-versatile on the free plan is ~30 req/min, 1,000 req/day,
- * 100K tokens/day — the tokens/day cap is the binding constraint, still far
- * above this product's expected parse volume (a few reservations/day).
+ * The model is NOT pinned to a family, because Groq retires models without
+ * notice. `llama-3.3-70b-versatile` (the ADR-5 pick) answered
+ * 404 model_not_found, and by 2026-08-20 the account listed no Llama chat
+ * model at all: every pasted text had been falling through to Gemini alone,
+ * and nothing anywhere said so. Chosen instead: the largest general model
+ * Groq lists that honours `response_format: json_object`. qwen3.6-27b was
+ * rejected — it answers json_validate_failed on this prompt.
+ *
+ * Free-tier limits measured 2026-08-20 on this account: 1,000 req/min and
+ * 8,000 tokens/min. The prompt alone is ~1.5K tokens, so the per-minute
+ * token cap allows roughly four parses a minute — far above a family's few
+ * reservations a day, but it is the limit a burst hits first — and it says
+ * so with a 429 rather than a wrong answer.
  *
  * Text-only (`supports` rejects images — the image route is pinned to
  * Gemini per SDD §5). Never throws: any failure (missing key, HTTP error,
@@ -20,8 +29,13 @@ import {
   resolveApiKey,
 } from "./llm.ts";
 
+// The chain-slot id, not a claim about the model: `parsers.config.json`, the
+// recorded replay corpus in `fixtures/parse/` and every stored ParseJob key
+// this parser's attempts by this string. Renaming it would rewrite history
+// that says what the Llama model actually answered, so the id stays put and
+// GROQ_DEFAULT_MODEL alone says what is being asked today.
 export const GROQ_PARSER_NAME = "groq-llama";
-export const GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile";
+export const GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b";
 const GROQ_DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_API_KEY_ENV = "GROQ_API_KEY";
 

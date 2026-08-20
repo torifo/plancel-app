@@ -41,7 +41,10 @@ Deno.test("GroqParser: success — output extracted, raw_response is the model t
     messages: { role: string; content: string }[];
     response_format: { type: string };
   };
-  assertEquals(body.model, "llama-3.3-70b-versatile");
+  // Spelled out rather than compared to GROQ_DEFAULT_MODEL: a model swap has
+  // to be a deliberate edit here too. Groq retiring llama-3.3-70b-versatile
+  // under us (ADR-13) is exactly the change this line is meant to catch.
+  assertEquals(body.model, "openai/gpt-oss-120b");
   assertEquals(body.response_format.type, "json_object");
   assertEquals(body.messages[1]?.content, TEXT_INPUT.content);
 });
