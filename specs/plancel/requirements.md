@@ -55,7 +55,7 @@
 **As a** 身内の利用者 **I want to** LINE にテキスト・スクショを送るだけで予約登録する **So that** 専用アプリなしで使える
 
 **Acceptance Criteria:**
-- WHEN テキスト入力を受けた THE SYSTEM SHALL 一次パーサー（Groq Llama 3.3 70B）→ 二次（Gemini Flash）の順で試行する
+- WHEN テキスト入力を受けた THE SYSTEM SHALL 一次パーサー（Groq）→ 二次（Gemini Flash）の順で試行する（具体のモデル名は固定しない。プロバイダが引退させるため — ADR-13）
 - WHEN 画像入力を受けた THE SYSTEM SHALL Gemini Flash（vision）でパースする
 - WHEN パーサー間でフィールドが食い違った THE SYSTEM SHALL 食い違ったフィールドのみを FieldConflict として Quick Reply でワンタップ選択させる（全文再入力は要求しない）
 - WHEN 全段パースに失敗した THE SYSTEM SHALL ParseJob を `needs_review` 化し、欠損フィールドだけを質問する

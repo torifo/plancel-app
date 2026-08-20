@@ -144,6 +144,10 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 - [ ] `git status` clean / main が最新コミット
 - [ ] `.env` / `local/` がコミットされていない（`git check-ignore .env local/` で確認）
 - [ ] 無料枠の現行条件を再確認（ADR-5 / ADR-10: Groq・Gemini・LINE 月200通・Resend）
+- [ ] **一次・二次パーサーのモデルがまだ提供されているか**（ADR-13。引退は 404 model_not_found と
+  して返り、チェーンはそれを黙って次へ落とすので、外からは「読めなかった」と区別が付かない）:
+  `deno run --env-file=.env --allow-env --allow-read --allow-net=api.groq.com,generativelanguage.googleapis.com --unstable-temporal src/cli/parse_live.ts "8/1 19時 〇〇レストラン 8000円"`
+  → `status: parsed` かつ **groq-llama の attempt が `error:` で始まっていない**こと
 - [x] Deno Deploy本番、マネージドKV、Web UI、認証・共有・Calendar・remote MCPの配線を実装
 - [x] 本番read-only smoke（2026-07-26）: `GET /healthz` = 200 `ok <ビルドID>`、未ログイン `GET /auth/me` = 401
 - [x] デプロイ後: LINE webhook URL 設定（2026-07-26 完了: env 設定→再デプロイで 503→401、LINE
@@ -171,7 +175,7 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 | README「構成」表     | src/ ディレクトリ一覧と役割                          | `ls src/`（core/notify/mcp/parse/cron/line/cli/lib）                                      |
 | README「ステータス」 | 実装済みレイヤーと残作業                             | `specs/plancel/tasks.md` の Progress 節                                                   |
 | README 環境変数      | 変数名                                               | `grep -rn "Deno.env.get" src/ scripts/`                                                   |
-| SDD §12 ADR 表       | 決定と実装の一致（ADR-5 モデル名 / ADR-10 チャネル） | `src/parse/{groq,gemini}.ts` の DEFAULT_MODEL、`src/line/` `src/notify/email-notifier.ts` |
+| SDD §12 ADR 表       | 決定と実装の一致（ADR-13 モデル名 / ADR-10 チャネル） | `src/parse/{groq,gemini}.ts` の DEFAULT_MODEL、`src/line/` `src/notify/email-notifier.ts` |
 | ROADMAP / tasks.md   | レイヤー進捗                                         | tasks.md Progress が唯一の進捗ソース（ROADMAP は構造のみ）                                |
 | parsers.config.json  | 実チェーン宣言                                       | `{"text":["groq-llama","gemini-flash"],"image":["gemini-flash"]}`                         |
 | fixtures/parse/      | 回帰コーパス件数                                     | `deno task replay` の N/N と README/tasks の記述                                          |
