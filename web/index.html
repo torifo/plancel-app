@@ -3867,9 +3867,15 @@
     }
     function handleParseResult(res) {
       if (res.status === "failed") {
+        // detail は読み取り役（モデル・プロバイダ）が返した英語そのもの。人に読ませる
+        // 文ではないので画面には出さず、問い合わせ用にコンソールへ残す。
+        if (res.detail) console.error("parse failed:", res.reason || "unreadable", res.detail);
+        // 何も読めなかったのか、読み取り役に繋がらなかったのかで、次にやることが違う。
+        // 見分けはサーバが付ける（src/web/parse-api.ts の reason）。
         alert(
-          "読み取れませんでした。店名と日時がわかる形で貼り付けるか、手動で追加してください。" +
-            (res.detail ? "\n\n詳細: " + String(res.detail).slice(0, 200) : ""),
+          res.reason === "unavailable"
+            ? "いま読み取りの機能につながりませんでした。少し時間をおいてから、もう一度お試しください。急ぐときは、このまま手動で追加できます。"
+            : "読み取れませんでした。店名と日時がわかる形で貼り付けるか、手動で追加してください。",
         );
         openAdd();
         return;
@@ -3908,7 +3914,8 @@
       try {
         handleParseResult(await parseRemote("text", t));
       } catch (e) {
-        alert("解析に失敗しました: " + e.message);
+        // apiErrorText を通す（識別子や "Failed to fetch" を画面に出さないため）。
+        alert(apiErrorText(e, "読み取りに進めませんでした。"));
       }
     };
 
@@ -3962,7 +3969,7 @@
       try {
         handleParseResult(await parseRemote("image", await imageToDataUrl(f)));
       } catch (err) {
-        alert("画像の解析に失敗しました: " + err.message);
+        alert(apiErrorText(err, "画像の読み取りに進めませんでした。"));
       }
     };
 
