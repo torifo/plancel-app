@@ -83,3 +83,25 @@ Deno.test("GroqParser: text-only — supports() rejects images", () => {
   assertEquals(parser.supports({ type: "text", content: "x", correlation_id: "c" }), true);
   assertEquals(parser.supports({ type: "image", content: "x", correlation_id: "c" }), false);
 });
+
+Deno.test("GroqParser: a 5xx is asked once more, and the second answer is used", async () => {
+  const content = '{"service_name":"〇〇レストラン"}';
+  let n = 0;
+  const { fetch, calls } = stubFetch(() =>
+    ++n === 1 ? new Response("upstream busy", { status: 503 }) : groqResponse(content)
+  );
+
+  const result = await GroqParser({ apiKey: "k", fetch, retryDelayMs: 0 }).parse(TEXT_INPUT);
+
+  assertEquals(calls.length, 2);
+  assertEquals(result.raw_response, content);
+});
+
+Deno.test("GroqParser: a 429 is a quota, not a blip — it is not asked again", async () => {
+  const { fetch, calls } = stubFetch(() => new Response("rate limited", { status: 429 }));
+
+  const result = await GroqParser({ apiKey: "k", fetch, retryDelayMs: 0 }).parse(TEXT_INPUT);
+
+  assertEquals(calls.length, 1);
+  assertStringIncludes(result.raw_response, "groq http 429");
+});

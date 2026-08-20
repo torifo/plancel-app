@@ -25,6 +25,8 @@ import type { Clock } from "../core/clock/mod.ts";
 import {
   extractReservationJson,
   parserError,
+  postRetryingOn5xx,
+  PROVIDER_RETRY_DELAY_MS,
   reservationPromptForClock,
   resolveApiKey,
 } from "./llm.ts";
@@ -48,12 +50,15 @@ export interface GroqParserOptions {
   endpoint?: string;
   /** Injectable for tests; defaults to the global fetch. */
   fetch?: typeof fetch;
+  /** Pause before the single 5xx retry; 0 disables the wait (tests). */
+  retryDelayMs?: number;
 }
 
 export function GroqParser(options: GroqParserOptions = {}): Parser {
   const model = options.model ?? GROQ_DEFAULT_MODEL;
   const endpoint = options.endpoint ?? GROQ_DEFAULT_ENDPOINT;
   const doFetch = options.fetch ?? fetch;
+  const retryDelayMs = options.retryDelayMs ?? PROVIDER_RETRY_DELAY_MS;
 
   return {
     name: GROQ_PARSER_NAME,
@@ -66,7 +71,7 @@ export function GroqParser(options: GroqParserOptions = {}): Parser {
 
       let body: string;
       try {
-        const res = await doFetch(endpoint, {
+        const { res, body: answered } = await postRetryingOn5xx(doFetch, endpoint, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${apiKey}`,
@@ -81,8 +86,8 @@ export function GroqParser(options: GroqParserOptions = {}): Parser {
               { role: "user", content: input.content },
             ],
           }),
-        });
-        body = await res.text();
+        }, retryDelayMs);
+        body = answered;
         if (!res.ok) {
           return parserError(`groq http ${res.status}: ${body}`);
         }

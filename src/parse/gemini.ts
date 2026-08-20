@@ -17,6 +17,8 @@ import type { Clock } from "../core/clock/mod.ts";
 import {
   extractReservationJson,
   parserError,
+  postRetryingOn5xx,
+  PROVIDER_RETRY_DELAY_MS,
   reservationPromptForClock,
   resolveApiKey,
 } from "./llm.ts";
@@ -41,6 +43,8 @@ export interface GeminiParserOptions {
   endpoint?: string;
   /** Injectable for tests; defaults to the global fetch. */
   fetch?: typeof fetch;
+  /** Pause before the single 5xx retry; 0 disables the wait (tests). */
+  retryDelayMs?: number;
 }
 
 interface GeminiPart {
@@ -68,6 +72,7 @@ export function GeminiParser(options: GeminiParserOptions = {}): Parser {
   const model = options.model ?? GEMINI_DEFAULT_MODEL;
   const endpoint = options.endpoint ?? GEMINI_DEFAULT_ENDPOINT;
   const doFetch = options.fetch ?? fetch;
+  const retryDelayMs = options.retryDelayMs ?? PROVIDER_RETRY_DELAY_MS;
 
   return {
     name: GEMINI_PARSER_NAME,
@@ -80,19 +85,24 @@ export function GeminiParser(options: GeminiParserOptions = {}): Parser {
 
       let body: string;
       try {
-        const res = await doFetch(`${endpoint}/models/${model}:generateContent`, {
-          method: "POST",
-          headers: {
-            "x-goog-api-key": apiKey,
-            "Content-Type": "application/json",
+        const { res, body: answered } = await postRetryingOn5xx(
+          doFetch,
+          `${endpoint}/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "x-goog-api-key": apiKey,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: reservationPromptForClock(options.clock) }] },
+              contents: [{ role: "user", parts: toParts(input) }],
+              generationConfig: { temperature: 0, responseMimeType: "application/json" },
+            }),
           },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: reservationPromptForClock(options.clock) }] },
-            contents: [{ role: "user", parts: toParts(input) }],
-            generationConfig: { temperature: 0, responseMimeType: "application/json" },
-          }),
-        });
-        body = await res.text();
+          retryDelayMs,
+        );
+        body = answered;
         if (!res.ok) {
           return parserError(`gemini http ${res.status}: ${body}`);
         }

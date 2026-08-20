@@ -113,3 +113,29 @@ Deno.test("GeminiParser: supports both text and image (vision-pinned route)", ()
   assertEquals(parser.supports({ type: "text", content: "x", correlation_id: "c" }), true);
   assertEquals(parser.supports({ type: "image", content: "x", correlation_id: "c" }), true);
 });
+
+Deno.test("GeminiParser: a 503 is asked once more (the image route has no fallback)", async () => {
+  const content = '{"service_name":"〇〇レストラン"}';
+  let n = 0;
+  const { fetch, calls } = stubFetch(() =>
+    ++n === 1
+      ? new Response('{"error":{"code":503,"status":"UNAVAILABLE"}}', { status: 503 })
+      : geminiResponse(content)
+  );
+
+  const result = await GeminiParser({ apiKey: "k", fetch, retryDelayMs: 0 }).parse(TEXT_INPUT);
+
+  assertEquals(calls.length, 2);
+  assertEquals(result.raw_response, content);
+});
+
+Deno.test("GeminiParser: a 404 model_not_found is not asked again", async () => {
+  const { fetch, calls } = stubFetch(() =>
+    new Response('{"error":{"code":404,"message":"model not found"}}', { status: 404 })
+  );
+
+  const result = await GeminiParser({ apiKey: "k", fetch, retryDelayMs: 0 }).parse(TEXT_INPUT);
+
+  assertEquals(calls.length, 1);
+  assertStringIncludes(result.raw_response, "gemini http 404");
+});

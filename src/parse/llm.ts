@@ -135,6 +135,38 @@ export function parserError(detail: string): ParseResult {
   return { raw_response: `error: ${detail}`, output: null };
 }
 
+/** Default pause before the single retry below. */
+export const PROVIDER_RETRY_DELAY_MS = 700;
+
+/**
+ * POSTs to a provider and, if it answers 5xx, asks exactly once more.
+ *
+ * A 5xx is the provider saying "not me, not now" — Gemini's 503 "This model is
+ * currently experiencing high demand" is the one actually seen. On the image
+ * route Gemini is the only parser there is, so one such blip is a failed
+ * import for someone who did nothing wrong.
+ *
+ * 429 is deliberately NOT retried: that one is a quota, and asking again
+ * straight away only spends more of it. Neither is a network error — the
+ * parsers report those as-is, because a retry cannot tell a flaky connection
+ * from a wrong endpoint.
+ */
+export async function postRetryingOn5xx(
+  doFetch: typeof fetch,
+  url: string,
+  init: RequestInit,
+  delayMs: number = PROVIDER_RETRY_DELAY_MS,
+): Promise<{ res: Response; body: string }> {
+  const once = async () => {
+    const res = await doFetch(url, init);
+    return { res, body: await res.text() };
+  };
+  const first = await once();
+  if (first.res.status < 500) return first;
+  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  return await once();
+}
+
 /** Reads an API key from options or the environment, tolerating missing --allow-env. */
 export function resolveApiKey(explicit: string | undefined, envVar: string): string | undefined {
   if (explicit !== undefined && explicit !== "") return explicit;
