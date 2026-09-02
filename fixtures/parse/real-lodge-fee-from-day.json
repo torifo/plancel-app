@@ -34,5 +34,14 @@
       "notes": null
     },
     "conflicts": []
+  },
+  "truth": {
+    "service_name": "星取山ロッジ",
+    "starts_at": "2026-10-09T18:00:00+09:00",
+    "ends_at": null,
+    "location": "鳥取県東伯郡三朝町",
+    "amount_jpy": 42000,
+    "policy": "192/0,0/20",
+    "why": "「7日前から20%」は から表記。7日前は有料の日なので無料は 192h（168 ではない）。"
   }
 }

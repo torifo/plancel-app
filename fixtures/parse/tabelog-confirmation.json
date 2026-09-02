@@ -29,5 +29,14 @@
       }
     },
     "conflicts": []
+  },
+  "truth": {
+    "service_name": "焼肉 三田家",
+    "starts_at": "2026-08-15T19:00:00+09:00",
+    "ends_at": null,
+    "location": null,
+    "amount_jpy": null,
+    "policy": "25/0,0/100",
+    "why": "19:00 開始で「前日18時まで無料」＝ 25時間前（プロンプトの例と同じ形）。"
   }
 }

@@ -21,5 +21,14 @@
       "notes": "新年会、6名、時刻は19時のみ確定"
     },
     "conflicts": []
+  },
+  "truth": {
+    "service_name": "きんくら",
+    "starts_at_md": "01-15T19:00",
+    "ends_at": null,
+    "location": null,
+    "amount_jpy": null,
+    "policy": "unknown",
+    "why": "年が無いので月日と時刻まで。規定の記載なし。"
   }
 }

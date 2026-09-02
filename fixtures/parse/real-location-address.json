@@ -21,5 +21,14 @@
       "notes": "4名様"
     },
     "conflicts": []
+  },
+  "truth": {
+    "service_name": "炭火焼鳥 とり多津 浅草店",
+    "starts_at_md": "08-20T18:30",
+    "ends_at": null,
+    "location": "東京都台東区雷門2-3-4 雷門ビル2F",
+    "amount_jpy": null,
+    "policy": "unknown",
+    "why": "年が無いので月日と時刻まで。住所は括弧内にそのまま書かれている。"
   }
 }

@@ -33,5 +33,14 @@
         ]
       }
     ]
+  },
+  "truth": {
+    "service_name": "◯◯",
+    "starts_at_time": "19:00",
+    "ends_at": null,
+    "location": null,
+    "amount_jpy": null,
+    "policy": "24/0",
+    "why": "「土曜19時」は曜日なので日付は決まらない。時刻と、「前日まで無料」の 24/0 だけが本文から決まる。"
   }
 }
