@@ -69,6 +69,13 @@ import {
   MAIL_DAILY_CAP_DEFAULT,
 } from "../web/email-intake.ts";
 import { loadPwaAssets, servePwaAsset } from "../web/pwa.ts";
+import {
+  handleAdminReportsApi,
+  handleReportsApi,
+  isAdminReportsPath,
+  isReportsPath,
+  type ReportsDeps,
+} from "../web/reports.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 
@@ -183,6 +190,10 @@ if (import.meta.main) {
     (env.get("PLANCEL_ALLOWED_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
       .filter(Boolean),
   );
+  const adminEmails = new Set(
+    (env.get("PLANCEL_ADMIN_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
   const authDeps: AuthDeps = {
     kv: store.kv,
     ids: authIds,
@@ -208,10 +219,7 @@ if (import.meta.main) {
     // disables the cap.
     maxUsers: Number(env.get("PLANCEL_MAX_USERS") ?? "50"),
     allowedEmails,
-    adminEmails: new Set(
-      (env.get("PLANCEL_ADMIN_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase())
-        .filter(Boolean),
-    ),
+    adminEmails,
     // メール転送インテーク: /auth/me shows the address only once a receiving
     // domain exists (production: the auto-issued *.resend.app domain).
     ...(env.get("PLANCEL_INBOUND_DOMAIN") !== undefined
@@ -319,6 +327,13 @@ if (import.meta.main) {
     ids: { ulid: () => ulid(), nowIso: webIds.nowIso },
     saveJob: (job) => store.putParseJob(job),
   };
+  // What people (and the canary) tell the developer — read from マイページ by
+  // admin accounts, never pushed anywhere (ADR-14).
+  const reportDeps: ReportsDeps = {
+    kv: store.kv,
+    ids: { ulid: () => ulid(), nowIso: webIds.nowIso },
+    adminEmails,
+  };
 
   // メール転送インテーク (owner 2026-07-27): a forwarded confirmation mail lands
   // in the FORWARDER'S OWN ledger as a candidate, through the same parser chain
@@ -372,6 +387,15 @@ if (import.meta.main) {
       const who = await resolveIdentity(req, authDeps);
       if (who.ledger === null) return new Response(`{"error":"login required"}`, { status: 401 });
       return await handleParseApi(req, parseDeps);
+    }
+    if (isReportsPath(url.pathname)) {
+      // Login-gated like every other writer; the handler keys its cap by user.
+      const who = await resolveIdentity(req, authDeps);
+      if (who.ledger === null) return new Response(`{"error":"login required"}`, { status: 401 });
+      return await handleReportsApi(req, reportDeps, who);
+    }
+    if (isAdminReportsPath(url.pathname)) {
+      return await handleAdminReportsApi(req, reportDeps, await resolveIdentity(req, authDeps));
     }
     if (isUsersLookupPath(url.pathname)) {
       // Exact-match lookup for the invite box — login required (never leaks email).
