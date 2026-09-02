@@ -438,7 +438,19 @@
       max-width: 620px;
       box-shadow: var(--shadow);
     }
-    /* ═══ 使い方（ヘルプ）═══
+    /* ═══ 届いた報告（マイページ・管理者のみ）═══
+   一覧は「同じ失敗が何件」で読む。1件ずつは <details> に畳む。 */
+.rep-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+.rep-kind { display: inline-block; font-size: calc(11px * var(--fs)); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); margin-right: 6px; }
+.rep-kind.error { color: var(--full); border-color: var(--full); }
+.rep-kind.request { color: var(--accent); border-color: var(--accent); }
+.rep-meta { font-size: calc(12px * var(--fs)); color: var(--muted); margin-top: 2px; }
+.rep-item details { margin-top: 6px; }
+.rep-item summary { cursor: pointer; font-size: calc(13px * var(--fs)); }
+.rep-one { border-top: 1px dashed var(--line); padding: 6px 0; font-size: calc(13px * var(--fs)); }
+.rep-one pre { white-space: pre-wrap; word-break: break-word; background: var(--bg-soft, #f6f6f6); border-radius: 8px; padding: 8px; max-height: 12em; overflow: auto; font-size: calc(12px * var(--fs)); margin: 4px 0 0; }
+
+/* ═══ 使い方（ヘルプ）═══
        マイページと同じページビューに乗せる（オーナー 2026-07-28）。8節あって縦に長く、
        モーダルだと .modal の内側スクロールに閉じ込められてスマホで読みにくいうえ、
        #help のディープリンクから開いたとき「戻る」先が曖昧になるため。 */
@@ -2089,6 +2101,15 @@
             <div class="hint" style="margin:0"><a id="logoutBtn" style="cursor:pointer;text-decoration:underline">ログアウト</a></div>
           </div>
 
+          <!-- 管理者だけ（/auth/me の admin）。人の報告と、アプリ自身が見つけた異常が
+               ここに集まる。通知は出さない — 見に来る場所を一つにする（ADR-14）。 -->
+          <div class="sec" id="adminReportsSec" style="display:none">
+            <div class="sec-h">届いた報告（管理者）</div>
+            <div class="hint" style="margin:0 0 8px">失敗の記録・ご要望・自動検知の異常。同じものは件数でまとめています。要望はここに並ぶだけで、取り入れるかどうかは読んでから決めます。</div>
+            <button class="btn-ghost" id="adminReportsLoad">読み込む</button>
+            <div id="adminReportsList"></div>
+          </div>
+
           <div class="sec sec-danger">
             <div class="sec-h" style="color:var(--full)">⚠ 危険な操作</div>
             <label style="color:var(--full);margin-top:0">退会（アカウントの完全削除）</label>
@@ -2209,6 +2230,14 @@
               <button class="btn-primary" id="helpStartImport">予約を取り込む</button>
               <button class="btn-ghost" id="helpStartAdd">手動で1件追加する</button>
             </div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h">ご意見・ご要望</div>
+            <p class="help-p">困ったこと、こうなってほしいことを、そのまま書いて送ってください。届いたものは開発者が読み、取り入れるかどうかを決めます。すぐに変わるとは限りません。</p>
+            <textarea id="wishText" rows="4" placeholder="例：終わった予約も一覧に残してほしい"></textarea>
+            <div class="help-acts"><button class="btn-primary" id="wishSend">送る</button></div>
+            <div class="hint" id="wishMsg" style="margin-top:6px"></div>
           </div>
         </div>
       </section>
@@ -2341,6 +2370,22 @@
           style="margin-bottom:10px">確認メールの本文を貼り付けてください。電話番号・メールアドレスは送信前に自動でマスクされます。</p>
         <textarea id="pasteText" rows="10" placeholder="ここにメール本文を貼り付け"></textarea>
         <div class="modal-foot"><button class="btn-primary" id="pasteSubmit">読み取る</button></div>
+      </div>
+    </div>
+
+    <!-- 失敗の知らせ（ADR-14）。alert() の代わり: 文はそのまま、失敗はこの場で開発者へ
+         記録済み。補足は任意で、書かれたぶんだけ後から足す。 -->
+    <div class="overlay" id="reportOverlay">
+      <div class="modal">
+        <div class="modal-head"><h3>うまくいきませんでした</h3><button class="x" data-close>×</button></div>
+        <p id="reportText" style="margin:0 0 10px"></p>
+        <p class="hint" id="reportSent" style="margin-bottom:10px">開発者に伝えています…</p>
+        <label for="reportNote">何をしようとしていましたか？（任意）</label>
+        <textarea id="reportNote" rows="3" placeholder="例：メールを貼り付けて読み取ろうとした"></textarea>
+        <div class="modal-foot">
+          <button class="btn-ghost" data-close>閉じる</button>
+          <button class="btn-primary" id="reportSend">補足を送る</button>
+        </div>
       </div>
     </div>
 
@@ -2536,14 +2581,21 @@
     let TOKEN = realToken(); // the ACTIVE token (real ledger, or the demo space)
     let viewingDemo = false;
     async function api(method, path, body, tok) {
-      const res = await fetch(path, {
-        method,
-        headers: {
-          "x-plancel-token": tok || TOKEN,
-          ...(body ? { "content-type": "application/json" } : {}),
-        },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      });
+      let res;
+      try {
+        res = await fetch(path, {
+          method,
+          headers: {
+            "x-plancel-token": tok || TOKEN,
+            ...(body ? { "content-type": "application/json" } : {}),
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+      } catch (e) {
+        // 届かなかった失敗にも、どこへ向かっていたかを持たせる（報告に載る）。
+        if (e && typeof e === "object") e.path = path;
+        throw e;
+      }
       if (!res.ok) {
         let body = null;
         try {
@@ -2554,6 +2606,7 @@
         const err = new Error((body && body.error) || ("HTTP " + res.status));
         err.status = res.status;
         err.body = body || {};
+        err.path = path;
         throw err;
       }
       // DELETE /api/policy-templates/<facility> は 204（本文なし）を返すので、
@@ -2637,6 +2690,127 @@
       if (e && e.body && e.body.message) return String(e.body.message);
       return `うまくいきませんでした（コード: ${code || "不明"}）`;
     }
+
+    // ---- 失敗を開発者に伝える（ADR-14）----
+    // 「本来の挙動ではない」ものは、人が見た瞬間にここを通って記録される。入力の
+    // 案内（「貼り付けてください」）や成功の知らせは通らない。届け先は KV だけで、
+    // 管理者がマイページの「届いた報告」で読む。送れなくても黙る: 通信断のときの
+    // 失敗は開発者が直すものではないし、alert の代わりに出す文を遅らせない。
+    let BUILD = null;
+    async function buildId() {
+      if (BUILD !== null) return BUILD;
+      try {
+        const t = await (await fetch("/healthz")).text();
+        BUILD = t.replace(/^ok\s*/, "").trim() || "?";
+      } catch (e) {
+        BUILD = "?";
+      }
+      return BUILD;
+    }
+    const viewName = () =>
+      q("#helpPage").style.display !== "none"
+        ? "help"
+        : q("#profilePage").style.display !== "none"
+        ? "profile"
+        : "ledger";
+    // zod は null を受けないので、無い項目は落として送る。
+    const compact = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v != null));
+    async function sendReport(payload) {
+      try {
+        const res = await fetch("/api/reports", {
+          method: "POST",
+          headers: { "x-plancel-token": TOKEN, "content-type": "application/json" },
+          body: JSON.stringify(compact(payload)),
+        });
+        if (!res.ok) return null;
+        return await res.json();
+      } catch (e) {
+        return null;
+      }
+    }
+    // 直近の失敗の記録 id。補足はこれを ref にして後から足す。
+    let reportRef = null;
+    // 知らせを閉じたあとにやること（closeAll が呼ぶ）。
+    let reportAfter = null;
+    function openReportModal(text) {
+      // 前の知らせが開いたままなら、その「閉じたあと」は捨てる（新しい失敗が優先）。
+      reportAfter = null;
+      closeAll();
+      q("#reportText").textContent = text;
+      q("#reportSent").textContent = "開発者に伝えています…";
+      q("#reportNote").value = "";
+      q("#reportSend").disabled = false;
+      q("#reportOverlay").classList.add("on");
+    }
+    // e: api() が投げたもの、fetch が投げたもの、または {status, message, path} の形。
+    // lead: 何ができなかったかの一文。extra.text で文ごと差し替え、extra.sample で
+    // 失敗の対象になった入力（サーバ側でもう一度マスクされる）を添える。
+    function failed(e, lead, extra) {
+      const opts = extra || {};
+      const text = opts.text || apiErrorText(e, lead);
+      openReportModal(text);
+      reportRef = null;
+      reportAfter = opts.then || null;
+      buildId().then((build) =>
+        sendReport({
+          kind: "error",
+          action: lead || opts.text || undefined,
+          code: e && e.message ? String(e.message).slice(0, 200) : undefined,
+          status: e && typeof e.status === "number" ? e.status : undefined,
+          path: (e && e.path) || opts.path || undefined,
+          view: viewName(),
+          build,
+          ua: navigator.userAgent.slice(0, 300),
+          sample: opts.sample ? String(opts.sample).slice(0, 4000) : undefined,
+        })
+      ).then((r) => {
+        reportRef = r && r.id ? r.id : null;
+        q("#reportSent").textContent = reportRef
+          ? "この失敗は開発者に自動で伝わりました。補足があれば下に書いて送れます。"
+          : "いまは開発者に伝えられませんでした（通信の問題のことが多いです）。補足は送れません。";
+        q("#reportSend").disabled = reportRef === null;
+      });
+    }
+    q("#reportSend").onclick = async () => {
+      const note = q("#reportNote").value.trim();
+      if (!note) {
+        closeAll();
+        return;
+      }
+      q("#reportSend").disabled = true;
+      const r = await sendReport({
+        kind: "error",
+        ref: reportRef || undefined,
+        note,
+        view: viewName(),
+        build: await buildId(),
+      });
+      q("#reportSent").textContent = r ? "ありがとうございます。届きました。" : "送れませんでした。";
+      if (r) setTimeout(closeAll, 900);
+      else q("#reportSend").disabled = false;
+    };
+    // 捕まえられなかった例外は「本来の挙動ではない」の最たるもの。画面は止めず、
+    // 記録だけ残す。暴走を避けて1回の読み込みにつき5件まで。
+    let uncaughtSent = 0;
+    function reportUncaught(code, message, stack) {
+      if (uncaughtSent++ >= 5) return;
+      buildId().then((build) =>
+        sendReport({
+          kind: "error",
+          code,
+          action: String(message || "").slice(0, 200) || undefined,
+          note: stack ? String(stack).slice(0, 2000) : undefined,
+          view: viewName(),
+          build,
+          ua: navigator.userAgent.slice(0, 300),
+        })
+      );
+    }
+    addEventListener("error", (ev) => reportUncaught("uncaught", ev.message, ev.error && ev.error.stack));
+    addEventListener("unhandledrejection", (ev) => {
+      const r = ev.reason;
+      reportUncaught("unhandledrejection", (r && r.message) || r, r && r.stack);
+    });
 
     // ---- キャンセル規定モデル: src/web/policy.ts の写し。ロックステップ必須 ----
     // 規定は プリセット名（unknown / none / free24 / staged）か、任意の段階表
@@ -3325,7 +3499,7 @@
       } catch (e) {
         // 行の操作（確定・キャンセル・復元・削除・脱退）はどれも押した直後なので、
         // 何をしようとしたかは利用者の記憶にある。理由だけを言い切りで出す。
-        alert(apiErrorText(e));
+        failed(e);
       }
       await refresh();
     }
@@ -3386,7 +3560,7 @@
             try {
               await api("DELETE", `/api/reservations/${inviteResvId}/members/${b.dataset.remove}`);
             } catch (e) {
-              alert(apiErrorText(e, "外せませんでした。"));
+              failed(e, "外せませんでした。");
             }
             await loadMembers();
             await refresh();
@@ -3671,7 +3845,7 @@
           try {
             await api("DELETE", "/api/policy-templates/" + encodeURIComponent(name));
           } catch (e) {
-            alert("削除できませんでした: " + e.message);
+            failed(e, "削除できませんでした。");
           }
           await loadTemplates();
         }
@@ -3734,7 +3908,11 @@
       q("#importOverlay").classList.add("on");
     }
     function closeAll() {
+      // 失敗の知らせを閉じたら、その先へ（読み取り失敗なら手動追加の画面を開く）。
+      const after = q("#reportOverlay").classList.contains("on") ? reportAfter : null;
+      reportAfter = null;
       document.querySelectorAll(".overlay").forEach((o) => o.classList.remove("on"));
+      if (after) after();
       // 見えなくなったカウントダウンは止める（コード自体は開き直すまで保持する）
       stopLineCountdown();
     }
@@ -3764,6 +3942,26 @@
     q("#helpStartAdd").onclick = () => {
       setView("ledger");
       openAdd();
+    };
+    // ご要望は同じ /api/reports に kind: "request" で。届くだけで、何かが変わるのは
+    // 開発者が決めてから（オーナー 2026-08-20）。
+    q("#wishSend").onclick = async () => {
+      const note = q("#wishText").value.trim();
+      const msg = q("#wishMsg");
+      if (!note) {
+        msg.textContent = "内容を書いてから送ってください。";
+        return;
+      }
+      q("#wishSend").disabled = true;
+      msg.textContent = "送っています…";
+      const r = await sendReport({ kind: "request", view: "help", note, build: await buildId() });
+      q("#wishSend").disabled = false;
+      if (r) {
+        q("#wishText").value = "";
+        msg.textContent = "ありがとうございます。届きました。";
+      } else {
+        msg.textContent = "送れませんでした。ログインし直すか、電波のよいところでもう一度お試しください。";
+      }
     };
 
     q("#f_submit").onclick = async () => {
@@ -3829,7 +4027,7 @@
       } catch (e) {
         // 共有予約を「閲覧のみ」で編集しようとしたときは 403 が返る（rowHtml は編集を
         // 出さないが、権限がその場で降格されることはある）。
-        alert(apiErrorText(e, "保存できませんでした。"));
+        failed(e, "保存できませんでした。");
         return;
       }
       // 既定の保存は予約が通ったあと。ここで失敗しても予約は成立させ、知らせるだけ。
@@ -3857,7 +4055,10 @@
       q("#busyText").textContent = txt || "読み取り中…";
       q("#busyOverlay").classList.toggle("on", !!on);
     }
+    // 直近に貼り付けた本文。読み取りに失敗したとき、報告に添える（サーバで再マスク）。
+    let lastParseText = null;
     async function parseRemote(type, content) {
+      lastParseText = type === "text" ? content : null;
       busy(true, type === "image" ? "画像を解析中…" : "テキストを解析中…");
       try {
         return await api("POST", "/api/parse", { type, content });
@@ -3871,13 +4072,22 @@
         // 文ではないので画面には出さず、問い合わせ用にコンソールへ残す。
         if (res.detail) console.error("parse failed:", res.reason || "unreadable", res.detail);
         // 何も読めなかったのか、読み取り役に繋がらなかったのかで、次にやることが違う。
-        // 見分けはサーバが付ける（src/web/parse-api.ts の reason）。
-        alert(
-          res.reason === "unavailable"
-            ? "いま読み取りの機能につながりませんでした。少し時間をおいてから、もう一度お試しください。急ぐときは、このまま手動で追加できます。"
-            : "読み取れませんでした。店名と日時がわかる形で貼り付けるか、手動で追加してください。",
+        // 見分けはサーバが付ける（src/web/parse-api.ts の reason）。どちらも本来の
+        // 挙動ではないので、文はそのままに、失敗として開発者へ記録する。
+        failed(
+          Object.assign(new Error("parse " + (res.reason || "unreadable")), {
+            status: 200,
+            path: "/api/parse",
+          }),
+          null,
+          {
+            text: res.reason === "unavailable"
+              ? "いま読み取りの機能につながりませんでした。少し時間をおいてから、もう一度お試しください。急ぐときは、このまま手動で追加できます。"
+              : "読み取れませんでした。店名と日時がわかる形で貼り付けるか、手動で追加してください。",
+            sample: lastParseText,
+            then: openAdd,
+          },
         );
-        openAdd();
         return;
       }
       if (res.status === "needs_review" && res.missing && res.missing.length) {
@@ -3915,7 +4125,7 @@
         handleParseResult(await parseRemote("text", t));
       } catch (e) {
         // apiErrorText を通す（識別子や "Failed to fetch" を画面に出さないため）。
-        alert(apiErrorText(e, "読み取りに進めませんでした。"));
+        failed(e, "読み取りに進めませんでした。", { sample: lastParseText });
       }
     };
 
@@ -3969,7 +4179,7 @@
       try {
         handleParseResult(await parseRemote("image", await imageToDataUrl(f)));
       } catch (err) {
-        alert(apiErrorText(err, "画像の読み取りに進めませんでした。"));
+        failed(err, "画像の読み取りに進めませんでした。");
       }
     };
 
@@ -4384,15 +4594,18 @@
       try {
         res = await fetch("/auth/line", { method: "DELETE" });
       } catch (e) {
-        alert(LINE_OFFLINE);
-        return;
-      }
-      if (res.status === 401) {
-        alert(LINE_RELOAD);
+        failed(e, "解除できませんでした。", { path: "/auth/line" });
         return;
       }
       if (!res.ok) {
-        alert("解除できませんでした。もう一度お試しください。");
+        // 401 は「ログインの有効期限切れ」の文になる（API_ERRORS 経由）。
+        failed(
+          Object.assign(new Error(res.status === 401 ? "login required" : "HTTP " + res.status), {
+            status: res.status,
+            path: "/auth/line",
+          }),
+          "解除できませんでした。",
+        );
         return;
       }
       await reloadMe();
@@ -4509,6 +4722,9 @@
       mailNote("");
       renderMailFeature();
       loadTemplates();
+      // 管理者だけ「届いた報告」。開くたびに読み直すのではなく、押されたら読む。
+      q("#adminReportsSec").style.display = ME.admin ? "" : "none";
+      q("#adminReportsList").innerHTML = "";
       setView("profile");
     };
     // 表示名・ユーザーID・別ログイン用メールの3つを1回で保存する（ボタンはプロフィール
@@ -4641,7 +4857,7 @@
           for (const r of demo) await api("POST", "/api/reservations", r, dtok);
         }
       } catch (e) {
-        alert("デモの読み込みに失敗しました: " + e.message);
+        failed(e, "デモを読み込めませんでした。");
         return;
       }
       TOKEN = dtok;
@@ -4719,6 +4935,65 @@
       scrollTo({ top: 0 });
     }
     q("#profileBack").onclick = () => setView("ledger");
+    const KIND_LABEL = { error: "不具合", request: "要望", system: "自動検知" };
+    const jst = (iso) => {
+      try {
+        return new Date(iso).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+      } catch (e) {
+        return iso;
+      }
+    };
+    // 同じ失敗は1つにまとめて件数で見せる。補足（ref 付き）は元の記録の下に付ける。
+    function renderReports(reports) {
+      const notes = new Map();
+      const main = [];
+      for (const r of reports) {
+        if (r.ref) {
+          const list = notes.get(r.ref) || [];
+          list.push(r);
+          notes.set(r.ref, list);
+        } else main.push(r);
+      }
+      const groups = new Map();
+      for (const r of main) {
+        const k = [r.kind, r.code || "", r.path || ""].join("|");
+        const g = groups.get(k) || { kind: r.kind, code: r.code, path: r.path, items: [] };
+        g.items.push(r);
+        groups.set(k, g);
+      }
+      if (groups.size === 0) return '<div class="hint" style="margin-top:8px">まだ何も届いていません。</div>';
+      let html = "";
+      for (const g of groups.values()) {
+        const latest = g.items[0];
+        html += `<div class="rep-item">
+          <div><span class="rep-kind ${esc(g.kind)}">${esc(KIND_LABEL[g.kind] || g.kind)}</span><b>${esc(g.code || (g.kind === "request" ? "ご要望" : "（コードなし）"))}</b>${g.path ? ` <span class="rep-meta">${esc(g.path)}</span>` : ""}</div>
+          <div class="rep-meta">${g.items.length}件 · 最新 ${esc(jst(latest.at))}${latest.build ? ` · build ${esc(latest.build)}` : ""}</div>
+          <details><summary>1件ずつ見る</summary>${
+          g.items.map((r) => `<div class="rep-one">
+            <div class="rep-meta">${esc(jst(r.at))}${r.view ? ` · ${esc(r.view)}` : ""}${r.status ? ` · HTTP ${esc(r.status)}` : ""}${r.build ? ` · ${esc(r.build)}` : ""}</div>
+            ${r.action ? `<div>${esc(r.action)}</div>` : ""}
+            ${r.note ? `<pre>${esc(r.note)}</pre>` : ""}
+            ${(notes.get(r.id) || []).map((n) => `<pre>補足: ${esc(n.note || "")}</pre>`).join("")}
+            ${r.sample ? `<details><summary>入力（マスク済み）</summary><pre>${esc(r.sample)}</pre></details>` : ""}
+            ${r.ua ? `<div class="rep-meta">${esc(r.ua)}</div>` : ""}
+          </div>`).join("")
+        }</details>
+        </div>`;
+      }
+      return html;
+    }
+    q("#adminReportsLoad").onclick = async () => {
+      const box = q("#adminReportsList");
+      box.innerHTML = '<div class="hint" style="margin-top:8px">読み込んでいます…</div>';
+      try {
+        const res = await fetch("/api/admin/reports");
+        if (!res.ok) throw Object.assign(new Error("HTTP " + res.status), { status: res.status });
+        const { reports } = await res.json();
+        box.innerHTML = renderReports(reports);
+      } catch (e) {
+        box.innerHTML = `<div class="hint" style="margin-top:8px">${esc(apiErrorText(e, "読み込めませんでした。"))}</div>`;
+      }
+    };
     q("#bnLedger").onclick = () => {
       setView("ledger");
       scrollTo({ top: 0, behavior: "smooth" });
