@@ -19,6 +19,7 @@ import {
   parserError,
   postRetryingOn5xx,
   PROVIDER_RETRY_DELAY_MS,
+  PROVIDER_TIMEOUT_MS,
   reservationPromptForClock,
   resolveApiKey,
 } from "./llm.ts";
@@ -45,6 +46,8 @@ export interface GeminiParserOptions {
   fetch?: typeof fetch;
   /** Pause before the single 5xx retry; 0 disables the wait (tests). */
   retryDelayMs?: number;
+  /** Per-attempt deadline; 0 disables it (tests). */
+  timeoutMs?: number;
 }
 
 interface GeminiPart {
@@ -73,6 +76,7 @@ export function GeminiParser(options: GeminiParserOptions = {}): Parser {
   const endpoint = options.endpoint ?? GEMINI_DEFAULT_ENDPOINT;
   const doFetch = options.fetch ?? fetch;
   const retryDelayMs = options.retryDelayMs ?? PROVIDER_RETRY_DELAY_MS;
+  const timeoutMs = options.timeoutMs ?? PROVIDER_TIMEOUT_MS;
 
   return {
     name: GEMINI_PARSER_NAME,
@@ -101,6 +105,7 @@ export function GeminiParser(options: GeminiParserOptions = {}): Parser {
             }),
           },
           retryDelayMs,
+          timeoutMs,
         );
         body = answered;
         if (!res.ok) {

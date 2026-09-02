@@ -139,6 +139,17 @@ export function parserError(detail: string): ParseResult {
 export const PROVIDER_RETRY_DELAY_MS = 700;
 
 /**
+ * How long one attempt may take before it is abandoned.
+ *
+ * Measured 2026-08-20: a Gemini 503 took fifteen seconds to come back. With
+ * the retry below that is half a minute of a spinner on a phone, which reads
+ * as "frozen" — and the fifteen seconds bought nothing, because the answer
+ * was a refusal. Twelve seconds is well past a healthy answer (Groq ~3s,
+ * Gemini ~5s) and well short of a wait anyone would sit through twice.
+ */
+export const PROVIDER_TIMEOUT_MS = 12_000;
+
+/**
  * POSTs to a provider and, if it answers 5xx, asks exactly once more.
  *
  * A 5xx is the provider saying "not me, not now" — Gemini's 503 "This model is
@@ -156,9 +167,13 @@ export async function postRetryingOn5xx(
   url: string,
   init: RequestInit,
   delayMs: number = PROVIDER_RETRY_DELAY_MS,
+  timeoutMs: number = PROVIDER_TIMEOUT_MS,
 ): Promise<{ res: Response; body: string }> {
   const once = async () => {
-    const res = await doFetch(url, init);
+    // A fresh signal per attempt: the retry must get its own budget, not the
+    // remains of the one that just timed out.
+    const signal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+    const res = await doFetch(url, signal === undefined ? init : { ...init, signal });
     return { res, body: await res.text() };
   };
   const first = await once();

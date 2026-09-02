@@ -105,3 +105,39 @@ Deno.test("GroqParser: a 429 is a quota, not a blip — it is not asked again", 
   assertEquals(calls.length, 1);
   assertStringIncludes(result.raw_response, "groq http 429");
 });
+
+Deno.test("GroqParser: each attempt carries its own deadline", async () => {
+  const signals: (AbortSignal | undefined)[] = [];
+  let n = 0;
+  const fetchStub = ((_input: URL | RequestInfo, init?: RequestInit) => {
+    signals.push(init?.signal ?? undefined);
+    return Promise.resolve(
+      ++n === 1 ? new Response("busy", { status: 503 }) : groqResponse("{}"),
+    );
+  }) as typeof fetch;
+
+  await GroqParser({ apiKey: "k", fetch: fetchStub, retryDelayMs: 0, timeoutMs: 50 }).parse(
+    TEXT_INPUT,
+  );
+
+  assertEquals(signals.length, 2);
+  // Not the same object: the retry must not inherit a budget already spent.
+  assertEquals(signals[0] instanceof AbortSignal, true);
+  assertEquals(signals[1] instanceof AbortSignal, true);
+  assertEquals(signals[0] === signals[1], false);
+});
+
+Deno.test("GroqParser: a request that outruns the deadline is a normal failure", async () => {
+  // Nothing ever resolves; only the signal ends this.
+  const hanging =
+    ((_input: URL | RequestInfo, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+      })) as typeof fetch;
+
+  const result = await GroqParser({ apiKey: "k", fetch: hanging, retryDelayMs: 0, timeoutMs: 20 })
+    .parse(TEXT_INPUT);
+
+  assertEquals(result.output, null);
+  assertStringIncludes(result.raw_response, "groq request failed");
+});
