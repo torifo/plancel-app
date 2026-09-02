@@ -76,6 +76,7 @@ import {
   isReportsPath,
   type ReportsDeps,
 } from "../web/reports.ts";
+import { sweepCanary } from "../web/canary-watch.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 
@@ -301,6 +302,14 @@ if (import.meta.main) {
     kek: kek !== undefined,
   });
 
+  // What people (and the canary) tell the developer — read from マイページ by
+  // admin accounts, never pushed anywhere (ADR-14).
+  const reportDeps: ReportsDeps = {
+    kv: store.kv,
+    ids: { ulid: () => ulid(), nowIso: webIds.nowIso },
+    adminEmails,
+  };
+
   // Cron: shares the startup Store; never closes it (isolate-lived). Also
   // retries any calendar syncs the inline pass left dirty.
   Deno.cron(CRON_NAME, CRON_SCHEDULE, async () => {
@@ -317,6 +326,13 @@ if (import.meta.main) {
       ...(webNotifyLine !== null ? { line: webNotifyLine } : {}),
     });
     if (notified > 0) log.info("web deadline notifications sent", { notified });
+    // Once a day, ask each provider whether it is still there. A retired
+    // model is otherwise indistinguishable from an unreadable mail, and the
+    // only detector was a family member saying so (ADR-13/14).
+    const canary = await sweepCanary({ clock, parsers, reports: reportDeps });
+    if (canary.ran) {
+      log.info("provider canary", { checked: canary.checked, faults: canary.faults });
+    }
   });
   log.info("cron registered", { schedule: CRON_SCHEDULE, notifier: kind });
   // Web intake: pasted mail text / screenshot images through the parse chain.
@@ -326,13 +342,6 @@ if (import.meta.main) {
     clock,
     ids: { ulid: () => ulid(), nowIso: webIds.nowIso },
     saveJob: (job) => store.putParseJob(job),
-  };
-  // What people (and the canary) tell the developer — read from マイページ by
-  // admin accounts, never pushed anywhere (ADR-14).
-  const reportDeps: ReportsDeps = {
-    kv: store.kv,
-    ids: { ulid: () => ulid(), nowIso: webIds.nowIso },
-    adminEmails,
   };
 
   // メール転送インテーク (owner 2026-07-27): a forwarded confirmation mail lands
