@@ -329,9 +329,22 @@ if (import.meta.main) {
     // Once a day, ask each provider whether it is still there. A retired
     // model is otherwise indistinguishable from an unreadable mail, and the
     // only detector was a family member saying so (ADR-13/14).
-    const canary = await sweepCanary({ clock, parsers, reports: reportDeps });
-    if (canary.ran) {
-      log.info("provider canary", { checked: canary.checked, faults: canary.faults });
+    //
+    // Wrapped, and last: the tick is the job this cron exists for, and asking
+    // two providers over the network is the slowest, least certain thing in
+    // the callback. Observed 2026-09-02: without this the whole invocation
+    // was cut off mid-canary and the tick's own work went unrecorded.
+    try {
+      const canary = await sweepCanary({ clock, parsers, reports: reportDeps });
+      if (canary.ran) {
+        log.info("provider canary", {
+          checked: canary.checked,
+          reported: canary.reported,
+          faults: canary.faults,
+        });
+      }
+    } catch (err) {
+      log.error("provider canary failed", { err: String(err) });
     }
   });
   log.info("cron registered", { schedule: CRON_SCHEDULE, notifier: kind });

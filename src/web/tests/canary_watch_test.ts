@@ -44,7 +44,10 @@ Deno.test("canary watch: a dead provider becomes a system report", async () => {
       parsers: [dead, answers],
       reports,
     });
-    assertEquals(sweep, { ran: true, checked: ["groq-llama", "gemini-flash"], faults: 1 });
+    assertEquals(sweep.ran, true);
+    assertEquals(sweep.checked, ["groq-llama", "gemini-flash"]);
+    assertEquals(sweep.reported, 1);
+    assertEquals(sweep.faults.map((f) => [f.parser, f.kind]), [["groq-llama", "structural"]]);
 
     const stored = await listReports(kv);
     assertEquals(stored.length, 1);
@@ -63,7 +66,7 @@ Deno.test("canary watch: healthy providers file nothing", async () => {
       reports: reportsDeps(kv),
     });
     assertEquals(sweep.ran, true);
-    assertEquals(sweep.faults, 0);
+    assertEquals(sweep.faults, []);
     assertEquals(await listReports(kv), []);
   });
 });
@@ -105,5 +108,26 @@ Deno.test("canary watch: the day is claimed before the providers are asked", asy
     });
     assertEquals(next.ran, false);
     assertEquals((await listReports(kv)).length, 1);
+  });
+});
+
+Deno.test("canary watch: a provider having a bad minute is not filed as a fault", async () => {
+  await withKv(async (kv) => {
+    const busy = MockParser(
+      "gemini-flash",
+      new Map([[CANARY_TEXT, {
+        raw_response: "error: gemini http 503: experiencing high demand",
+        output: null,
+      }]]),
+    );
+    const sweep = await sweepCanary({
+      clock: new VirtualClock("2026-08-20T00:00:00Z"),
+      parsers: [busy],
+      reports: reportsDeps(kv),
+    });
+    // Seen and returned for the log, but nothing to read tomorrow.
+    assertEquals(sweep.faults.map((f) => f.kind), ["transient"]);
+    assertEquals(sweep.reported, 0);
+    assertEquals(await listReports(kv), []);
   });
 });

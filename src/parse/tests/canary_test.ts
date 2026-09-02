@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import { VirtualClock } from "../../core/clock/mod.ts";
-import { CANARY_TEXT, runCanary } from "../canary.ts";
+import { CANARY_TEXT, classifyFault, runCanary } from "../canary.ts";
 import { MockParser } from "../mock-parser.ts";
 import type { Parser } from "../types.ts";
 
@@ -25,7 +25,11 @@ Deno.test("canary: a retired model is reported by name, and the others still run
     clock,
   );
   assertEquals(r.checked, ["groq-llama", "gemini-flash"]);
-  assertEquals(r.faults, [{ parser: "groq-llama", error: "groq http 404: model_not_found" }]);
+  assertEquals(r.faults, [{
+    parser: "groq-llama",
+    kind: "structural",
+    error: "groq http 404: model_not_found",
+  }]);
 });
 
 Deno.test("canary: answering with nothing extractable is a fault too", async () => {
@@ -44,7 +48,11 @@ Deno.test("canary: a parser that throws is as broken as one that fails", async (
   };
   const r = await runCanary([boom, answers("p2")], clock);
   assertEquals(r.checked, ["boom", "p2"]);
-  assertEquals(r.faults, [{ parser: "boom", error: "threw: connection refused" }]);
+  assertEquals(r.faults, [{
+    parser: "boom",
+    kind: "structural",
+    error: "threw: connection refused",
+  }]);
 });
 
 Deno.test("canary: an image-only parser is not asked a text question", async () => {
@@ -52,4 +60,20 @@ Deno.test("canary: an image-only parser is not asked a text question", async () 
   const r = await runCanary([vision, answers("p1")], clock);
   assertEquals(r.checked, ["p1"]);
   assertEquals(r.faults, []);
+});
+
+Deno.test("classifyFault: a 4xx needs a person, a 5xx or a wire problem does not", () => {
+  // These do not fix themselves.
+  assertEquals(classifyFault("groq http 404: model_not_found"), "structural");
+  assertEquals(classifyFault("gemini http 401: API key not valid"), "structural");
+  assertEquals(classifyFault("GROQ_API_KEY is not set"), "structural");
+  assertEquals(classifyFault("gemini response had no text parts: {}"), "structural");
+  assertEquals(classifyFault("answered but nothing was extractable: hello"), "structural");
+  // These are a bad minute, and filing them daily would drown the real ones.
+  assertEquals(classifyFault("gemini http 503: experiencing high demand"), "transient");
+  assertEquals(classifyFault("groq http 500: internal"), "transient");
+  assertEquals(
+    classifyFault("gemini request failed: The operation was aborted due to timeout"),
+    "transient",
+  );
 });

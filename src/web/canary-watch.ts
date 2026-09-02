@@ -13,7 +13,7 @@
  */
 import type { Clock } from "../core/clock/mod.ts";
 import type { Parser } from "../parse/mod.ts";
-import { CANARY_INTERVAL_MS, runCanary } from "../parse/canary.ts";
+import { CANARY_INTERVAL_MS, type CanaryFault, runCanary } from "../parse/canary.ts";
 import { recordSystemReport, type ReportsDeps } from "./reports.ts";
 
 const MARKER: Deno.KvKey = ["canary_last"];
@@ -29,7 +29,10 @@ export interface CanaryWatchDeps {
 export interface CanarySweep {
   ran: boolean;
   checked: string[];
-  faults: number;
+  /** Everything that failed, transient ones included (for the log). */
+  faults: CanaryFault[];
+  /** How many of those were filed as reports. */
+  reported: number;
 }
 
 /** Runs the check if a day has passed, and files every fault as a report. */
@@ -39,19 +42,24 @@ export async function sweepCanary(deps: CanaryWatchDeps): Promise<CanarySweep> {
   const nowMs = deps.clock.now().epochMilliseconds;
   const last = await kv.get<{ atMs: number }>(MARKER);
   const atMs = typeof last.value?.atMs === "number" ? last.value.atMs : 0;
-  if (nowMs - atMs < interval) return { ran: false, checked: [], faults: 0 };
+  if (nowMs - atMs < interval) return { ran: false, checked: [], faults: [], reported: 0 };
 
   // Claimed before asking: a run that never returns costs one day, not one
   // retry every fifteen minutes.
   await kv.set(MARKER, { atMs: nowMs });
 
   const { checked, faults } = await runCanary(deps.parsers, deps.clock);
-  for (const fault of faults) {
+  // Only the faults that will still be there tomorrow become reports. A
+  // provider having a bad minute is logged and forgotten: a list that fills
+  // with self-healing noise stops being read, which is the exact failure this
+  // was built to end.
+  const structural = faults.filter((f) => f.kind === "structural");
+  for (const fault of structural) {
     await recordSystemReport(deps.reports, {
       code: "parser_unreachable",
       path: fault.parser,
       detail: fault.error,
     });
   }
-  return { ran: true, checked, faults: faults.length };
+  return { ran: true, checked, faults, reported: structural.length };
 }
