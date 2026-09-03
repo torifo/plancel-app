@@ -4090,7 +4090,26 @@
         );
         return;
       }
-      if (res.status === "needs_review" && res.missing && res.missing.length) {
+      if (res.status === "needs_review" && res.reason === "unavailable") {
+        // どのモデルも答えず、日時だけ本文から規則で拾えた（ADR-15）。人には
+        // 何が入っていて何が入っていないかを言い、記録は黙って残す。
+        sendReport({
+          kind: "error",
+          action: "読み取りの機能につながらず、日時だけ本文から拾った",
+          code: "parse unavailable (rules floor)",
+          status: 200,
+          path: "/api/parse",
+          view: viewName(),
+          ua: navigator.userAgent.slice(0, 300),
+          sample: lastParseText ? String(lastParseText).slice(0, 4000) : undefined,
+        });
+        alert(
+          "いま読み取りの機能につながりませんでした。日時だけ本文から拾ってあります。" +
+            (res.missing && res.missing.length
+              ? "店名など（" + res.missing.join(" / ") + "）は確認画面で補ってください。"
+              : "内容を確認画面でお確かめください。"),
+        );
+      } else if (res.status === "needs_review" && res.missing && res.missing.length) {
         alert(
           "一部読み取れませんでした（" + res.missing.join(" / ") + "）。確認画面で補完してください。",
         );
