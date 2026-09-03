@@ -144,7 +144,8 @@ Deno.test("parse api: image content routes through the image chain (vision)", as
 // ADR-13: a provider that stopped answering used to be indistinguishable from
 // a mail nobody could read — same 200, same "failed", and nothing in the log.
 Deno.test("parse api: no provider answered -> reason unavailable, logged as an error", async () => {
-  const text = "8/15 19:00 鮨さいとう";
+  // Undated on purpose: the rule-based floor must have nothing to offer here.
+  const text = "鮨さいとうを予約したい";
   const dead = MockParser(
     "p1",
     new Map([[text, { raw_response: "error: groq http 404: model_not_found", output: null }]]),
@@ -192,4 +193,25 @@ Deno.test("parse api: a parsed job says nothing about a reason", async () => {
 
   assertEquals(body.status, "parsed");
   assertEquals(body.reason, null);
+});
+
+Deno.test("parse api: no provider answered but the text names a day -> the day is prefilled, reason still unavailable", async () => {
+  const text = "8/15 19:00 鮨さいとう 2名";
+  const dead = MockParser(
+    "p1",
+    new Map([[text, { raw_response: "error: groq http 404: model_not_found", output: null }]]),
+  );
+  const lines: string[] = [];
+  const { deps } = makeDeps([dead]);
+  deps.logWrite = (line) => lines.push(line);
+
+  const body = await (await handleParseApi(reqOf({ type: "text", content: text }), deps)).json();
+
+  assertEquals(body.status, "needs_review");
+  assertEquals(body.reason, "unavailable");
+  assertEquals(body.fields.startsAt, "2026-08-15T19:00:00+09:00");
+  assertEquals(body.fields.service, null);
+  assertEquals(body.missing, ["service_name"]);
+  // Still an error in the log: the models did not answer.
+  assertEquals(JSON.parse(lines[0]!).level, "error");
 });

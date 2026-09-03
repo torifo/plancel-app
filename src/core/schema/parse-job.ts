@@ -44,6 +44,8 @@ export const parserReviewReasonSchema = z.enum([
   "checkin_checkout",
   "location_omitted",
   "policy_omitted",
+  /** The model's starts_at falls on a day the text never names (ADR-15). */
+  "date_not_in_text",
 ]);
 export type ParserReviewReason = z.infer<typeof parserReviewReasonSchema>;
 

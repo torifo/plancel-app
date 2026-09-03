@@ -127,7 +127,10 @@ export async function handleParseApi(req: Request, deps: ParseApiDeps): Promise<
     // be read" asks them to paste something else. `detail` stays for the
     // console — it is the provider's or the model's own English, never a
     // sentence to show a person.
-    reason: job.status === "failed" ? (allParsersFailed(job) ? "unavailable" : "unreadable") : null,
+    // "unavailable" can accompany needs_review too: the rule-based floor may
+    // have filled the date while no model answered, and the person should
+    // know the rest was not read, not merely missing.
+    reason: allParsersFailed(job) ? "unavailable" : job.status === "failed" ? "unreadable" : null,
     detail: job.status === "failed" ? job.attempts.at(-1)?.raw_response ?? null : null,
   });
 }

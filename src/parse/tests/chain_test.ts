@@ -7,6 +7,7 @@ import {
   parserFailures,
   runParseChain,
 } from "../chain.ts";
+import { RULES_PARSER_NAME } from "../rules.ts";
 import { MockParser } from "../mock-parser.ts";
 import type { ParseInput, Parser, ParseResult } from "../types.ts";
 
@@ -359,7 +360,9 @@ Deno.test("parserFailures: names the providers that never answered", async () =>
 });
 
 Deno.test("allParsersFailed: true only when nothing read the input at all", async () => {
-  const text = "8/1 19時 〇〇";
+  // No date in the text, so the rule-based floor has nothing to add and the
+  // job is failed outright.
+  const text = "〇〇を仮予約したい";
   const job = await runParseChain(
     { type: "text", content: text, correlation_id: "c" },
     { text: ["p1", "p2"], image: [] } as ParserChainConfig,
@@ -388,4 +391,56 @@ Deno.test("allParsersFailed: a model that answered nothing useful is not a failu
   assertEquals(job.status, "failed");
   assertEquals(parserFailures(job), []);
   assertEquals(allParsersFailed(job), false);
+});
+
+// ADR-15: the floor under the models.
+Deno.test("rules floor: with every model gone, a dated text still yields its date", async () => {
+  const text = "8/15 19:00 鮨さいとう 2名";
+  const job = await runParseChain(
+    { type: "text", content: text, correlation_id: "c" },
+    { text: ["p1", "p2"], image: [] } as ParserChainConfig,
+    [
+      MockParser("p1", new Map([[text, PROVIDER_DOWN]])),
+      MockParser("p2", new Map([[text, { raw_response: "error: gemini http 503", output: null }]])),
+    ],
+    new VirtualClock("2026-07-16T00:00:00Z"),
+    { ulid: () => "J4", nowIso: () => "2026-07-16T00:00:00.000Z" },
+  );
+
+  // Not failed: there is something to hand the person.
+  assertEquals(job.status, "needs_review");
+  const floor = job.attempts.find((a) => a.parser === RULES_PARSER_NAME);
+  assertEquals(floor?.output?.starts_at, "2026-08-15T19:00:00+09:00");
+  assertEquals(missingFieldQuestions(job), ["service_name"]);
+  // But every MODEL still failed, and the surfaces must still say so.
+  assertEquals(allParsersFailed(job), true);
+  assertEquals(parserFailures(job).map((f) => f.parser), ["p1", "p2"]);
+});
+
+Deno.test("rules floor: never consulted while a model has answered", async () => {
+  const text = "8/15 19:00 鮨さいとう 2名";
+  const job = await runParseChain(
+    { type: "text", content: text, correlation_id: "c" },
+    { text: ["p1"], image: [] } as ParserChainConfig,
+    [MockParser(
+      "p1",
+      new Map([[text, { raw_response: "{}", output: { service_name: "鮨さいとう" } }]]),
+    )],
+    new VirtualClock("2026-07-16T00:00:00Z"),
+    { ulid: () => "J5", nowIso: () => "2026-07-16T00:00:00.000Z" },
+  );
+  assertEquals(job.attempts.map((a) => a.parser), ["p1"]);
+});
+
+Deno.test("rules floor: a text naming no day gives the floor nothing, so the job fails", async () => {
+  const text = "土曜19時に〇〇を仮予約";
+  const job = await runParseChain(
+    { type: "text", content: text, correlation_id: "c" },
+    { text: ["p1"], image: [] } as ParserChainConfig,
+    [MockParser("p1", new Map([[text, PROVIDER_DOWN]]))],
+    new VirtualClock("2026-07-16T00:00:00Z"),
+    { ulid: () => "J6", nowIso: () => "2026-07-16T00:00:00.000Z" },
+  );
+  assertEquals(job.status, "failed");
+  assertEquals(job.attempts.map((a) => a.parser), ["p1"]);
 });

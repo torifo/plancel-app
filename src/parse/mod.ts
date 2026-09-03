@@ -16,6 +16,8 @@ export {
 } from "./config.ts";
 export type { ParserChainConfig } from "./config.ts";
 export { impliedFreeBoundaryHours, statesFeeFromBoundary } from "./policy-phrasing.ts";
+export { extractDateTimes, RULES_PARSER_NAME } from "./rules.ts";
+export type { RuleDates } from "./rules.ts";
 export { MockParser } from "./mock-parser.ts";
 export type { MockFixture, MockFixtureMatcher, MockParserOptions } from "./mock-parser.ts";
 export { isUsableParseAttempt, lastUsableParseOutput, mergedParsedOutput } from "./output.ts";

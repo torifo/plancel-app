@@ -31,6 +31,7 @@ import { chainForInput, type ParserChainConfig } from "./config.ts";
 import { GEMINI_PARSER_NAME } from "./gemini.ts";
 import { GROQ_PARSER_NAME } from "./groq.ts";
 import { parserReviewReasons } from "./review-policy.ts";
+import { extractDateTimes, RULES_PARSER_NAME } from "./rules.ts";
 import { validateParsedOutput } from "./validate.ts";
 
 export interface ParseChainIds {
@@ -116,7 +117,10 @@ export function parserFailures(job: ParseJob): ParserFailure[] {
  * actually read by anything. Nothing can be concluded about the text itself.
  */
 export function allParsersFailed(job: ParseJob): boolean {
-  return job.attempts.length > 0 && parserFailures(job).length === job.attempts.length;
+  // The rule-based floor is not a provider: a job it rescued still had every
+  // model fail, and the person deserves to be told that.
+  const models = job.attempts.filter((a) => a.parser !== RULES_PARSER_NAME);
+  return models.length > 0 && parserFailures(job).length === models.length;
 }
 
 /**
@@ -191,13 +195,39 @@ export async function runParseChain(
         chainNames.slice(index + 1).includes(GEMINI_PARSER_NAME) &&
         byName.get(GEMINI_PARSER_NAME)?.supports(maskedInput) === true;
       if (geminiStillAvailable) {
-        const reasons = parserReviewReasons(maskedInput, output, validation);
+        const reasons = parserReviewReasons(maskedInput, output, validation, clock);
         if (reasons.length > 0) {
           reviewReasons.push(...reasons);
           continue;
         }
       }
       break;
+    }
+  }
+
+  // The floor (ADR-15): when no model produced anything — every provider gone
+  // at once, or every answer empty — the dates the text plainly states are
+  // still read by rule, so the person is handed a form with the day filled in
+  // rather than nothing. Recorded as its own attempt so the job says where the
+  // value came from; never consulted while a model has answered.
+  if (input.type === "text" && !attempts.some((a) => a.output !== null)) {
+    const found = extractDateTimes(maskedInput.content, clock);
+    if (found.starts_at !== null) {
+      const output: Partial<Reservation> = {
+        starts_at: found.starts_at,
+        ...(found.ends_at !== null ? { ends_at: found.ends_at } : {}),
+      };
+      const validation = validateParsedOutput(output, clock);
+      attempts.push({
+        parser: RULES_PARSER_NAME,
+        raw_response: `rules: dates ${found.dates.join(",")}`,
+        output,
+        validation_errors: [
+          ...validation.errors,
+          ...validation.warnings.map((w) => `warning: ${w}`),
+        ],
+        correlation_id: input.correlation_id,
+      });
     }
   }
 

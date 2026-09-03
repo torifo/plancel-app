@@ -3,9 +3,11 @@
  * Gemini. These are deterministic signals only; model self-reported
  * confidence is intentionally ignored.
  */
+import type { Clock } from "../core/clock/mod.ts";
 import type { ParserReviewReason, Reservation } from "../core/schema/mod.ts";
 import type { ValidationResult } from "./validate.ts";
 import type { ParseInput } from "./types.ts";
+import { extractDateTimes } from "./rules.ts";
 
 const CALENDAR_DATE = /(?:20\d{2}[年\/-]\s*)?\d{1,2}(?:月|[\/-])\s*\d{1,2}(?:日)?/g;
 const CHECK_IN = /チェック\s*イン|check[ -]?in/i;
@@ -21,16 +23,43 @@ function distinctCalendarDates(text: string): number {
   ).size;
 }
 
-/** Reasons a valid Groq result should be checked by Gemini. */
+/** The JST calendar day of an instant string, or null if it is not one. */
+function jstDay(iso: string): string | null {
+  try {
+    return Temporal.Instant.from(iso).toZonedDateTimeISO("Asia/Tokyo").toPlainDate().toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reasons a valid Groq result should be checked by Gemini.
+ *
+ * `clock` anchors the rule-based reading of year-less dates (rules.ts) so the
+ * model can be held to the days the text actually names. A model that answers
+ * a day the mail never mentions is the one wrong answer a schedule ledger
+ * cannot afford, and it is detectable without believing the model.
+ */
 export function parserReviewReasons(
   input: ParseInput,
   output: Partial<Reservation> | null,
   validation: ValidationResult,
+  clock?: Clock,
 ): ParserReviewReason[] {
   if (input.type !== "text" || output === null) return [];
 
   const reasons: ParserReviewReason[] = [];
   const text = input.content.normalize("NFKC");
+
+  if (clock !== undefined && typeof output.starts_at === "string") {
+    const named = extractDateTimes(text, clock).dates;
+    const answered = jstDay(output.starts_at);
+    // Only when the text names at least one day: a weekday-only mail gives
+    // the rules no opinion, and no opinion is not a disagreement.
+    if (named.length > 0 && answered !== null && !named.includes(answered)) {
+      reasons.push("date_not_in_text");
+    }
+  }
 
   if (validation.warnings.length > 0) reasons.push("validation_warning");
   if (distinctCalendarDates(text) >= 2) reasons.push("multiple_calendar_dates");

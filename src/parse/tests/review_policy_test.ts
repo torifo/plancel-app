@@ -1,4 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
+import { VirtualClock } from "../../core/clock/mod.ts";
 import { parserReviewReasons } from "../review-policy.ts";
 import type { ParseInput } from "../types.ts";
 import type { ValidationResult } from "../validate.ts";
@@ -60,4 +61,46 @@ Deno.test("parserReviewReasons: an omitted stated cancellation policy requests r
     ),
     ["policy_omitted"],
   );
+});
+
+// ADR-15: the model is held to the days the text names.
+const clock = new VirtualClock("2026-07-16T00:00:00Z");
+
+Deno.test("date_not_in_text: a starts_at on a day the mail never names asks for a second opinion", () => {
+  const reasons = parserReviewReasons(
+    input("【ご予約確認】鮨さいとう 2026年8月15日(土) 19:00 2名様"),
+    { service_name: "鮨さいとう", starts_at: "2026-08-16T19:00:00+09:00" },
+    VALID,
+    clock,
+  );
+  assertEquals(reasons.includes("date_not_in_text"), true);
+});
+
+Deno.test("date_not_in_text: a starts_at on a named day is fine, in either year the text allows", () => {
+  const same = parserReviewReasons(
+    input("8/15 19:00 鮨さいとう 2名"),
+    { service_name: "鮨さいとう", starts_at: "2026-08-15T19:00:00+09:00" },
+    VALID,
+    clock,
+  );
+  assertEquals(same.includes("date_not_in_text"), false);
+});
+
+Deno.test("date_not_in_text: a text naming no day gives no opinion", () => {
+  const reasons = parserReviewReasons(
+    input("土曜19時に〇〇を仮予約"),
+    { service_name: "〇〇", starts_at: "2026-07-18T19:00:00+09:00" },
+    VALID,
+    clock,
+  );
+  assertEquals(reasons.includes("date_not_in_text"), false);
+});
+
+Deno.test("date_not_in_text: without a clock the check is simply not made", () => {
+  const reasons = parserReviewReasons(
+    input("2026年8月15日 19:00"),
+    { service_name: "x", starts_at: "2026-08-16T19:00:00+09:00" },
+    VALID,
+  );
+  assertEquals(reasons.includes("date_not_in_text"), false);
 });
