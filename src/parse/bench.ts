@@ -43,14 +43,54 @@ export interface BenchMismatch {
   want: string;
 }
 
+interface Stage {
+  until_offset_hours: number;
+  fee_percent: number;
+}
+
+/**
+ * The same policy, written the one way. Two tables that charge the same at
+ * every moment must compare equal, and models are free with the spelling:
+ * 「7日前から20%」 comes back as `192/0,168/20` from one and `192/0,0/20`
+ * from another. Under the table's own rule — the innermost rate runs down to
+ * the start — both charge 0% until 192h and 20% after, so the boundary of the
+ * last stage carries no information and a stage that repeats its outer
+ * neighbour's rate adds none. Both are dropped before comparing.
+ *
+ * Two different rates at the same boundary (「当日80%、不泊100%」 read as two
+ * stages at 0h) are kept: that is a real disagreement about what the text
+ * means, and exactly what the bench is for.
+ */
+export function canonicalStages(stages: Stage[]): Stage[] {
+  const sorted = [...stages].sort((a, b) => b.until_offset_hours - a.until_offset_hours);
+  const kept: Stage[] = [];
+  for (const s of sorted) {
+    const prev = kept.at(-1);
+    if (prev !== undefined && prev.fee_percent === s.fee_percent) continue;
+    kept.push({ ...s });
+  }
+  const last = kept.at(-1);
+  if (last !== undefined) last.until_offset_hours = 0;
+  return kept;
+}
+
 /** The stage table as a short comparable string; "unknown" when there is none. */
 export function policyKey(policy: unknown): string {
   if (policy === "unknown" || policy === null || policy === undefined) return "unknown";
   if (typeof policy !== "object") return "unknown";
-  const stages = (policy as { stages?: { until_offset_hours: number; fee_percent: number }[] })
-    .stages;
+  const stages = (policy as { stages?: Stage[] }).stages;
   if (!Array.isArray(stages) || stages.length === 0) return "unknown";
-  return stages.map((s) => `${s.until_offset_hours}/${s.fee_percent}`).join(",");
+  return canonicalStages(stages).map((s) => `${s.until_offset_hours}/${s.fee_percent}`).join(",");
+}
+
+/** `truth.policy` is written by hand and goes through the same canon. */
+function canonicalKey(written: string): string {
+  if (written === "unknown") return written;
+  const stages = written.split(",").map((part) => {
+    const [h, pct] = part.split("/");
+    return { until_offset_hours: Number(h), fee_percent: Number(pct) };
+  });
+  return canonicalStages(stages).map((s) => `${s.until_offset_hours}/${s.fee_percent}`).join(",");
 }
 
 const show = (v: unknown): string => (v === undefined ? "(absent)" : JSON.stringify(v));
@@ -101,7 +141,8 @@ export function compareToTruth(
   }
   if (truth.policy !== undefined) {
     const got = policyKey(out.cancellation_policy);
-    if (got !== truth.policy) mismatches.push({ field: "policy", got, want: truth.policy });
+    const want = canonicalKey(truth.policy);
+    if (got !== want) mismatches.push({ field: "policy", got, want });
   }
   return mismatches;
 }

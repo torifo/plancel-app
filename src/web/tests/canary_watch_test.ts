@@ -111,6 +111,45 @@ Deno.test("canary watch: the day is claimed before the providers are asked", asy
   });
 });
 
+Deno.test("canary watch: a run cut off mid-flight is retried within the hour, not tomorrow", async () => {
+  await withKv(async (kv) => {
+    const reports = reportsDeps(kv);
+    // What the 2026-09-02 production run left behind: the day claimed, the
+    // providers never heard from, the marker never finished.
+    await kv.set(["canary_last"], {
+      startedMs: new VirtualClock("2026-09-02T14:30:00Z").now().epochMilliseconds,
+    });
+
+    const quarterLater = await sweepCanary({
+      clock: new VirtualClock("2026-09-02T14:45:00Z"),
+      parsers: [answers],
+      reports,
+    });
+    assertEquals(quarterLater.ran, false);
+
+    const hourLater = await sweepCanary({
+      clock: new VirtualClock("2026-09-02T15:30:00Z"),
+      parsers: [answers],
+      reports,
+    });
+    assertEquals(hourLater.ran, true);
+
+    // Now finished: the next hour must NOT ask again — a whole day must pass.
+    const anotherHour = await sweepCanary({
+      clock: new VirtualClock("2026-09-02T16:30:00Z"),
+      parsers: [answers],
+      reports,
+    });
+    assertEquals(anotherHour.ran, false);
+    const nextDay = await sweepCanary({
+      clock: new VirtualClock("2026-09-03T15:30:00Z"),
+      parsers: [answers],
+      reports,
+    });
+    assertEquals(nextDay.ran, true);
+  });
+});
+
 Deno.test("canary watch: a provider having a bad minute is not filed as a fault", async () => {
   await withKv(async (kv) => {
     const busy = MockParser(

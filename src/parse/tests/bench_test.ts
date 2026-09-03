@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { compareToTruth, policyKey } from "../bench.ts";
+import { canonicalStages, compareToTruth, policyKey } from "../bench.ts";
 
 Deno.test("policyKey: stages become a comparable line, anything else is unknown", () => {
   assertEquals(
@@ -83,4 +83,43 @@ Deno.test("compareToTruth: no answer at all is one plain mismatch", () => {
     got: "null",
     want: "an answer",
   }]);
+});
+
+Deno.test("canonicalStages: two spellings of one policy compare equal", () => {
+  const key = (stages: { until_offset_hours: number; fee_percent: number }[]) =>
+    canonicalStages(stages).map((s) => `${s.until_offset_hours}/${s.fee_percent}`).join(",");
+  // 「7日前から20%」 — one model ends the 20% stage at 168h, another at 0h.
+  assertEquals(
+    key([{ until_offset_hours: 192, fee_percent: 0 }, {
+      until_offset_hours: 168,
+      fee_percent: 20,
+    }]),
+    "192/0,0/20",
+  );
+  // A stage that only repeats its outer neighbour's rate says nothing new.
+  assertEquals(
+    key([
+      { until_offset_hours: 168, fee_percent: 0 },
+      { until_offset_hours: 72, fee_percent: 0 },
+      { until_offset_hours: 0, fee_percent: 100 },
+    ]),
+    "168/0,0/100",
+  );
+  // Two rates at the same boundary are a real disagreement and survive.
+  assertEquals(
+    key([{ until_offset_hours: 0, fee_percent: 80 }, { until_offset_hours: 0, fee_percent: 100 }]),
+    "0/80,0/100",
+  );
+});
+
+Deno.test("compareToTruth: a policy spelled differently but charging the same passes", () => {
+  const result = compareToTruth({
+    cancellation_policy: {
+      stages: [
+        { until_offset_hours: 192, fee_percent: 0, fee_fixed_jpy: null },
+        { until_offset_hours: 168, fee_percent: 20, fee_fixed_jpy: null },
+      ],
+    },
+  } as never, { policy: "192/0,0/20" });
+  assertEquals(result, []);
 });
