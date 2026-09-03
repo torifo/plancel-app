@@ -167,7 +167,17 @@
 ## Progress
 
 - **実装タスク: 21/21 完了**（Wave 1〜8。Task 6.2/6.3 はコード完了として集計）
-- **自動検証（2026-08-01）**: 669 tests green / scenario OK / replay 10/10 identical
+- **自動検証（2026-09-03）**: 768 tests green / scenario OK / replay 10/10 identical
+- **障害対応と再発防止（2026-09-02〜03、ADR-13〜15）**: Groq が `llama-3.3-70b-versatile` を引退させ
+  貼り付けが数日間 Gemini 一本に落ちていた（ログ無言・応答200）。一次を `openai/gpt-oss-120b` へ。
+  ①`parserFailures`/`allParsersFailed` で「プロバイダが答えなかった」を全経路の log level と
+  `/api/parse` の `reason` に反映、画面は「読めなかった／繋がらなかった」を言い分け、英語の識別子を出さない
+  ②5xx を1回再試行・1試行12秒のタイムアウト ③報告動線 `src/web/reports.ts`（失敗は見た瞬間に自動記録＋
+  任意の補足、ヘルプから要望、管理者はマイページで閲覧。届け先は KV のみ）④日次カナリア
+  `src/parse/canary.ts`/`src/web/canary-watch.ts`（構造的な故障だけ `kind:"system"` の報告に。
+  中断された走行は1時間で再試行）⑤規則ベースの日付抽出 `src/parse/rules.ts`（全モデル停止時の床＋
+  `date_not_in_text` 検査）⑥コーパスに `truth`、`deno task parse:bench <model>`。本番反映済み
+  （build 7da471s2xdnb まで）。**未反映**: 8eb96c5 以降（カナリア再試行・規則抽出・ベンチ正規化・文書）
 - **本番で確認済み**: Deno Deploy稼働、LINE env反映、署名なしwebhookの401、LINE
   ConsoleのWebhook検証成功
 - **未完了の外部acceptance**: LINE実機のテキスト/画像登録とQuick
