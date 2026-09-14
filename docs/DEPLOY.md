@@ -226,9 +226,10 @@ push と デプロイは**別の行為**にする。`main` に push すると Gi
 `deno task verify` を回し、**緑のときだけ `production` ブランチを `main` まで進める**。Deno Deploy の
 Production タイムラインは `production` を追う。赤なら何も出ない。GitHub の失敗通知が警報になる。
 
-**一度だけ必要な操作（コンソール）**: console.deno.com → plancel-app → Timelines → Production →
-追跡ブランチを `main` から `production` に変更。それまでは従来どおり `main` の push で即デプロイされる
-（ワークフローは走って赤/緑を出すが、止められない）。
+**仕組みの要**: Deno Deploy の Production タイムラインは**リポジトリのデフォルトブランチ**を追う固定仕様で、
+コンソールにブランチ選択は無い。そこで **GitHub のデフォルトブランチを `production` にした**（2026-09-14、
+`gh repo edit torifo/plancel-app --default-branch production`）。`main` は開発ブランチのまま push してよい
+（"Git Branch" タイムラインがプレビュー URL に出すだけ）。戻すときは同じコマンドで `main` に。
 
 なぜ: 2026-09-02、1行の宣言順序のバグが本番に出て、全ブラウザで12日間台帳が空だった。捕まえるテスト
 （`src/web/tests/client_boot_test.ts`）は書けるが、push＝デプロイのままでは走る場所が無い。
