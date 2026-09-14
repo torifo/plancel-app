@@ -324,13 +324,19 @@ if (import.meta.main) {
             report.note !== null ? report.note.slice(0, 300) : null,
             "マイページ →「届いた報告」に全文があります。",
           ].filter((line): line is string => line !== null).join("\n");
+          let found = 0;
           let delivered = 0;
           for (const email of adminEmails) {
             const admin = await findUserByEmail(store.kv, email);
-            if (!admin?.lineUserId) continue;
+            if (admin === null) continue;
+            found += 1;
+            if (!admin.lineUserId) continue;
             await webNotifyLine.push(admin.lineUserId, text);
             delivered += 1;
           }
+          // Says which link in the chain is missing when nobody is reached:
+          // no account under an admin email, or an account with no LINE.
+          log.info("system fault push", { admins: adminEmails.size, found, delivered });
           return delivered;
         },
       }
