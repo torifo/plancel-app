@@ -2567,6 +2567,12 @@
     <script>
     "use strict";
     const DAY = 86400000;
+    // Declared first on purpose. Everything below reaches for elements at load
+    // time, and a `const` is dead until its line runs: on 2026-09-02 a binding
+    // 160 lines above this helper threw "Cannot access 'q' before
+    // initialization" in every browser, and the page stayed blank for twelve
+    // days (src/web/tests/client_boot_test.ts is what now catches that).
+    const q = (s) => document.querySelector(s);
     // Per-user identity lives in localStorage; the actual data lives server-side in KV keyed by this token.
     function realToken() {
       let t = localStorage.getItem("plancel.token");
@@ -2929,7 +2935,6 @@
       return parts.join(" → ");
     }
 
-    const q = (s) => document.querySelector(s);
     // 読み込みに一度でも成功したか。失敗時に data を空にすると「まだ予約がありません」
     // という初回向けの案内が出て、台帳が消えたと誤解させるので、直前のデータは残し、
     // まだ何も読めていないときは空の案内も出さない（loadError で描き分ける）。
