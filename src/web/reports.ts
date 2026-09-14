@@ -280,7 +280,7 @@ export async function recordSystemReport(
   if (deps.notify !== undefined) {
     // Claim the day for this code before pushing, so a push that throws is not
     // retried every tick against a channel that is already unhappy.
-    const key = [PUSHED, fault.pushKey ?? report.code];
+    const key = [PUSHED, fault.pushKey ?? fault.code];
     const claimed = await deps.kv.atomic()
       .check({ key, versionstamp: null })
       .set(key, { at: report.at }, { expireIn: PUSH_WINDOW_MS })
