@@ -220,6 +220,29 @@ webhook 経由。設計の根拠は `local/reports/2026-07-27-email-forward-inta
 `PLANCEL_INBOUND_DOMAIN` と `RESEND_WEBHOOK_SECRET` を入れて**再デプロイ**（env 変更は再デプロイまで
 効かない）→ ④ 各ユーザーがマイページで自分の転送先アドレスをメールの連絡先に保存。
 
+## 3.5 本番へ出る前の関門（2026-09-14〜）
+
+push と デプロイは**別の行為**にする。`main` に push すると GitHub Actions（`.github/workflows/verify.yml`）が
+`deno task verify` を回し、**緑のときだけ `production` ブランチを `main` まで進める**。Deno Deploy の
+Production タイムラインは `production` を追う。赤なら何も出ない。GitHub の失敗通知が警報になる。
+
+**一度だけ必要な操作（コンソール）**: console.deno.com → plancel-app → Timelines → Production →
+追跡ブランチを `main` から `production` に変更。それまでは従来どおり `main` の push で即デプロイされる
+（ワークフローは走って赤/緑を出すが、止められない）。
+
+なぜ: 2026-09-02、1行の宣言順序のバグが本番に出て、全ブラウザで12日間台帳が空だった。捕まえるテスト
+（`src/web/tests/client_boot_test.ts`）は書けるが、push＝デプロイのままでは走る場所が無い。
+
+## 3.6 ページが起動しなかったときに気づく仕組み（2026-09-14〜）
+
+- **起動ビーコン**: `web/index.html` の `<body>` 直後にある独立した `<script>`。本体が読み込み時に例外を
+  出すか、8秒たっても `window.__plancelBooted` が立たないと、**ログイン不要**の `POST /api/beacon` に
+  一度だけ送る。同じ失敗は1日1件だけ保存、全体で1日200件まで。
+- **LINE 通知**: `kind: "system"` の報告（カナリア・起動ビーコン）は保存と同時に、`PLANCEL_ADMIN_EMAILS`
+  のアカウントのうち LINE 連携済みのものへ push する。**同じ code は1日1通**（月200通の枠を守る）。人の
+  報告・要望は push しない（マイページ「届いた報告」で読む）。
+- 前提: LINE の env と、管理者アカウントが自分の LINE を連携していること（マイページ→連携）。
+
 ## 4. 認証（ログイン一本化）
 
 ログインが唯一の入口。**旧方式（ブラウザローカルの匿名トークンが現行）は廃止**。旧トークン台帳は

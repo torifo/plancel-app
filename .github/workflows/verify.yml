@@ -1,0 +1,35 @@
+# The gate in front of production (2026-09-14).
+#
+# Deno Deploy builds whatever branch its Production timeline tracks. That
+# branch is `production`, and only this workflow moves it — by fast-forwarding
+# it to `main` after `deno task verify` is green. A red main deploys nothing;
+# GitHub's own failure notification is the alarm.
+#
+# Why: on 2026-09-02 a one-line ordering bug reached production because push
+# and deploy were the same act. The test that catches it now runs here
+# before anything ships.
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.x
+      - name: verify (fmt, check, lint, test, replay)
+        run: deno task verify
+      - name: advance production
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: git push origin HEAD:production
