@@ -369,3 +369,22 @@ Deno.test("system reports: a channel that reaches nobody is logged as a warning,
     assertEquals(msgs.some((m) => m.msg === "system fault pushed"), false);
   });
 });
+
+Deno.test("beacon: a different way of failing to boot is a new alarm on the same day", async () => {
+  await withKv(async (kv) => {
+    const pushed: string[] = [];
+    const deps: ReportsDeps = {
+      ...makeDeps(kv),
+      notify: (r) => {
+        pushed.push(r.note ?? "");
+        return Promise.resolve(1);
+      },
+    };
+    await handleBeaconApi(beacon({ message: "first failure", where: "/:1:1" }), deps);
+    await handleBeaconApi(beacon({ message: "first failure", where: "/:1:1" }), deps); // same → quiet
+    await handleBeaconApi(beacon({ message: "second failure", where: "/:9:9" }), deps);
+    assertEquals(pushed.length, 2);
+    assertStringIncludes(pushed[0]!, "first failure");
+    assertStringIncludes(pushed[1]!, "second failure");
+  });
+});

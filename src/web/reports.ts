@@ -243,7 +243,19 @@ export async function handleReportsApi(
  */
 export async function recordSystemReport(
   deps: ReportsDeps,
-  fault: { code: string; detail?: string; path?: string; build?: string; ua?: string },
+  fault: {
+    code: string;
+    detail?: string;
+    path?: string;
+    build?: string;
+    ua?: string;
+    /**
+     * What "the same fault" means for the once-a-day push. Defaults to the
+     * code; the beacon passes the code plus its failure digest, so a NEW way
+     * of failing to boot is still an alarm on a day that already had one.
+     */
+    pushKey?: string;
+  },
 ): Promise<Report> {
   const log = logger("web.reports", deps.logWrite !== undefined ? { write: deps.logWrite } : {});
   const report: Report = {
@@ -268,7 +280,7 @@ export async function recordSystemReport(
   if (deps.notify !== undefined) {
     // Claim the day for this code before pushing, so a push that throws is not
     // retried every tick against a channel that is already unhappy.
-    const key = [PUSHED, report.code ?? ""];
+    const key = [PUSHED, fault.pushKey ?? report.code];
     const claimed = await deps.kv.atomic()
       .check({ key, versionstamp: null })
       .set(key, { at: report.at }, { expireIn: PUSH_WINDOW_MS })
@@ -339,6 +351,7 @@ export async function handleBeaconApi(req: Request, deps: ReportsDeps): Promise<
 
   await recordSystemReport(deps, {
     code: "boot",
+    pushKey: `boot:${hash}`,
     detail: `${b.message}${b.where ? ` @ ${b.where}` : ""}${b.stack ? `\n${b.stack}` : ""}`,
     path: "/",
     ...(b.build !== undefined ? { build: b.build } : {}),
