@@ -103,7 +103,7 @@ export interface ReportsDeps {
    * a fault that repeats every tick costs one message, not a hundred.
    * Absent → KV only.
    */
-  notify?: (report: Report) => Promise<void>;
+  notify?: (report: Report) => Promise<number>;
   /** Injectable log sink for tests; defaults to stdout. */
   logWrite?: (line: string) => void;
 }
@@ -275,8 +275,17 @@ export async function recordSystemReport(
       .commit();
     if (claimed.ok) {
       try {
-        await deps.notify(report);
-        log.info("system fault pushed", { id: report.id, code: report.code });
+        const delivered = await deps.notify(report);
+        // A channel with nobody on it is the silent failure this whole file
+        // exists to end, so zero deliveries is a warning, not a success.
+        if (delivered > 0) {
+          log.info("system fault pushed", { id: report.id, code: report.code, delivered });
+        } else {
+          log.warn("system fault pushed to nobody; no admin has LINE linked", {
+            id: report.id,
+            code: report.code,
+          });
+        }
       } catch (err) {
         log.warn("system fault push failed", { id: report.id, err: String(err) });
       }

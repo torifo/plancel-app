@@ -324,10 +324,14 @@ if (import.meta.main) {
             report.note !== null ? report.note.slice(0, 300) : null,
             "マイページ →「届いた報告」に全文があります。",
           ].filter((line): line is string => line !== null).join("\n");
+          let delivered = 0;
           for (const email of adminEmails) {
             const admin = await findUserByEmail(store.kv, email);
-            if (admin?.lineUserId) await webNotifyLine.push(admin.lineUserId, text);
+            if (!admin?.lineUserId) continue;
+            await webNotifyLine.push(admin.lineUserId, text);
+            delivered += 1;
           }
+          return delivered;
         },
       }
       : {}),

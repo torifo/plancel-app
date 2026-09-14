@@ -330,7 +330,7 @@ Deno.test("system reports: a fault is pushed once a day per code, and a failing 
       notify: (r) => {
         if (fail) return Promise.reject(new Error("line down"));
         pushed.push(r.code ?? "");
-        return Promise.resolve();
+        return Promise.resolve(1);
       },
     };
     await recordSystemReport(deps, { code: "provider_unavailable", detail: "groq 404" });
@@ -353,5 +353,19 @@ Deno.test("system reports: without a notify channel nothing is pushed and nothin
   await withKv(async (kv) => {
     const r = await recordSystemReport(makeDeps(kv), { code: "x" });
     assertEquals(r.kind, "system");
+  });
+});
+
+Deno.test("system reports: a channel that reaches nobody is logged as a warning, not a success", async () => {
+  await withKv(async (kv) => {
+    const lines: string[] = [];
+    const deps: ReportsDeps = { ...makeDeps(kv, lines), notify: () => Promise.resolve(0) };
+    await recordSystemReport(deps, { code: "boot", detail: "x" });
+    const msgs = lines.map((l) => (JSON.parse(l) as { msg: string; level: string }));
+    assertEquals(
+      msgs.some((m) => m.msg.startsWith("system fault pushed to nobody") && m.level === "warn"),
+      true,
+    );
+    assertEquals(msgs.some((m) => m.msg === "system fault pushed"), false);
   });
 });
