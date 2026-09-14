@@ -96,9 +96,40 @@ export interface ReportsDeps {
   ids: { ulid(): string; nowIso(): string };
   /** Lower-cased emails allowed to read the list (PLANCEL_ADMIN_EMAILS). */
   adminEmails: ReadonlySet<string>;
+  /**
+   * Where a structural fault is pushed the moment it is recorded (LINE to the
+   * admin accounts in production). Only `kind: "system"` goes this way, and
+   * one code at most once a day: a person's report or wish never pushes, and
+   * a fault that repeats every tick costs one message, not a hundred.
+   * Absent → KV only.
+   */
+  notify?: (report: Report) => Promise<void>;
   /** Injectable log sink for tests; defaults to stdout. */
   logWrite?: (line: string) => void;
 }
+
+/** A pushed code is not pushed again inside this window. */
+const PUSH_WINDOW_MS = 24 * 60 * 60 * 1000;
+const PUSHED = "report_pushed";
+
+/**
+ * What the boot beacon (web/index.html, the first <script>) may send. Tiny and
+ * fixed on purpose: this endpoint takes no login, because the page it reports
+ * on died before anyone could log in.
+ */
+const beaconSchema = z.object({
+  message: z.string().min(1).max(300),
+  where: z.string().max(200).optional(),
+  stack: z.string().max(1500).optional(),
+  ua: z.string().max(300).optional(),
+  build: z.string().max(64).optional(),
+});
+/** One distinct failure is stored once per window, however many phones hit it. */
+const BEACON_SEEN = "beacon_seen";
+const BEACON_SEEN_MS = 24 * 60 * 60 * 1000;
+/** Anonymous writers get a global ceiling per window, not a per-user one. */
+const BEACON_DAILY_CAP = 200;
+const BEACON_RATE = "beacon_rate";
 
 /** The caller as resolved by the entrypoint; `ledger` is the rate key fallback. */
 export interface ReportsCaller {
@@ -112,6 +143,10 @@ export function isReportsPath(pathname: string): boolean {
 
 export function isAdminReportsPath(pathname: string): boolean {
   return pathname === "/api/admin/reports";
+}
+
+export function isBeaconPath(pathname: string): boolean {
+  return pathname === "/api/beacon";
 }
 
 const json = (body: unknown, status = 200) =>
@@ -208,7 +243,7 @@ export async function handleReportsApi(
  */
 export async function recordSystemReport(
   deps: ReportsDeps,
-  fault: { code: string; detail?: string; path?: string },
+  fault: { code: string; detail?: string; path?: string; build?: string; ua?: string },
 ): Promise<Report> {
   const log = logger("web.reports", deps.logWrite !== undefined ? { write: deps.logWrite } : {});
   const report: Report = {
@@ -221,15 +256,86 @@ export async function recordSystemReport(
     status: null,
     path: fault.path ?? null,
     view: null,
-    build: null,
-    ua: null,
+    build: fault.build ?? null,
+    ua: fault.ua ?? null,
     note: masked(fault.detail),
     sample: null,
     ref: null,
   };
   await put(deps, report);
   log.error("system fault recorded", { id: report.id, code: report.code, path: report.path });
+
+  if (deps.notify !== undefined) {
+    // Claim the day for this code before pushing, so a push that throws is not
+    // retried every tick against a channel that is already unhappy.
+    const key = [PUSHED, report.code ?? ""];
+    const claimed = await deps.kv.atomic()
+      .check({ key, versionstamp: null })
+      .set(key, { at: report.at }, { expireIn: PUSH_WINDOW_MS })
+      .commit();
+    if (claimed.ok) {
+      try {
+        await deps.notify(report);
+        log.info("system fault pushed", { id: report.id, code: report.code });
+      } catch (err) {
+        log.warn("system fault push failed", { id: report.id, err: String(err) });
+      }
+    }
+  }
   return report;
+}
+
+/**
+ * POST /api/beacon — the page could not boot. Sent by a script that runs
+ * before everything else and depends on nothing, because on 2026-09-02 the
+ * app's own error reporter sat below the line that threw and never ran.
+ *
+ * No login (the page died before login), so: a fixed tiny shape, one stored
+ * report per distinct failure per day, and a global daily ceiling. The
+ * response says nothing a probe could use.
+ */
+export async function handleBeaconApi(req: Request, deps: ReportsDeps): Promise<Response> {
+  const log = logger("web.reports", deps.logWrite !== undefined ? { write: deps.logWrite } : {});
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "invalid" }, 400);
+  }
+  const parsed = beaconSchema.safeParse(body);
+  if (!parsed.success) return json({ error: "invalid" }, 400);
+  const b = parsed.data;
+
+  const rate = rateSchema.safeParse((await deps.kv.get([BEACON_RATE])).value);
+  const count = rate.success ? rate.data.count : 0;
+  if (count >= BEACON_DAILY_CAP) return json({ ok: true, stored: false }, 202);
+  await deps.kv.set([BEACON_RATE], { count: count + 1 }, { expireIn: BEACON_SEEN_MS });
+
+  // The same message at the same place is one fault, not one per phone.
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${b.message}\n${b.where ?? ""}`),
+  );
+  const hash = [...new Uint8Array(digest)].slice(0, 12).map((x) => x.toString(16).padStart(2, "0"))
+    .join("");
+  const seen = await deps.kv.atomic()
+    .check({ key: [BEACON_SEEN, hash], versionstamp: null })
+    .set([BEACON_SEEN, hash], { at: deps.ids.nowIso() }, { expireIn: BEACON_SEEN_MS })
+    .commit();
+  if (!seen.ok) {
+    log.warn("page failed to boot (already recorded today)", { hash, where: b.where ?? null });
+    return json({ ok: true, stored: false }, 202);
+  }
+
+  await recordSystemReport(deps, {
+    code: "boot",
+    detail: `${b.message}${b.where ? ` @ ${b.where}` : ""}${b.stack ? `\n${b.stack}` : ""}`,
+    path: "/",
+    ...(b.build !== undefined ? { build: b.build } : {}),
+    ...(b.ua !== undefined ? { ua: b.ua } : {}),
+  });
+  return json({ ok: true, stored: true }, 201);
 }
 
 /** Newest first. `kind` narrows to one kind. */

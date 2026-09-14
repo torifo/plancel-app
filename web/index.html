@@ -1924,6 +1924,42 @@
     </style>
   </head>
   <body>
+    <!-- 起動ビーコン。本体スクリプトより前、何にも依存しない。本体が読み込み時に
+         死んだら（2026-09-02〜14 はそうだった）、ログイン不要の /api/beacon に一度だけ
+         知らせる。本体が最後まで走れば window.__plancelBooted が立つので、8秒たっても
+         立たず例外も無い「黙った止まり方」も拾う。文法は古い WebKit でも読める形に。 -->
+    <script>
+      (function () {
+        var sent = false;
+        function send(message, where, stack) {
+          if (sent) return;
+          sent = true;
+          try {
+            var body = JSON.stringify({
+              message: String(message || "unknown").slice(0, 300),
+              where: String(where || "").slice(0, 200),
+              stack: stack ? String(stack).slice(0, 1500) : undefined,
+              ua: (navigator.userAgent || "").slice(0, 300),
+            });
+            if (navigator.sendBeacon) {
+              navigator.sendBeacon("/api/beacon", new Blob([body], { type: "application/json" }));
+            } else {
+              fetch("/api/beacon", { method: "POST", headers: { "content-type": "application/json" }, body: body, keepalive: true });
+            }
+          } catch (e) {}
+        }
+        window.addEventListener("error", function (ev) {
+          send(ev.message, (ev.filename || "") + ":" + ev.lineno + ":" + ev.colno, ev.error && ev.error.stack);
+        }, true);
+        window.addEventListener("unhandledrejection", function (ev) {
+          var r = ev.reason;
+          send((r && r.message) || r, "unhandledrejection", r && r.stack);
+        });
+        setTimeout(function () {
+          if (!window.__plancelBooted) send("boot did not finish within 8s", "boot-timeout", null);
+        }, 8000);
+      })();
+    </script>
     <div class="pwa-update-bar" id="pwaUpdateToast" role="status" aria-live="polite">
       <div class="inner">
         <div class="copy">新しいplancelを利用できます。</div>
@@ -5268,6 +5304,8 @@
       }
       await refresh();
       routeHash();
+      // 起動ビーコン（<body> 直後の <script>）への「ここまで来た」の合図。
+      window.__plancelBooted = true;
     }
     boot();
     </script>

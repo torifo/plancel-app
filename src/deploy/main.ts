@@ -59,6 +59,7 @@ import { handleUserLookup, handleWebApi, isApiPath, isUsersLookupPath } from "..
 import { handleParseApi, type ParseApiDeps } from "../web/parse-api.ts";
 import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../web/auth/routes.ts";
 import type { AuthIds } from "../web/users.ts";
+import { findUserByEmail } from "../web/users.ts";
 import { handleCalendarFeed, isCalendarFeedPath } from "../web/calendar/ics.ts";
 import { requestSync, sweepDirtySync, type SyncDeps } from "../web/calendar/sync.ts";
 import { EMAIL_DAILY_CAP_DEFAULT, sweepDeadlineNotifications } from "../web/notify.ts";
@@ -71,8 +72,10 @@ import {
 import { loadPwaAssets, servePwaAsset } from "../web/pwa.ts";
 import {
   handleAdminReportsApi,
+  handleBeaconApi,
   handleReportsApi,
   isAdminReportsPath,
+  isBeaconPath,
   isReportsPath,
   type ReportsDeps,
 } from "../web/reports.ts";
@@ -308,6 +311,26 @@ if (import.meta.main) {
     kv: store.kv,
     ids: { ulid: () => ulid(), nowIso: webIds.nowIso },
     adminEmails,
+    // A structural fault reaches the admins' own LINE the moment it is
+    // recorded (owner 2026-09-14: the KV list alone cannot be read from a page
+    // that will not boot). One code at most once a day — see recordSystemReport.
+    ...(webNotifyLine !== null && adminEmails.size > 0
+      ? {
+        notify: async (report) => {
+          const text = [
+            `⚠ plancel: ${report.code ?? "fault"}`,
+            report.path !== null ? `場所: ${report.path}` : null,
+            report.build !== null ? `build: ${report.build}` : null,
+            report.note !== null ? report.note.slice(0, 300) : null,
+            "マイページ →「届いた報告」に全文があります。",
+          ].filter((line): line is string => line !== null).join("\n");
+          for (const email of adminEmails) {
+            const admin = await findUserByEmail(store.kv, email);
+            if (admin?.lineUserId) await webNotifyLine.push(admin.lineUserId, text);
+          }
+        },
+      }
+      : {}),
   };
 
   // Cron: shares the startup Store; never closes it (isolate-lived). Also
@@ -409,6 +432,11 @@ if (import.meta.main) {
       const who = await resolveIdentity(req, authDeps);
       if (who.ledger === null) return new Response(`{"error":"login required"}`, { status: 401 });
       return await handleParseApi(req, parseDeps);
+    }
+    if (isBeaconPath(url.pathname)) {
+      // Deliberately before every login gate: the page this reports on died
+      // before anyone could log in.
+      return await handleBeaconApi(req, reportDeps);
     }
     if (isReportsPath(url.pathname)) {
       // Login-gated like every other writer; the handler keys its cap by user.

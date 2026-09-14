@@ -1,8 +1,10 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import {
   handleAdminReportsApi,
+  handleBeaconApi,
   handleReportsApi,
   isAdminReportsPath,
+  isBeaconPath,
   isReportsPath,
   listReports,
   recordSystemReport,
@@ -253,5 +255,103 @@ Deno.test("reports: only an admin email may read the list, newest first", async 
       { user: dev, ledger: dev.ledgerId },
     );
     assertEquals(wrongMethod.status, 405);
+  });
+});
+
+// ---- what reaches the developer without a page or a login (2026-09-14) ----
+
+const beacon = (body: unknown) =>
+  new Request("http://localhost/api/beacon", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+Deno.test("beacon: a page that failed to boot is stored as a system fault, without login", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv);
+    const res = await handleBeaconApi(
+      beacon({
+        message: "Cannot access 'q' before initialization",
+        where: "https://plancel-app.torifo.deno.net/:2774:5",
+        stack: "ReferenceError: ...",
+        ua: "Mozilla/5.0 (iPhone)",
+      }),
+      deps,
+    );
+    assertEquals(res.status, 201);
+    const [stored] = await listReports(kv);
+    assertEquals(stored?.kind, "system");
+    assertEquals(stored?.code, "boot");
+    assertEquals(stored?.userId, null);
+    assertStringIncludes(stored?.note ?? "", "Cannot access 'q'");
+    assertStringIncludes(stored?.note ?? "", ":2774:5");
+    assertEquals(stored?.ua, "Mozilla/5.0 (iPhone)");
+    assertEquals(isBeaconPath("/api/beacon"), true);
+  });
+});
+
+Deno.test("beacon: the same failure from many phones is one report a day", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv);
+    const same = { message: "boom", where: "/:1:1" };
+    assertEquals((await handleBeaconApi(beacon(same), deps)).status, 201);
+    assertEquals((await handleBeaconApi(beacon(same), deps)).status, 202);
+    assertEquals((await handleBeaconApi(beacon({ ...same, ua: "other" }), deps)).status, 202);
+    // A different place is a different fault.
+    assertEquals(
+      (await handleBeaconApi(beacon({ message: "boom", where: "/:2:2" }), deps)).status,
+      201,
+    );
+    assertEquals((await listReports(kv)).length, 2);
+  });
+});
+
+Deno.test("beacon: shapes it does not know are refused, and nothing is stored", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv);
+    assertEquals((await handleBeaconApi(beacon({}), deps)).status, 400);
+    assertEquals((await handleBeaconApi(beacon({ message: "x".repeat(301) }), deps)).status, 400);
+    assertEquals(
+      (await handleBeaconApi(new Request("http://localhost/api/beacon"), deps)).status,
+      405,
+    );
+    assertEquals(await listReports(kv), []);
+  });
+});
+
+Deno.test("system reports: a fault is pushed once a day per code, and a failing push is swallowed", async () => {
+  await withKv(async (kv) => {
+    const lines: string[] = [];
+    const pushed: string[] = [];
+    let fail = false;
+    const deps: ReportsDeps = {
+      ...makeDeps(kv, lines),
+      notify: (r) => {
+        if (fail) return Promise.reject(new Error("line down"));
+        pushed.push(r.code ?? "");
+        return Promise.resolve();
+      },
+    };
+    await recordSystemReport(deps, { code: "provider_unavailable", detail: "groq 404" });
+    await recordSystemReport(deps, { code: "provider_unavailable", detail: "groq 404 again" });
+    await recordSystemReport(deps, { code: "boot", detail: "page died" });
+    assertEquals(pushed, ["provider_unavailable", "boot"]);
+    assertEquals((await listReports(kv)).length, 3);
+
+    fail = true;
+    await recordSystemReport(deps, { code: "canary_other", detail: "x" });
+    assertEquals((await listReports(kv)).length, 4);
+    assertEquals(
+      lines.some((l) => (JSON.parse(l) as { msg: string }).msg === "system fault push failed"),
+      true,
+    );
+  });
+});
+
+Deno.test("system reports: without a notify channel nothing is pushed and nothing breaks", async () => {
+  await withKv(async (kv) => {
+    const r = await recordSystemReport(makeDeps(kv), { code: "x" });
+    assertEquals(r.kind, "system");
   });
 });

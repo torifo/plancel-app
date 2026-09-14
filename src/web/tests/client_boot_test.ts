@@ -18,7 +18,9 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
 
 const html = await Deno.readTextFile(new URL("../../../web/index.html", import.meta.url));
-const match = html.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/);
+const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)];
+// The last inline script is the app; the first is the boot beacon (tested below).
+const match = scripts.at(-1) ?? null;
 if (match === null) throw new Error("web/index.html: inline <script> not found");
 const source = match[1]!;
 const firstLine = html.slice(0, match.index).split("\n").length + 1;
@@ -191,4 +193,21 @@ Deno.test("client: the inline script runs top to bottom at page load without thr
     throw new Error(`page load threw at ${where}: ${err.name}: ${err.message}`);
   }
   assertEquals(thrown, null);
+});
+
+// The beacon has to be the FIRST script and must itself survive a stand-in
+// page: it is the one thing that runs when nothing else does.
+Deno.test("client: the boot beacon is the first inline script and runs on its own", async () => {
+  assertEquals(scripts.length, 2);
+  const beaconSrc = scripts[0]![1]!;
+  assertEquals(beaconSrc.includes("/api/beacon"), true);
+  assertEquals(beaconSrc.includes("__plancelBooted"), true);
+  const globals = makeGlobals();
+  const names = Object.keys(globals);
+  new Function(...names, beaconSrc)(...names.map((n) => globals[n]));
+  await new Promise((r) => setTimeout(r, 5));
+});
+
+Deno.test("client: the main script raises the booted flag when boot() completes", () => {
+  assertEquals(source.includes("window.__plancelBooted = true"), true);
 });
