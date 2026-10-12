@@ -457,6 +457,32 @@ Deno.test("email intake: the facility template fills a policy the mail never sta
   });
 });
 
+Deno.test("email intake: an end date the model wrote unreadably is dropped, not the mail", async () => {
+  await withKv(async (kv) => {
+    const user = await makeUser(kv);
+    const mail = "【予約確認】翠嶺館 8/20 15:00〜翌週 42,000円";
+    const f = makeFixture(kv, {
+      parsers: [MockParser(
+        "p1",
+        new Map([[mail, {
+          raw_response: "{}",
+          output: { ...MAIL_NO_POLICY_OUTPUT.output, ends_at: "来週の金曜" },
+        }]]),
+      )],
+    });
+    f.received = { text: mail };
+    const req = await signedRequest(eventBody({ to: [addressOf(user)] }));
+    assertEquals((await handleEmailWebhook(req, f.deps)).status, 200);
+    // The parser warns and says it will drop such an end (src/parse/validate.ts);
+    // the start it did read still makes a reservation.
+    const list = await listReservations(kv, user.ledgerId);
+    assertEquals(list.length, 1);
+    assertEquals(list[0]?.startsAt, "2026-08-20T06:00:00.000Z");
+    assertEquals(list[0]?.endsAt, null);
+    assertEquals(logged(f.lines, "forwarded mail registered as a candidate"), true);
+  });
+});
+
 Deno.test("email intake: a parsed policy is not overwritten by the template", async () => {
   await withKv(async (kv) => {
     const user = await makeUser(kv);

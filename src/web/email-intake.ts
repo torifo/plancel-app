@@ -46,6 +46,7 @@ import {
   runParseChain,
 } from "../parse/mod.ts";
 import type { ParseInput, Parser, ParserChainConfig } from "../parse/mod.ts";
+import { normalizeInstant } from "./instant.ts";
 import { fromCoreStages } from "./policy.ts";
 import { createReservation, webCreateSchema, type WebIds } from "./store.ts";
 import { findUserByMailSecret, mailSecretFromAddress, type WebUser } from "./users.ts";
@@ -405,9 +406,9 @@ async function intake(
     ? webCreateSchema.safeParse({
       service: merged.service_name,
       startsAt: merged.starts_at,
-      // 型を確かめてから渡す: 変な値をそのまま渡すと safeParse が転けて、
-      // 読めていた予約ごと「読み取れませんでした」になる。
-      endsAt: typeof merged.ends_at === "string" ? merged.ends_at : null,
+      // 読めない終了は落としてから渡す（validate.ts の約束）。そのまま渡すと safeParse が
+      // 転けて、読めていた予約ごと「読み取れませんでした」になる。
+      endsAt: normalizeInstant(merged.ends_at),
       amount: typeof merged.amount_jpy === "number" ? merged.amount_jpy : null,
       location: typeof merged.location === "string" ? merged.location : null,
       policy: fromCoreStages(merged.cancellation_policy, impliedFreeBoundaryHours(text)),
