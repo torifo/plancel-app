@@ -81,6 +81,7 @@ import {
   type ReportsDeps,
 } from "../web/reports.ts";
 import { sweepCanary } from "../web/canary-watch.ts";
+import { handleAdminDateAudit, isAdminDateAuditPath } from "../web/date-audit.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 
@@ -471,6 +472,10 @@ if (import.meta.main) {
     }
     if (isAdminReportsPath(url.pathname)) {
       return await handleAdminReportsApi(req, reportDeps, await resolveIdentity(req, authDeps));
+    }
+    if (isAdminDateAuditPath(url.pathname)) {
+      const who = await resolveIdentity(req, authDeps);
+      return await handleAdminDateAudit(req, { kv: store.kv, adminEmails }, who);
     }
     if (isUsersLookupPath(url.pathname)) {
       // Exact-match lookup for the invite box — login required (never leaks email).
