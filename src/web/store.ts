@@ -114,15 +114,69 @@ const planConfirmedKey = (token: string, plan: string) => [
 ];
 
 /** An attempted web-ledger state transition is not legal. */
+/**
+ * A refused transition. `message` is the stable English form the web UI maps
+ * to Japanese (web/index.html `transitionText`); `hint` is the next step in
+ * Japanese for a caller with no such table — the MCP relays it to the model
+ * (issue #6: 「先に ○○ をキャンセルしてから」 is what it could not work out alone).
+ * `blockingId` names the confirmed reservation standing in the way.
+ */
 export class WebTransitionError extends Error {
+  readonly hint: string;
+  readonly blockingId: string | null;
   constructor(
     readonly command: "confirm" | "patch_plan",
     readonly from: WebStatus,
     message = `cannot ${command} reservation from ${from}`,
+    extra: { hint?: string; blockingId?: string } = {},
   ) {
     super(message);
     this.name = "WebTransitionError";
+    this.blockingId = extra.blockingId ?? null;
+    this.hint = extra.hint ??
+      (command === "patch_plan"
+        ? "確定済みの予約は別のプランへ移せません。先に cancel_reservation で確定を外してください。"
+        : from === "confirmed"
+        ? "この予約はすでに確定しています。"
+        : "確定できるのは候補（candidate）だけです。restore_reservation で候補に戻してから確定してください。");
   }
+}
+
+/** A reservation a settlement changed alongside the one that was acted on. */
+export interface AffectedReservation {
+  id: string;
+  service: string;
+  status: WebStatus;
+}
+
+export interface ConfirmOutcome {
+  reservation: WebReservation;
+  /** Siblings in the plan this confirmation turned to_cancel (issue #6). */
+  affected: AffectedReservation[];
+}
+
+export interface CreateOutcome extends ConfirmOutcome {
+  /**
+   * The plan's already-confirmed reservation when a CANDIDATE was added to a
+   * settled plan — allowed, but the caller should say so (issue #6).
+   */
+  planAlreadyConfirmed: WebReservation | null;
+}
+
+/** The confirmed reservation in `plan`, if any (other than `excludeId`). */
+export async function findConfirmedInPlan(
+  kv: Deno.Kv,
+  token: string,
+  plan: string,
+  excludeId: string | null = null,
+): Promise<WebReservation | null> {
+  for await (const e of kv.list<WebReservation>({ prefix: prefix(token) })) {
+    const parsed = webReservationSchema.safeParse(e.value);
+    if (!parsed.success) continue;
+    const r = parsed.data;
+    if (r.plan === plan && r.status === "confirmed" && r.id !== excludeId) return r;
+  }
+  return null;
 }
 
 export async function listReservations(kv: Deno.Kv, token: string): Promise<WebReservation[]> {
@@ -159,6 +213,17 @@ export async function createReservation(
   ids: WebIds,
   actor: WebActor = null,
 ): Promise<WebReservation> {
+  return (await createReservationWithEffects(kv, token, input, ids, actor)).reservation;
+}
+
+/** createReservation, plus what else the write changed or found (issue #6). */
+export async function createReservationWithEffects(
+  kv: Deno.Kv,
+  token: string,
+  input: z.infer<typeof webCreateSchema>,
+  ids: WebIds,
+  actor: WebActor = null,
+): Promise<CreateOutcome> {
   const now = ids.nowIso();
   // 規定が「不明」のときだけ施設の既定規定に落ちる（オーナー 2026-07-27）。
   // 予約を作る経路は web API（フォームと MCP）・メール転送・LINE の3つあり、
@@ -189,9 +254,16 @@ export async function createReservation(
     updated_by: actor,
   };
   await put(kv, token, r);
-  if (!input.confirmed) return r;
+  if (!input.confirmed) {
+    return {
+      reservation: r,
+      affected: [],
+      planAlreadyConfirmed: r.plan === null ? null : await findConfirmedInPlan(kv, token, r.plan),
+    };
+  }
   try {
-    return (await confirmReservation(kv, token, r.id, ids, actor))!;
+    const outcome = (await confirmReservationWithEffects(kv, token, r.id, ids, actor))!;
+    return { ...outcome, planAlreadyConfirmed: null };
   } catch (error) {
     // The generated id has not been returned to a caller yet, so failed
     // create-with-confirmed must not leave a surprise candidate behind.
@@ -246,6 +318,36 @@ export async function confirmReservation(
   ids: WebIds,
   actor: WebActor = null,
 ): Promise<WebReservation | null> {
+  return (await confirmReservationWithEffects(kv, token, id, ids, actor))?.reservation ?? null;
+}
+
+/**
+ * confirmReservation, reporting the siblings it settled. With `replace`, a
+ * sibling that is already confirmed is turned to_cancel in the same commit
+ * instead of blocking — the one-step 「確定を差し替える」 (issue #6), which
+ * otherwise took a cancel and a confirm with a window of no winner between.
+ */
+export async function confirmReservationWithEffects(
+  kv: Deno.Kv,
+  token: string,
+  id: string,
+  ids: WebIds,
+  actor: WebActor = null,
+  opts: { replace?: boolean } = {},
+): Promise<ConfirmOutcome | null> {
+  const replace = opts.replace === true;
+  const blocked = (plan: string, winner: WebReservation) =>
+    new WebTransitionError(
+      "confirm",
+      "candidate",
+      `plan "${plan}" already has a confirmed reservation`,
+      {
+        blockingId: winner.id,
+        hint: `このプランでは「${winner.service}」（${winner.id}）が確定済みです。差し替えるなら ` +
+          "confirm_reservation を replace: true で呼ぶ（確定済みの方は要キャンセルになる）か、" +
+          "先に cancel_reservation で外してから確定してください。",
+      },
+    );
   // Retry optimistic conflicts. A competing confirmation is observed on the
   // next read as either a non-candidate target or a claimed plan guard.
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -265,6 +367,8 @@ export async function confirmReservation(
       updated_by: actor,
     };
     let tx = kv.atomic().check(targetEntry);
+    // Siblings this commit turns to_cancel (reported as `affected`).
+    const siblings: Deno.KvEntry<WebReservation>[] = [];
 
     if (cur.plan !== null) {
       const guard = await kv.get<string>(planConfirmedKey(token, cur.plan));
@@ -277,28 +381,23 @@ export async function confirmReservation(
         if (
           parsedGuarded.success &&
           parsedGuarded.data.plan === cur.plan &&
-          parsedGuarded.data.status === "confirmed"
+          parsedGuarded.data.status === "confirmed" &&
+          !replace
         ) {
-          throw new WebTransitionError(
-            "confirm",
-            cur.status,
-            `plan "${cur.plan}" already has a confirmed reservation`,
-          );
+          throw blocked(cur.plan, parsedGuarded.data);
         }
       }
 
       // Version-check and update all candidate siblings in the same commit as
       // the winner. There can be neither two winners nor partial settlement.
-      const siblings: Deno.KvEntry<WebReservation>[] = [];
       for await (const entry of kv.list<WebReservation>({ prefix: prefix(token) })) {
         const parsed = webReservationSchema.safeParse(entry.value);
         if (!parsed.success || parsed.data.id === id || parsed.data.plan !== cur.plan) continue;
         if (parsed.data.status === "confirmed") {
-          throw new WebTransitionError(
-            "confirm",
-            cur.status,
-            `plan "${cur.plan}" already has a confirmed reservation`,
-          );
+          if (!replace) throw blocked(cur.plan, parsed.data);
+          // Replacing: the old winner steps down in the same commit.
+          siblings.push(entry);
+          continue;
         }
         // 日が過ぎた候補は巻き添えにしない。もう電話するところが無いのに
         // to_cancel を書くと、履歴が「要キャンセルのまま放置した」と、実際には
@@ -321,13 +420,23 @@ export async function confirmReservation(
     }
 
     const committed = await tx.set(key(token, id), next).commit();
-    if (committed.ok) return next;
+    if (committed.ok) {
+      return {
+        reservation: next,
+        affected: siblings.map((e) => ({
+          id: e.value.id,
+          service: e.value.service,
+          status: "to_cancel" as const,
+        })),
+      };
+    }
   }
 
   throw new WebTransitionError(
     "confirm",
     "candidate",
     "reservation changed while it was being confirmed",
+    { hint: "同時に別の操作が入りました。台帳を読み込み直してから、もう一度確定してください。" },
   );
 }
 

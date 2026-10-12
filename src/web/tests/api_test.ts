@@ -611,3 +611,135 @@ Deno.test("web api: a start in the past is accepted with warning past_start (iss
     assertEquals((await moved.json()).warning, "past_start");
   });
 });
+
+// ---- issue #6: confirming inside a plan ----
+
+async function planTrio(kv: Deno.Kv, ids: WebIds) {
+  const mk = async (service: string) =>
+    (await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        plan: "忘年会",
+        service,
+        startsAt: "2026-12-20T19:00:00+09:00",
+        policy: "free24",
+      }),
+      ids,
+    )).json()).reservation;
+  return { a: await mk("A"), b: await mk("B") };
+}
+
+Deno.test("web api: confirm reports the siblings it turned to_cancel (issue #6)", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const { a, b } = await planTrio(kv, ids);
+    const res = await (await handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/confirm`, "t"), ids))
+      .json();
+    assertEquals(res.reservation.status, "confirmed");
+    assertEquals(res.affected, [{ id: b.id, service: "B", status: "to_cancel" }]);
+
+    // Create-with-confirmed settles the plan the same way and says so.
+    const c = await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        plan: "新年会",
+        service: "C",
+        startsAt: "2027-01-10T19:00:00+09:00",
+      }),
+      ids,
+    )).json();
+    const d = await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        plan: "新年会",
+        service: "D",
+        startsAt: "2027-01-11T19:00:00+09:00",
+        confirmed: true,
+      }),
+      ids,
+    )).json();
+    assertEquals(d.reservation.status, "confirmed");
+    assertEquals(d.affected, [{ id: c.reservation.id, service: "C", status: "to_cancel" }]);
+  });
+});
+
+Deno.test("web api: a plan that is already confirmed says so on add and restore, and the refusal names the next step (issue #6)", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const { a, b } = await planTrio(kv, ids);
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/confirm`, "t"), ids);
+
+    // Adding another candidate to a settled plan is allowed, but flagged.
+    const c = await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        plan: "忘年会",
+        service: "C",
+        startsAt: "2026-12-21T19:00:00+09:00",
+      }),
+      ids,
+    )).json();
+    assertEquals(c.reservation.status, "candidate");
+    assertEquals(c.warning, "plan_already_confirmed");
+    assertStringIncludes(c.hint, "A");
+
+    // Confirming it is refused with the blocking reservation and what to do.
+    const refused = await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${c.reservation.id}/confirm`, "t"),
+      ids,
+    );
+    assertEquals(refused.status, 409);
+    const body = await refused.json();
+    assertEquals(body.error, "invalid_transition");
+    assertEquals(body.blockingId, a.id);
+    assertStringIncludes(body.hint, "replace");
+
+    // Restoring the loser back into the settled plan is flagged the same way.
+    const restored = await (await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${b.id}/restore`, "t"),
+      ids,
+    )).json();
+    assertEquals(restored.reservation.status, "candidate");
+    assertEquals(restored.warning, "plan_already_confirmed");
+
+    // A refusal for the wrong status also says what to do next.
+    const fromToCancel = await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${a.id}/confirm`, "t"),
+      ids,
+    );
+    assertEquals(fromToCancel.status, 409);
+    assertStringIncludes((await fromToCancel.json()).hint, "確定");
+  });
+});
+
+Deno.test("web api: confirm with replace swaps the plan's confirmed reservation in one step (issue #6)", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const { a, b } = await planTrio(kv, ids);
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/confirm`, "t"), ids);
+    // b is to_cancel now; a plain replace of a candidate c:
+    const c = (await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        plan: "忘年会",
+        service: "C",
+        startsAt: "2026-12-22T19:00:00+09:00",
+      }),
+      ids,
+    )).json()).reservation;
+    const res = await (await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${c.id}/confirm`, "t", { replace: true }),
+      ids,
+    )).json();
+    assertEquals(res.reservation.status, "confirmed");
+    assertEquals(res.affected, [{ id: a.id, service: "A", status: "to_cancel" }]);
+    const list = (await (await handleWebApi(kv, reqOf("GET", BASE, "t"), ids)).json())
+      .reservations as { id: string; status: string }[];
+    const st = (id: string) => list.find((r) => r.id === id)?.status;
+    assertEquals([st(a.id), st(b.id), st(c.id)], ["to_cancel", "to_cancel", "confirmed"]);
+  });
+});

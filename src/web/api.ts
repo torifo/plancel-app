@@ -50,9 +50,10 @@ import {
 } from "./policy-template.ts";
 import {
   cancelReservation,
-  confirmReservation,
-  createReservation,
+  confirmReservationWithEffects,
+  createReservationWithEffects,
   deleteReservation,
+  findConfirmedInPlan,
   getReservation,
   listReservations,
   patchReservation,
@@ -119,6 +120,30 @@ function pastStartWarning(
     warning: "past_start",
     hint:
       "開始日時が過去です。日付の入力違いでないかユーザーに確認してください（登録はされています）。",
+  };
+}
+
+const confirmOptsSchema = z.object({ replace: z.boolean().default(false) });
+
+/** 409 for a refused transition: the stable message, plus the next step. */
+function transitionRefused(error: WebTransitionError): Response {
+  return json({
+    error: "invalid_transition",
+    message: error.message,
+    hint: error.hint,
+    ...(error.blockingId !== null ? { blockingId: error.blockingId } : {}),
+  }, 409);
+}
+
+/** A candidate landed in a plan that already has its winner (issue #6). */
+function planAlreadyConfirmedWarning(
+  winner: WebReservation | null,
+): { warning?: "plan_already_confirmed"; hint?: string } {
+  if (winner === null) return {};
+  return {
+    warning: "plan_already_confirmed",
+    hint: `このプランでは「${winner.service}」（${winner.id}）がすでに確定しています。` +
+      "この候補に差し替えるなら confirm_reservation を replace: true で呼んでください。",
   };
 }
 
@@ -271,15 +296,14 @@ export async function handleWebApi(
     if (req.method === "POST") {
       const parsed = webCreateSchema.safeParse(await readJson(req));
       if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
-      let r;
+      let outcome;
       try {
-        r = await createReservation(kv, token, parsed.data, ids, actor);
+        outcome = await createReservationWithEffects(kv, token, parsed.data, ids, actor);
       } catch (error) {
-        if (error instanceof WebTransitionError) {
-          return json({ error: "invalid_transition", message: error.message }, 409);
-        }
+        if (error instanceof WebTransitionError) return transitionRefused(error);
         throw error;
       }
+      const r = outcome.reservation;
       mutated(r.id);
       // Where the policy came from, and a nudge when nobody knows it. The MCP
       // relays this JSON to the model verbatim, so the hint is the cue for it
@@ -290,9 +314,11 @@ export async function handleWebApi(
         ? "template"
         : "unknown";
       const past = pastStartWarning(r, ids);
-      // One `hint` string: both nudges can apply to the same reservation.
+      const settled = planAlreadyConfirmedWarning(outcome.planAlreadyConfirmed);
+      // One `hint` string: several nudges can apply to the same reservation.
       const hints = [
         past.hint,
+        settled.hint,
         policySource === "unknown"
           ? "キャンセル規定が不明なので、キャンセル期限を見張れません。規定が分かったら " +
             "update_reservation（画面では「日付変更・編集」）の policy に入れてください。"
@@ -301,8 +327,13 @@ export async function handleWebApi(
       return json({
         reservation: r,
         policySource,
-        ...(past.warning !== undefined ? { warning: past.warning } : {}),
+        ...(past.warning !== undefined
+          ? { warning: past.warning }
+          : settled.warning !== undefined
+          ? { warning: settled.warning }
+          : {}),
         ...(hints.length > 0 ? { hint: hints.join(" ") } : {}),
+        ...(outcome.affected.length > 0 ? { affected: outcome.affected } : {}),
       }, 201);
     }
     return json({ error: "method not allowed" }, 405);
@@ -382,18 +413,19 @@ export async function handleWebApi(
   // Item action: /api/reservations/:id/(confirm|cancel|restore) — settling a
   // shared reservation stays with its owner, whatever the member's role.
   if (action === "confirm" && req.method === "POST") {
-    let r;
+    // The GUI posts no body; `{replace:true}` swaps the plan's winner (issue #6).
+    const opts = confirmOptsSchema.safeParse((await readJson(req)) ?? {});
+    if (!opts.success) return json({ error: "invalid", issues: opts.error.issues }, 400);
+    let outcome;
     try {
-      r = await confirmReservation(kv, token, id, ids, actor);
+      outcome = await confirmReservationWithEffects(kv, token, id, ids, actor, opts.data);
     } catch (error) {
-      if (error instanceof WebTransitionError) {
-        return json({ error: "invalid_transition", message: error.message }, 409);
-      }
+      if (error instanceof WebTransitionError) return transitionRefused(error);
       throw error;
     }
-    if (r) {
-      mutated(r.id);
-      return json({ reservation: r });
+    if (outcome) {
+      mutated(outcome.reservation.id);
+      return json({ reservation: outcome.reservation, affected: outcome.affected });
     }
     return await memberGate(kv, user, id, "owner");
   }
@@ -409,7 +441,11 @@ export async function handleWebApi(
     const r = await restoreReservation(kv, token, id, ids, actor);
     if (r) {
       mutated(r.id);
-      return json({ reservation: r });
+      // Back into a plan that has since been settled: allowed, but said.
+      const settled = planAlreadyConfirmedWarning(
+        r.plan === null ? null : await findConfirmedInPlan(kv, token, r.plan, r.id),
+      );
+      return json({ reservation: r, ...settled });
     }
     return await memberGate(kv, user, id, "owner");
   }
@@ -433,9 +469,7 @@ export async function handleWebApi(
           r = await patchReservation(kv, grant.ledger, id, parsed.data, ids, actor);
         }
       } catch (error) {
-        if (error instanceof WebTransitionError) {
-          return json({ error: "invalid_transition", message: error.message }, 409);
-        }
+        if (error instanceof WebTransitionError) return transitionRefused(error);
         throw error;
       }
       if (r === null) return json({ error: "not found" }, 404);

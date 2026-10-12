@@ -238,8 +238,32 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     },
   );
 
+  const confirmInput = idInput.extend({
+    replace: z.boolean().default(false).describe(
+      "true なら同プランで確定済みの予約を要キャンセルにして、この候補を確定する（確定の差し替え）",
+    ),
+  });
+  server.registerTool(
+    "confirm_reservation",
+    {
+      description:
+        "候補を確定する（同プランの他候補は自動で要キャンセルになり、応答の affected に出る）。" +
+        "同プランに確定済みがあると invalid_transition になるので、差し替えるなら replace: true",
+      inputSchema: confirmInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = confirmInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      return callApi(
+        cfg,
+        "POST",
+        `/api/reservations/${parsed.data.id}/confirm`,
+        parsed.data.replace ? { replace: true } : undefined,
+      );
+    },
+  );
+
   const transitions: [string, string, string][] = [
-    ["confirm_reservation", "confirm", "候補を確定する（同プランの他候補は自動で要キャンセルに）"],
     ["cancel_reservation", "cancel", "予約をキャンセル済みにする"],
     ["restore_reservation", "restore", "キャンセル済み/要キャンセルの予約を候補に復元する"],
   ];
