@@ -222,7 +222,11 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "create_reservation",
     {
       description:
-        "台帳に予約を登録する（confirmed=true で確定として登録。確定は家族のカレンダーにも反映される）",
+        "台帳に予約を登録する（confirmed=true で確定として登録。確定は家族のカレンダーにも反映される）。" +
+        "キャンセル規定の決め方: 分かれば policy に入れる。分からなければ省略する（施設の既定規定が保存されて" +
+        'いれば自動で適用され、応答の policySource が "template" になる）。それでも policySource が ' +
+        '"unknown" で hint が返ったら、規定はユーザーに確認して update_reservation の policy で入れる' +
+        "（不明のままだとキャンセル期限を見張れない）",
       inputSchema: createInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {

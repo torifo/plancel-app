@@ -104,7 +104,21 @@ export async function saveTemplate(
   return rec;
 }
 
-/** A facility's template, or null when there is none. Exact normalized match. */
+/**
+ * The key with every space gone: what two spellings of one facility share.
+ * 「ホテル ABC」 and 「ホテルABC」 are the same place — a model writes whichever the
+ * confirmation mail happened to use, and the GUI user types whichever comes to
+ * hand. Keeping the space-folded key as the STORAGE key means saved rows need no
+ * migration; this looser form only decides a lookup that the exact key missed.
+ */
+const spacelessKey = (facility: string) => facilityKey(facility).replace(/ /g, "");
+
+/**
+ * A facility's template, or null when there is none. The exact normalized key
+ * first; failing that, the one template whose name differs only by spacing
+ * (issue #4: the default rate never applied to 「ホテルABC」 saved as 「ホテル ABC」,
+ * so every reservation Claude created for it was 不明 and went unwatched).
+ */
 export async function getTemplate(
   kv: Deno.Kv,
   token: string,
@@ -116,7 +130,14 @@ export async function getTemplate(
   // Validated on read like the ledger's records: a record written by an older
   // shape is skipped rather than served half-parsed.
   const parsed = policyTemplateSchema.safeParse(entry.value);
-  return parsed.success ? parsed.data : null;
+  if (parsed.success) return parsed.data;
+  const loose = spacelessKey(facility);
+  if (loose === "") return null;
+  // A ledger holds a handful of templates (one per facility), so a scan is cheap.
+  for (const t of await listTemplates(kv, token)) {
+    if (spacelessKey(t.facility) === loose) return t;
+  }
+  return null;
 }
 
 /** Every template in this ledger, sorted by display name. */

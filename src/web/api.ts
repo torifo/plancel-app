@@ -261,7 +261,24 @@ export async function handleWebApi(
         throw error;
       }
       mutated(r.id);
-      return json({ reservation: r }, 201);
+      // Where the policy came from, and a nudge when nobody knows it. The MCP
+      // relays this JSON to the model verbatim, so the hint is the cue for it
+      // to ask the user instead of leaving the deadline unwatched (issue #4).
+      const policySource = parsed.data.policy !== "unknown"
+        ? "explicit"
+        : r.policy !== "unknown"
+        ? "template"
+        : "unknown";
+      return json({
+        reservation: r,
+        policySource,
+        ...(policySource === "unknown"
+          ? {
+            hint: "キャンセル規定が不明なので、キャンセル期限を見張れません。規定が分かったら " +
+              "update_reservation（画面では「日付変更・編集」）の policy に入れてください。",
+          }
+          : {}),
+      }, 201);
     }
     return json({ error: "method not allowed" }, 405);
   }

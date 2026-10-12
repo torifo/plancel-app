@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "jsr:@std/assert@^1.0.19";
+import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import { z } from "zod";
 import {
   deleteTemplate,
@@ -91,8 +91,11 @@ Deno.test("policy templates: a save is found through any spelling of the name", 
 
     await saveTemplate(kv, "t", "湖畔の湯宿　蛍", "staged", ids);
     assertEquals((await getTemplate(kv, "t", "湖畔の湯宿 蛍"))?.policy, "staged");
-    // A different facility is untouched by that save.
-    assertEquals(await getTemplate(kv, "t", "湖畔の湯宿蛍"), null);
+    // Spacing alone never makes a different facility (issue #4): a model writes
+    // 「ホテルABC」 for a template saved as 「ホテル ABC」, and the GUI user types
+    // whichever comes to hand. A different name is still a different facility.
+    assertEquals((await getTemplate(kv, "t", "湖畔の湯宿蛍"))?.policy, "staged");
+    assertEquals(await getTemplate(kv, "t", "湖畔の湯宿"), null);
   });
 });
 
@@ -370,5 +373,53 @@ Deno.test("policy templates: 規定が不明の登録は施設の既定規定を
       policy: "unknown",
     })).json();
     assertEquals(other.reservation.policy, "unknown");
+  });
+});
+
+Deno.test("policy templates: 空白の有無だけ違う名前でも既定規定が付く（issue #4）", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const owner = await getOrCreateUserByEmail(kv, "owner@example.com", ids);
+    await saveTemplate(kv, owner.ledgerId, "ホテル ABC", "staged", ids);
+
+    // The pre-fill lookup the GUI uses, with the space dropped.
+    const looked = await (await asUser(
+      kv,
+      ids,
+      owner,
+      "GET",
+      `${BASE}/lookup?service=${encodeURIComponent("ホテルABC")}`,
+    )).json();
+    assertEquals(looked.template?.policy, "staged");
+
+    // Create with the policy omitted (MCP default "unknown"): the template
+    // applies, and the response says where the policy came from.
+    const fromTemplate = await (await asUser(kv, ids, owner, "POST", "/api/reservations", {
+      service: "ホテルABC",
+      startsAt: "2026-12-01T15:00:00+09:00",
+      policy: "unknown",
+    })).json();
+    assertEquals(fromTemplate.reservation.policy, "staged");
+    assertEquals(fromTemplate.policySource, "template");
+    assertEquals(fromTemplate.hint, undefined);
+
+    const explicit = await (await asUser(kv, ids, owner, "POST", "/api/reservations", {
+      service: "ホテルABC",
+      startsAt: "2026-12-02T15:00:00+09:00",
+      policy: "free24",
+    })).json();
+    assertEquals(explicit.reservation.policy, "free24");
+    assertEquals(explicit.policySource, "explicit");
+
+    // No template, nothing stated: unknown, and the reply says the deadline
+    // cannot be watched so the caller (Claude) knows to ask the user.
+    const unknown = await (await asUser(kv, ids, owner, "POST", "/api/reservations", {
+      service: "名も無き宿",
+      startsAt: "2026-12-03T15:00:00+09:00",
+    })).json();
+    assertEquals(unknown.reservation.policy, "unknown");
+    assertEquals(unknown.policySource, "unknown");
+    assertStringIncludes(unknown.hint, "キャンセル期限を見張れません");
+    assertStringIncludes(unknown.hint, "update_reservation");
   });
 });

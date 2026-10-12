@@ -340,3 +340,15 @@ Deno.test("web-api MCP: a natural-language startsAt is refused before any API ca
     assertStringIncludes(schema, "JST");
   });
 });
+
+Deno.test("web-api MCP: create_reservation tells the model how a policy is decided (issue #4)", async () => {
+  const { fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    const tools = await client.listTools();
+    const create = tools.tools.find((t: { name: string }) => t.name === "create_reservation")!;
+    // Known → pass it; unknown → omit and the facility's saved template applies;
+    // still unknown → ask the user and fill it in with update_reservation.
+    assertStringIncludes(create.description!, "施設の既定規定");
+    assertStringIncludes(create.description!, "update_reservation");
+  });
+});
