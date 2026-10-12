@@ -29,6 +29,7 @@
  * injected via `deps.nowMs` (FR-008).
  */
 import { logger } from "../lib/log.ts";
+import { toInstantOrNull } from "./instant.ts";
 import { freeDeadlineMs, maxLossYen } from "./policy.ts";
 import { listReservations, type WebReservation, type WebStatus } from "./store.ts";
 import { type WebUser, webUserSchema } from "./users.ts";
@@ -131,14 +132,16 @@ function subjectFor(count: number): string {
 
 /** One line per reservation: サービス / 開始 / 無料キャンセル期限 / 期限後の金額. */
 function dueLine(d: Due): string {
-  const startMs = Temporal.Instant.from(d.resv.startsAt).epochMilliseconds;
+  // A deadline implies a readable start (freeDeadlineMs), but the line is built
+  // from the stored string again, so it is read the same forgiving way.
+  const start = toInstantOrNull(d.resv.startsAt);
   // ¥0 would read as "free to drop"; an unpriced reservation says so instead.
   const loss = d.resv.amount === null
     ? "金額未登録"
     : `期限後の最大キャンセル料 ${yen(maxLossYen(d.resv.policy, d.resv.amount))}`;
-  return `・${d.resv.service} / 開始 ${fmtJst(startMs)} / ◆無料キャンセル期限 ${
-    fmtJst(d.deadlineMs)
-  } / ${loss}`;
+  return `・${d.resv.service} / 開始 ${
+    start === null ? "日時不明" : fmtJst(start.epochMilliseconds)
+  } / ◆無料キャンセル期限 ${fmtJst(d.deadlineMs)} / ${loss}`;
 }
 
 function buildBody(due: readonly Due[], baseUrl: string): string {

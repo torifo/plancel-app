@@ -162,6 +162,9 @@ export function boundaryMs(startsAtMs: number, h: number): number {
  * (「前日まで無料」) is the end of the day before, 「5日前まで無料」 the end of the
  * fifth day out. (2026-07-25 fix: the old first-paid-stage reading was off by
  * one stage on both sides.)
+ *
+ * Also null when `startsAt` cannot be read; it is read as writes normalise it
+ * (./instant.ts — an offset-less value is JST).
  */
 export function freeDeadlineMs(policy: WebPolicy, startsAt: string): number | null {
   const stages = stagesOf(policy);
@@ -169,11 +172,8 @@ export function freeDeadlineMs(policy: WebPolicy, startsAt: string): number | nu
   if (!stages.some((s) => s.pct > 0)) return null; // free throughout
   const lastFree = [...stages].reverse().find((s) => s.pct === 0);
   if (lastFree === undefined) return null; // paid from the outset
-  // A legacy row may hold a start nobody can read (writes once let one through,
-  // issue #2). No deadline then — never a throw: the notification sweep walks
-  // every ledger in one pass, and one bad row must not silence everyone after it.
   const start = toInstantOrNull(startsAt);
-  if (start === null) return null;
+  if (start === null) return null; // unreadable start
   return boundaryMs(start.epochMilliseconds, lastFree.h);
 }
 

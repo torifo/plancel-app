@@ -236,10 +236,12 @@ Deno.test("fromCoreStages: an exact preset match collapses to the preset name", 
 
 Deno.test("policy: freeDeadlineMs is null, not a throw, for a startsAt nobody can read", () => {
   // A legacy row may still hold an unreadable start (writes used to accept one,
-  // issue #2). The deadline sweep walks every ledger in one pass; a throw here
-  // would stop notifications for every user after that row.
-  assertEquals(freeDeadlineMs("staged", "来週の金曜"), null);
-  assertEquals(freeDeadlineMs(FIVE_DAY, "2026/10/27 19:00"), null);
+  // issue #2). It has no deadline; the list, LINE and the sweep all carry on.
+  for (const bad of ["2026/10/27 19:00", "10月27日 19時", "来週の金曜", ""]) {
+    for (const policy of ["free24", "staged", FIVE_DAY, "unknown", "none"] as WebPolicy[]) {
+      assertEquals(freeDeadlineMs(policy, bad), null, `${JSON.stringify(policy)} / ${bad}`);
+    }
+  }
   // An offset-less start is JST, as everywhere else in the ledger.
   assertEquals(freeDeadlineMs("free24", "2026-08-20T19:00"), eod("2026-08-19"));
 });

@@ -93,6 +93,22 @@ async function putResv(
   await kv.set(["web", ledger, "resv", id], r);
 }
 
+/**
+ * A record whose start the ledger cannot read (issue #2). Writes now refuse
+ * one, so it is put straight into KV, the way older records already sit there.
+ */
+async function putUnreadable(
+  kv: Deno.Kv,
+  ledger: string,
+  id: string,
+  policy: WebPolicy,
+  startsAt: string,
+): Promise<void> {
+  await putResv(kv, ledger, id, policy, "candidate", NOW + 36 * H);
+  const cur = (await kv.get<WebReservation>(["web", ledger, "resv", id])).value;
+  await kv.set(["web", ledger, "resv", id], { ...cur, startsAt });
+}
+
 async function withKv(fn: (kv: Deno.Kv) => Promise<void>) {
   const kv = await Deno.openKv(":memory:");
   try {
@@ -117,6 +133,37 @@ Deno.test("notifies once for a free24 deadline within 24h", async () => {
     assertEquals(sent[0]?.subject, "[plancel] 無料キャンセル期限が近づいています");
     assertEquals(sent[0]?.text.includes("svc-R1"), true);
     assertEquals(sent[0]?.text.includes("plancel で確認: https://plancel.test"), true);
+  });
+});
+
+// An unreadable start (issue #2) on a policy that HAS a deadline: the sweep must
+// still reach every other reservation of the same user and every later user.
+Deno.test("an unreadable start does not stop the sweep for anyone else", async () => {
+  await withKv(async (kv) => {
+    // One ids source for both users, or they share an id. Users are swept in id
+    // order, so `a` — the one holding the unreadable records — goes first.
+    const ids = makeAuthIds();
+    const a = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    const b = await getOrCreateUserByEmail(kv, "c@d.jp", ids);
+    await putUnreadable(kv, a.ledgerId, "BAD1", "free24", "2026/10/27 19:00");
+    await putUnreadable(kv, a.ledgerId, "BAD2", "staged", "10月27日 19時");
+    await putResv(kv, a.ledgerId, "OK-A", "staged", "candidate", NOW + 7 * 24 * H);
+    await putResv(kv, b.ledgerId, "OK-B", "free24", "confirmed", NOW + 36 * H);
+
+    const sent: Sent[] = [];
+    const logs: string[] = [];
+    const count = await sweepDeadlineNotifications(
+      makeDeps(kv, sent, NOW, { logWrite: (l) => logs.push(l) }),
+    );
+
+    assertEquals(count, 2);
+    assertEquals(sent.map((s) => s.email).sort(), ["a@b.jp", "c@d.jp"]);
+    const mailA = sent.find((s) => s.email === "a@b.jp")?.text ?? "";
+    assertEquals(mailA.includes("svc-OK-A"), true);
+    assertEquals(mailA.includes("svc-BAD"), false);
+    assertEquals(await notified(kv, a.id, "OK-A"), true);
+    assertEquals(await notified(kv, b.id, "OK-B"), true);
+    assertEquals(await notified(kv, a.id, "BAD1"), false);
   });
 });
 

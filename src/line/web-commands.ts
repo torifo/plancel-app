@@ -59,6 +59,7 @@ import {
   webPolicyPresetSchema,
 } from "../web/policy.ts";
 import { isFinished } from "../web/lifecycle.ts";
+import { toInstantOrNull } from "../web/instant.ts";
 import type { LineQuickReplyItem, LineTextMessage } from "./types.ts";
 
 /** Access to the WEB ledgers, injected into the webhook (optional). */
@@ -234,14 +235,24 @@ function fmtMdHm(ms: number): string {
 
 const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 
-function startMs(r: WebReservation): number {
-  return Temporal.Instant.from(r.startsAt).epochMilliseconds;
+/**
+ * The start in epoch ms, or null when the stored string cannot be read. A
+ * reply lists every reservation, so one unreadable start must show up as
+ * 「日時不明」 rather than end the whole reply.
+ */
+function startMs(r: WebReservation): number | null {
+  return toInstantOrNull(r.startsAt)?.epochMilliseconds ?? null;
 }
+
+/** What a reply prints for a start it cannot read. */
+const UNKNOWN_START = "日時不明";
 
 /** `◆8/15まで無料` / `規定不明` / `いつでも無料` — the per-line deadline hint. */
 function deadlineNote(r: WebReservation): string {
   if (r.policy === "unknown") return "規定不明";
   if (isAlwaysFree(r.policy)) return "いつでも無料";
+  // No start, no deadline — and 「無料期間なし」 below would claim a fact.
+  if (startMs(r) === null) return "期限を出せません（web で日時を直してください）";
   const deadlineMs = freeDeadlineMs(r.policy, r.startsAt);
   // A custom policy can be paid from the outset — there is no free window to
   // count down to, which is NOT the same as always-free.
@@ -251,7 +262,9 @@ function deadlineNote(r: WebReservation): string {
 
 function line(r: WebReservation): string {
   const status = STATUS_LABEL[r.status] ?? r.status;
-  return `${fmtMd(startMs(r))} ${r.service} [${status}] ${deadlineNote(r)}`;
+  const start = startMs(r);
+  const when = start === null ? UNKNOWN_START : fmtMd(start);
+  return `${when} ${r.service} [${status}] ${deadlineNote(r)}`;
 }
 
 /**
@@ -470,16 +483,20 @@ export async function buildUpcomingReply(
   const until = from + days * DAY_MS;
   const window = span === "today" ? "今日" : "これから7日間";
 
+  // An unreadable start is in no window: 「今日」 cannot claim it.
   const inWindow = (await activeOf(deps, owner))
-    .filter((r) => startMs(r) >= from && startMs(r) < until)
-    .sort((a, b) => startMs(a) - startMs(b));
+    .map((r) => ({ r, at: startMs(r) }))
+    .filter((x): x is { r: WebReservation; at: number } =>
+      x.at !== null && x.at >= from && x.at < until
+    )
+    .sort((a, b) => a.at - b.at);
   if (inWindow.length === 0) {
     return withMenu(text(`${label} に${window}の予定はありません。`), span);
   }
 
   const shown = inWindow.slice(0, MAX_LINES);
-  const body = shown.map((r) =>
-    `${fmtMdHm(startMs(r))} ${r.service} [${STATUS_LABEL[r.status] ?? r.status}]`
+  const body = shown.map(({ r, at }) =>
+    `${fmtMdHm(at)} ${r.service} [${STATUS_LABEL[r.status] ?? r.status}]`
   );
   if (inWindow.length > shown.length) body.push(`…ほか${inWindow.length - shown.length}件`);
   return withMenu(
@@ -768,7 +785,8 @@ export async function registerWebReservation(
   );
   deps.onMutate?.(owner, r.id);
 
-  const when = fmtMdHm(Temporal.Instant.from(r.startsAt).epochMilliseconds);
+  const start = startMs(r);
+  const when = start === null ? UNKNOWN_START : fmtMdHm(start);
   const head = `登録しました: ${r.service} / ${when} — ${
     accountLabel(owner)
   } の台帳に候補として入りました`;

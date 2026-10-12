@@ -579,6 +579,37 @@ Deno.test("webhook: 今日/今週 windows are JST calendar days, not UTC ones", 
   });
 });
 
+Deno.test("webhook: a stored start the ledger cannot read is named, not fatal", async () => {
+  await withKv(async (kv) => {
+    const { web, owner, webIds } = await makeWebDeps(kv);
+    await seedResv(kv, owner.ledgerId, webIds, {
+      service: "宵の宿",
+      startsAt: "2026-08-05T19:00:00+09:00", // free24 → ◆8/4
+    });
+    // issue #2 より前に保存された形。いまは保存時に弾くので、KV に直接置く。
+    const bad = await seedResv(kv, owner.ledgerId, webIds, {
+      service: "読めない宿",
+      startsAt: "2026-08-02T15:00:00+09:00",
+      policy: "staged",
+    });
+    await kv.set(["web", owner.ledgerId, "resv", bad.id], { ...bad, startsAt: "10月27日 19時" });
+
+    const { deps, replies } = makeDeps({ web });
+    assertEquals((await post(deps, [textEvent("確認")])).handled, ["web:check"]);
+    const check = replies[0]?.messages[0]?.text ?? "";
+    assertStringIncludes(check, "日時不明 読めない宿 [候補]");
+    assertStringIncludes(check, "8/5(水) 宵の宿");
+
+    assertEquals((await post(deps, [textEvent("締切")])).handled, ["web:deadline"]);
+    assertStringIncludes(replies[1]?.messages[0]?.text ?? "", "8/4(火) 宵の宿");
+
+    assertEquals((await post(deps, [textEvent("今週")])).handled, ["web:week"]);
+    const week = replies[2]?.messages[0]?.text ?? "";
+    assertStringIncludes(week, "宵の宿");
+    assertEquals(week.includes("読めない宿"), false);
+  });
+});
+
 Deno.test("webhook: unrecognised SHORT text -> command list, no ParseJob", async () => {
   await withKv(async (kv) => {
     const { web } = await makeWebDeps(kv);
