@@ -21,6 +21,11 @@
  *   POST /auth/profile {displayName?,uid?,altEmail?}  プロフィール edit
  *   POST /auth/token             issue a named MCP API token (returns it once; others untouched)
  *   GET /auth/tokens             list this user's API tokens (names, dates — never the secret)
+ *   POST /auth/device/code       (no auth) a PC asks for a pairing code      — RFC 8628, ./device.ts
+ *   POST /auth/device/token      (no auth) the PC polls for its token
+ *   GET /auth/device/pending     (session) what the phone shows before deciding
+ *   POST /auth/device/approve    (session) approve → a device token is issued
+ *   POST /auth/device/deny       (session)
  *   DELETE /auth/tokens/:id      revoke one token by id
  *   POST /auth/logout            drop session
  *   DELETE /auth/account {confirm} 退会 — delete the account and all its data
@@ -92,6 +97,14 @@ import {
   sessionSetCookie,
 } from "./session.ts";
 import { logger } from "../../lib/log.ts";
+import {
+  accountLabelOf,
+  approveDevice,
+  createDeviceCode,
+  denyDevice,
+  lookupPending,
+  pollDeviceToken,
+} from "./device.ts";
 
 const log = logger("web.auth");
 
@@ -564,6 +577,73 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
       throw err;
     }
   }
+  // ---- device pairing (issue #1): the PC side is anonymous, the phone side is session-only ----
+  if (path === "/auth/device/code" && req.method === "POST") {
+    const body = (await readJson(req) ?? {}) as { client_name?: unknown };
+    const made = await createDeviceCode({ kv: deps.kv, ids: deps.ids }, body.client_name);
+    if (!made.ok) {
+      return made.error === "invalid_client_name"
+        ? json({ error: "invalid" }, 400)
+        : json({ error: "unavailable" }, 503);
+    }
+    const origin = deps.baseUrl ?? url.origin;
+    return json({
+      device_code: made.device_code,
+      user_code: made.user_code,
+      verification_uri: `${origin}/#pair`,
+      expires_in: made.expires_in,
+      interval: made.interval,
+    });
+  }
+  if (path === "/auth/device/token" && req.method === "POST") {
+    const body = (await readJson(req) ?? {}) as { device_code?: unknown };
+    if (typeof body.device_code !== "string" || body.device_code === "") {
+      return json({ error: "invalid_grant" }, 400);
+    }
+    const polled = await pollDeviceToken({ kv: deps.kv, ids: deps.ids }, body.device_code);
+    if (!polled.ok) return json({ error: polled.error }, 400);
+    return json({
+      access_token: polled.access_token,
+      token_id: polled.token_id,
+      account: polled.account,
+    });
+  }
+  if (path === "/auth/device/pending" && req.method === "GET") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    if (!(await attemptAllowed(deps.kv, `pair:${user.id}`))) {
+      return json({ error: "rate limited" }, 429);
+    }
+    const code = url.searchParams.get("code") ?? "";
+    const view = await lookupPending({ kv: deps.kv, ids: deps.ids }, code);
+    if (view === null) return json({ error: "not found" }, 404);
+    return json({
+      client_name: view.client_name,
+      requestedAt: view.requested_at,
+      expiresInSec: view.expires_in_sec,
+      account: { label: accountLabelOf(user) },
+    });
+  }
+  if ((path === "/auth/device/approve" || path === "/auth/device/deny") && req.method === "POST") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    if (!(await attemptAllowed(deps.kv, `pair:${user.id}`))) {
+      return json({ error: "rate limited" }, 429);
+    }
+    const body = (await readJson(req) ?? {}) as { code?: unknown; name?: unknown };
+    const code = typeof body.code === "string" ? body.code : "";
+    const name = typeof body.name === "string"
+      ? body.name.replaceAll(/[\p{Cc}]/gu, "").trim().slice(0, 60)
+      : undefined;
+    const result = path.endsWith("/approve")
+      ? await approveDevice({ kv: deps.kv, ids: deps.ids }, user, code, name)
+      : await denyDevice({ kv: deps.kv, ids: deps.ids }, code);
+    if (result.ok) return json({ ok: true });
+    if (result.error === "not_found") return json({ error: "not found" }, 404);
+    if (result.error === "already_decided") return json({ error: "already_decided" }, 409);
+    return json({ error: "token_limit" }, 403);
+  }
+
   if (path === "/auth/tokens" && req.method === "GET") {
     const user = await requestUser(req, deps);
     if (user === null) return json({ error: "not logged in" }, 401);
