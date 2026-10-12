@@ -406,42 +406,45 @@ Deno.test("profile: display name free-form, uid unique, alt email becomes a logi
   });
 });
 
-Deno.test("personal API token: issue -> act as user -> rotate invalidates -> revoke", async () => {
+Deno.test("personal API token: issue -> act as user -> a second issue keeps the first -> revoke by id", async () => {
   await withKv(async (kv) => {
     const deps = makeDeps(kv, { devUserEmail: "me@example.com" });
-    const t1 = (await (await handleAuthApi(req("POST", "/auth/token"), deps)).json()).token;
+    const first = await (await handleAuthApi(req("POST", "/auth/token"), deps)).json();
 
     // the token resolves to the user's ledger WITHOUT any session/dev context
     const plain = makeDeps(kv); // no devUserEmail
     const who = await resolveIdentity(
-      req("GET", "/api/reservations", undefined, { "x-plancel-token": t1 }),
+      req("GET", "/api/reservations", undefined, { "x-plancel-token": first.token }),
       plain,
     );
     assertEquals(who.user?.email, "me@example.com");
     assertEquals(who.ledger, who.user?.ledgerId);
 
-    // rotation invalidates the old token
-    const t2 = (await (await handleAuthApi(req("POST", "/auth/token"), deps)).json()).token;
-    const stale = await resolveIdentity(
-      req("GET", "/api/reservations", undefined, { "x-plancel-token": t1 }),
-      plain,
-    );
-    assertEquals(stale.ledger, null);
-    const fresh = await resolveIdentity(
-      req("GET", "/api/reservations", undefined, { "x-plancel-token": t2 }),
-      plain,
-    );
-    assertEquals(fresh.user?.email, "me@example.com");
+    // Issuing again is a SECOND device, not a rotation (issue #1): the first keeps working.
+    const second = await (await handleAuthApi(req("POST", "/auth/token"), deps)).json();
+    for (const t of [first.token, second.token]) {
+      const id = await resolveIdentity(
+        req("GET", "/api/reservations", undefined, { "x-plancel-token": t }),
+        plain,
+      );
+      assertEquals(id.user?.email, "me@example.com");
+    }
 
-    // revoke kills it and /auth/me reflects the state
-    await handleAuthApi(req("DELETE", "/auth/token"), deps);
+    // revoking one by id kills only that one; /auth/me reflects the count
+    await handleAuthApi(req("DELETE", `/auth/tokens/${second.id}`), deps);
     const gone = await resolveIdentity(
-      req("GET", "/api/reservations", undefined, { "x-plancel-token": t2 }),
+      req("GET", "/api/reservations", undefined, { "x-plancel-token": second.token }),
       plain,
     );
     assertEquals(gone.ledger, null);
+    const still = await resolveIdentity(
+      req("GET", "/api/reservations", undefined, { "x-plancel-token": first.token }),
+      plain,
+    );
+    assertEquals(still.user?.email, "me@example.com");
     const me = await (await handleAuthApi(req("GET", "/auth/me"), deps)).json();
-    assertEquals(me.hasApiToken, false);
+    assertEquals(me.hasApiToken, true);
+    assertEquals(me.apiTokens.length, 1);
   });
 });
 
@@ -684,5 +687,123 @@ Deno.test("resolveIdentity: session ledger, demo suffix, admin header, anonymous
       noDev,
     );
     assertEquals(anon.ledger, null);
+  });
+});
+
+// ---- per-device API tokens (issue #1, 2026-10-13) ----
+
+Deno.test("API tokens: issuing a second one does not revoke the first", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv);
+    const reg = await handleAuthApi(
+      req("POST", "/auth/register", { email: "two@example.com", password: "hunter2secret" }),
+      deps,
+    );
+    const cookie = cookieOf(reg);
+    const a = await (await handleAuthApi(
+      req("POST", "/auth/token", { name: "MacBook" }, { cookie }),
+      deps,
+    )).json();
+    const b = await (await handleAuthApi(
+      req("POST", "/auth/token", { name: "iMac" }, { cookie }),
+      deps,
+    )).json();
+    assertEquals(typeof a.token, "string");
+    assertEquals(a.token !== b.token, true);
+    // both resolve
+    assertEquals((await findUserByApiToken(kv, a.token))?.email, "two@example.com");
+    assertEquals((await findUserByApiToken(kv, b.token))?.email, "two@example.com");
+
+    const list =
+      await (await handleAuthApi(req("GET", "/auth/tokens", undefined, { cookie }), deps))
+        .json();
+    assertEquals(list.tokens.map((t: { name: string }) => t.name), ["MacBook", "iMac"]);
+    assertEquals(list.tokens.every((t: { kind: string }) => t.kind === "manual"), true);
+    // the secret never appears in the list
+    assertEquals(JSON.stringify(list).includes(a.token), false);
+
+    // revoke ONE: the other keeps working
+    const del = await handleAuthApi(
+      req("DELETE", `/auth/tokens/${a.id}`, undefined, { cookie }),
+      deps,
+    );
+    assertEquals(del.status, 200);
+    assertEquals(await findUserByApiToken(kv, a.token), null);
+    assertEquals((await findUserByApiToken(kv, b.token))?.email, "two@example.com");
+
+    const me = await (await handleAuthApi(req("GET", "/auth/me", undefined, { cookie }), deps))
+      .json();
+    assertEquals(me.hasApiToken, true);
+    assertEquals(me.apiTokens.length, 1);
+    assertEquals(me.apiTokens[0].name, "iMac");
+  });
+});
+
+Deno.test("API tokens: the cap answers 403 token_limit; a header token cannot list or revoke", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv);
+    const reg = await handleAuthApi(
+      req("POST", "/auth/register", { email: "cap@example.com", password: "hunter2secret" }),
+      deps,
+    );
+    const cookie = cookieOf(reg);
+    let last = "";
+    for (let i = 0; i < 5; i++) {
+      const r = await handleAuthApi(
+        req("POST", "/auth/token", { name: `pc${i}` }, { cookie }),
+        deps,
+      );
+      assertEquals(r.status, 200);
+      last = (await r.json()).token;
+    }
+    const over = await handleAuthApi(req("POST", "/auth/token", { name: "pc6" }, { cookie }), deps);
+    assertEquals(over.status, 403);
+    assertEquals((await over.json()).error, "token_limit");
+
+    // Identity by header token is enough for the ledger API, never for the token GUI.
+    const listed = await handleAuthApi(
+      req("GET", "/auth/tokens", undefined, { "x-plancel-token": last }),
+      deps,
+    );
+    assertEquals(listed.status, 401);
+    const revoked = await handleAuthApi(
+      req("DELETE", "/auth/tokens/ID1", undefined, { "x-plancel-token": last }),
+      deps,
+    );
+    assertEquals(revoked.status, 401);
+  });
+});
+
+Deno.test("API tokens: a legacy single token is folded into the list once and keeps working", async () => {
+  await withKv(async (kv) => {
+    const deps = makeDeps(kv);
+    const reg = await handleAuthApi(
+      req("POST", "/auth/register", { email: "old@example.com", password: "hunter2secret" }),
+      deps,
+    );
+    const cookie = cookieOf(reg);
+    const user = await findUserByEmail(kv, "old@example.com");
+    if (user === null) throw new Error("user");
+    // What the single-token era wrote.
+    await kv.atomic()
+      .set(["apitoken", "legacy-secret"], user.id)
+      .set(["webuser", user.id], { ...user, apiToken: "legacy-secret" })
+      .commit();
+
+    assertEquals((await findUserByApiToken(kv, "legacy-secret"))?.id, user.id);
+    const list =
+      await (await handleAuthApi(req("GET", "/auth/tokens", undefined, { cookie }), deps))
+        .json();
+    assertEquals(list.tokens.length, 1);
+    assertEquals(list.tokens[0].kind, "manual");
+    // migrated: the legacy field is cleared, the token still resolves, and it is revocable
+    assertEquals((await getUser(kv, user.id))?.apiToken, null);
+    assertEquals((await findUserByApiToken(kv, "legacy-secret"))?.id, user.id);
+    const del = await handleAuthApi(
+      req("DELETE", `/auth/tokens/${list.tokens[0].id}`, undefined, { cookie }),
+      deps,
+    );
+    assertEquals(del.status, 200);
+    assertEquals(await findUserByApiToken(kv, "legacy-secret"), null);
   });
 });

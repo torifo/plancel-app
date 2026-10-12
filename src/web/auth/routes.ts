@@ -19,8 +19,9 @@
  *   POST /auth/login {email,password}     password login → session cookie
  *   POST /auth/password {current?,next}   set or change the password
  *   POST /auth/profile {displayName?,uid?,altEmail?}  プロフィール edit
- *   POST /auth/token             issue the MCP API token (returns it once)
- *   DELETE /auth/token           revoke the MCP API token
+ *   POST /auth/token             issue a named MCP API token (returns it once; others untouched)
+ *   GET /auth/tokens             list this user's API tokens (names, dates — never the secret)
+ *   DELETE /auth/tokens/:id      revoke one token by id
  *   POST /auth/logout            drop session
  *   DELETE /auth/account {confirm} 退会 — delete the account and all its data
  *   POST /auth/adopt {token}     adopt a pre-login browser-token ledger
@@ -35,6 +36,7 @@ import { listReservations } from "../store.ts";
 import {
   adoptLedger,
   allowMagicSend,
+  ApiTokenLimitError,
   type AuthIds,
   consumeMagicLink,
   countUsers,
@@ -54,11 +56,12 @@ import {
   issueLineLinkCode,
   LINE_CODE_TTL_MS,
   linkGoogle,
+  listApiTokens,
   mailAddressFor,
   MIN_PUBLIC_UID_LEN,
   normalizeEmail,
   RESERVED_UIDS,
-  revokeApiToken,
+  revokeApiTokenById,
   rotateIcsSecret,
   rotateMailSecret,
   saveOauthState,
@@ -247,7 +250,7 @@ export async function resolveIdentity(req: Request, deps: AuthDeps): Promise<Ide
   }
   // Personal API token (MCP 連携): the header token acts as that user.
   if (headerToken !== undefined && headerToken !== "") {
-    const tokenUser = await findUserByApiToken(deps.kv, headerToken);
+    const tokenUser = await findUserByApiToken(deps.kv, headerToken, deps.ids.nowIso());
     if (tokenUser !== null) return { user: tokenUser, ledger: tokenUser.ledgerId };
   }
   const admin = req.headers.get("x-plancel-admin")?.trim();
@@ -261,6 +264,10 @@ export async function resolveIdentity(req: Request, deps: AuthDeps): Promise<Ide
 }
 
 const emailReqSchema = z.object({ email: z.string().email() });
+// A device name as typed on マイページ; control characters never reach a list.
+const tokenNameSchema = z.object({
+  name: z.string().transform((v) => v.replaceAll(/[\p{Cc}]/gu, "").trim().slice(0, 60)).optional(),
+});
 const adoptReqSchema = z.object({ token: z.string().min(1) });
 // 退会: confirm must echo the account's own email (typo guard, owner 2026-07-25).
 const deleteAccountSchema = z.object({ confirm: z.string() });
@@ -433,6 +440,7 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     // Accounts predating メール転送 have no secret yet; issuing it here is the
     // one write /auth/me makes, and only once per account.
     const mailSecret = user.mailSecret ?? await ensureMailSecret(deps.kv, user.id, deps.ids);
+    const apiTokens = await listApiTokens(deps.kv, user.id, deps.ids);
     return json({
       email: user.email,
       google: user.google !== null && user.google.error === null,
@@ -440,7 +448,9 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
       icsPath: `/calendar/${user.icsSecret}.ics`,
       // 予約確認メールの転送先。null = この環境では未提供 (domain 未設定).
       mailAddress: mailAddressOf(mailSecret, deps),
-      hasApiToken: user.apiToken !== null,
+      // `hasApiToken` is kept for older clients; `apiTokens` is the real list.
+      hasApiToken: apiTokens.length > 0,
+      apiTokens,
       // Only whether a LINE account is linked — the raw LINE userId is an
       // identifier for the messaging platform and never leaves the server.
       line: { linked: user.lineUserId !== null },
@@ -536,18 +546,36 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     return json({ ok: true });
   }
 
-  // Personal API token for MCP: POST issues/rotates, DELETE revokes.
+  // Personal API tokens for MCP (per device since 2026-10-13, issue #1).
+  // Listing and revoking are GUI-only on purpose: `requestUser`, never
+  // `resolveIdentity` — a leaked token must not be able to enumerate or kill
+  // the other devices.
   if (path === "/auth/token" && req.method === "POST") {
     const user = await requestUser(req, deps);
     if (user === null) return json({ error: "not logged in" }, 401);
-    const token = await issueApiToken(deps.kv, user.id, deps.ids);
-    return json({ token });
+    const body = tokenNameSchema.safeParse(await readJson(req) ?? {});
+    const name = body.success && body.data.name !== undefined ? body.data.name : "MCP（手動発行）";
+    try {
+      const issued = await issueApiToken(deps.kv, user.id, deps.ids, { name, kind: "manual" });
+      if (issued === null) return json({ error: "not logged in" }, 401);
+      return json({ token: issued.token, id: issued.record.id, name: issued.record.name });
+    } catch (err) {
+      if (err instanceof ApiTokenLimitError) return json({ error: "token_limit" }, 403);
+      throw err;
+    }
   }
-  if (path === "/auth/token" && req.method === "DELETE") {
+  if (path === "/auth/tokens" && req.method === "GET") {
     const user = await requestUser(req, deps);
     if (user === null) return json({ error: "not logged in" }, 401);
-    await revokeApiToken(deps.kv, user.id, deps.ids);
-    return json({ ok: true });
+    return json({ tokens: await listApiTokens(deps.kv, user.id, deps.ids) });
+  }
+  if (path.startsWith("/auth/tokens/") && req.method === "DELETE") {
+    const user = await requestUser(req, deps);
+    if (user === null) return json({ error: "not logged in" }, 401);
+    const id = decodeURIComponent(path.slice("/auth/tokens/".length));
+    if (id === "" || id.includes("/")) return json({ error: "not found" }, 404);
+    const ok = await revokeApiTokenById(deps.kv, user.id, id);
+    return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
   }
 
   // LINE 連携 (per-user, owner 2026-07-27): POST issues a short code the user

@@ -39,7 +39,13 @@ export const webUserSchema = z.object({
    * as `issueApiToken` issues on demand.
    */
   mailSecret: z.string().nullable().default(null),
-  /** Personal API token (MCP 連携). Defaulted so older records still parse. */
+  /**
+   * LEGACY single personal API token (MCP 連携, 2026-07-23 → 2026-10-13).
+   * Tokens are per-device now (`apitoken_by_user`); this field only survives
+   * so records written before the change still parse. `listApiTokens` folds
+   * a surviving value into the list once and clears it (lazy migration, like
+   * `ensureMailSecret`). Nothing else may read it.
+   */
   apiToken: z.string().nullable().default(null),
   /** 表示名 (non-unique) — invites show this; null falls back to the email. */
   displayName: z.string().nullable().default(null),
@@ -93,6 +99,7 @@ const OAUTH_STATE = "oauth_state";
 const ICS = "ics_secret";
 const MAIL = "mail_secret";
 const APITOKEN = "apitoken";
+const APITOKEN_BY_USER = "apitoken_by_user";
 const BY_UID = "webuser_uid";
 const BY_LINE = "line_user";
 const LINE_CODE = "line_link_code";
@@ -412,35 +419,178 @@ export async function setAltEmail(
   return (await tx.commit()).ok;
 }
 
-// ---------- personal API tokens (MCP 連携, owner 2026-07-23) ----------
+// ---------- personal API tokens (MCP 連携, owner 2026-07-23; per-device 2026-10-13) ----------
 
-export function findUserByApiToken(kv: Deno.Kv, token: string): Promise<WebUser | null> {
-  return userIdFromIndex(kv, [APITOKEN, token]);
+/**
+ * One token per DEVICE, each named, each revocable on its own (issue #1).
+ *
+ * The first design was one token per user, rotated on re-issue. Under device
+ * pairing that would have made an accident into a rule: approving a second
+ * PC would silently log the first one out, and the Web UI's 「失効」 would
+ * stop every PC at once. So a user holds a small list; nothing a device does
+ * can touch another device's token, and only the GUI (a logged-in session)
+ * can list or revoke them.
+ *
+ * KV:
+ *   ["apitoken", token]              → { userId, tokenId }   (legacy: bare userId string)
+ *   ["apitoken_by_user", userId, id] → ApiToken              (never the token itself)
+ */
+export const API_TOKEN_LIMIT = 5;
+
+export const apiTokenSchema = z.object({
+  id: z.string().min(1),
+  /** What the person called it; the pairing client's self-reported name by default. */
+  name: z.string().min(1).max(60),
+  /** "device" = approved through pairing; "manual" = issued from マイページ. */
+  kind: z.enum(["device", "manual"]),
+  created_at: z.string(),
+  last_used_at: z.string().nullable(),
+});
+export type ApiToken = z.infer<typeof apiTokenSchema>;
+
+const apiTokenRefSchema = z.union([
+  z.object({ userId: z.string(), tokenId: z.string() }),
+  z.string(), // legacy index value
+]);
+
+/** Written only by the single-token era; read here once, then cleared. */
+async function migrateLegacyApiToken(kv: Deno.Kv, user: WebUser, ids: AuthIds): Promise<void> {
+  if (user.apiToken === null) return;
+  const id = ids.newId();
+  const record: ApiToken = {
+    id,
+    name: "MCP（移行前のトークン）",
+    kind: "manual",
+    created_at: user.created_at,
+    last_used_at: null,
+  };
+  await kv.atomic()
+    .set([APITOKEN, user.apiToken], { userId: user.id, tokenId: id })
+    .set([APITOKEN_BY_USER, user.id, id], record)
+    .set([USER, user.id], { ...user, apiToken: null, updated_at: ids.nowIso() })
+    .commit();
 }
 
-/** Issues (or rotates) the user's single personal API token. */
+/** The user's tokens, oldest first. Migrates a legacy single token on first read. */
+export async function listApiTokens(
+  kv: Deno.Kv,
+  userId: string,
+  ids: AuthIds,
+): Promise<ApiToken[]> {
+  const user = await getUser(kv, userId);
+  if (user === null) return [];
+  if (user.apiToken !== null) await migrateLegacyApiToken(kv, user, ids);
+  const out: ApiToken[] = [];
+  for await (const e of kv.list({ prefix: [APITOKEN_BY_USER, userId] })) {
+    const parsed = apiTokenSchema.safeParse(e.value);
+    if (parsed.success) out.push(parsed.data);
+  }
+  return out.sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
+
+export class ApiTokenLimitError extends Error {
+  constructor() {
+    super("token_limit");
+    this.name = "ApiTokenLimitError";
+  }
+}
+
+/**
+ * Issues a new token and returns it ONCE. Other tokens are untouched. Throws
+ * ApiTokenLimitError at the cap — the caller answers 403 token_limit and the
+ * person frees a slot from the GUI.
+ */
 export async function issueApiToken(
   kv: Deno.Kv,
   userId: string,
   ids: AuthIds,
-): Promise<string | null> {
-  const cur = await getUser(kv, userId);
-  if (cur === null) return null;
+  opts: { name: string; kind: ApiToken["kind"] },
+): Promise<{ token: string; record: ApiToken } | null> {
+  const user = await getUser(kv, userId);
+  if (user === null) return null;
+  const existing = await listApiTokens(kv, userId, ids);
+  if (existing.length >= API_TOKEN_LIMIT) throw new ApiTokenLimitError();
   const token = ids.randomToken();
-  const next: WebUser = { ...cur, apiToken: token, updated_at: ids.nowIso() };
-  const tx = kv.atomic().set([APITOKEN, token], userId).set([USER, userId], next);
-  if (cur.apiToken !== null) tx.delete([APITOKEN, cur.apiToken]);
-  await tx.commit();
-  return token;
+  const record: ApiToken = {
+    id: ids.newId(),
+    name: opts.name.trim() || "名前なし",
+    kind: opts.kind,
+    created_at: ids.nowIso(),
+    last_used_at: null,
+  };
+  await kv.atomic()
+    .set([APITOKEN, token], { userId, tokenId: record.id })
+    .set([APITOKEN_BY_USER, userId, record.id], record)
+    .commit();
+  return { token, record };
 }
 
-export async function revokeApiToken(kv: Deno.Kv, userId: string, ids: AuthIds): Promise<void> {
-  const cur = await getUser(kv, userId);
-  if (cur === null || cur.apiToken === null) return;
-  await kv.atomic()
-    .delete([APITOKEN, cur.apiToken])
-    .set([USER, userId], { ...cur, apiToken: null, updated_at: ids.nowIso() })
-    .commit();
+/**
+ * Resolves a header token to its user. Touches `last_used_at` at most once an
+ * hour so a chatty client does not turn every API call into a KV write.
+ */
+export async function findUserByApiToken(
+  kv: Deno.Kv,
+  token: string,
+  nowIso?: string,
+): Promise<WebUser | null> {
+  const parsed = apiTokenRefSchema.safeParse((await kv.get([APITOKEN, token])).value);
+  if (!parsed.success) return null;
+  if (typeof parsed.data === "string") return await getUser(kv, parsed.data);
+  const { userId, tokenId } = parsed.data;
+  if (nowIso !== undefined) {
+    const key = [APITOKEN_BY_USER, userId, tokenId];
+    const rec = apiTokenSchema.safeParse((await kv.get(key)).value);
+    if (rec.success) {
+      const last = rec.data.last_used_at === null
+        ? -Infinity
+        : Temporal.Instant.from(rec.data.last_used_at).epochMilliseconds;
+      if (Temporal.Instant.from(nowIso).epochMilliseconds - last >= 60 * 60 * 1000) {
+        await kv.set(key, { ...rec.data, last_used_at: nowIso });
+      }
+    }
+  }
+  return await getUser(kv, userId);
+}
+
+/**
+ * Revokes ONE token by id. The raw token is not stored anywhere readable, so
+ * the lookup index is found by scanning this user's index entries — a user
+ * has at most API_TOKEN_LIMIT of them.
+ */
+export async function revokeApiTokenById(
+  kv: Deno.Kv,
+  userId: string,
+  tokenId: string,
+): Promise<boolean> {
+  const key = [APITOKEN_BY_USER, userId, tokenId];
+  if ((await kv.get(key)).value === null) return false;
+  // Find the ["apitoken", <token>] entry that points at this id.
+  for await (const e of kv.list({ prefix: [APITOKEN] })) {
+    const ref = apiTokenRefSchema.safeParse(e.value);
+    if (ref.success && typeof ref.data !== "string" && ref.data.tokenId === tokenId) {
+      await kv.delete(e.key);
+    }
+  }
+  await kv.delete(key);
+  return true;
+}
+
+/** Drops every token of a user (退会). */
+async function deleteAllApiTokens(kv: Deno.Kv, userId: string): Promise<void> {
+  const ids: string[] = [];
+  for await (const e of kv.list({ prefix: [APITOKEN_BY_USER, userId] })) {
+    ids.push(String(e.key[2]));
+    await kv.delete(e.key);
+  }
+  if (ids.length === 0) return;
+  const wanted = new Set(ids);
+  for await (const e of kv.list({ prefix: [APITOKEN] })) {
+    const ref = apiTokenRefSchema.safeParse(e.value);
+    if (ref.success && typeof ref.data !== "string" && wanted.has(ref.data.tokenId)) {
+      await kv.delete(e.key);
+    }
+  }
 }
 
 // ---------- LINE linking (per-user, owner 2026-07-27) ----------
@@ -503,7 +653,7 @@ const lineCodeSchema = z.object({ userId: z.string(), created_at: z.string() });
  * `ids.randomToken` so tests stay deterministic; ~40 bits over a 10-minute
  * single-use window is far beyond guessing through a chat channel.
  */
-function lineLinkCodeFrom(token: string): string {
+export function typableCodeFrom(token: string): string {
   let out = "";
   for (let i = 0; i < CODE_LEN; i++) {
     const a = token.charCodeAt((i * 2) % token.length);
@@ -514,15 +664,19 @@ function lineLinkCodeFrom(token: string): string {
 }
 
 /** Accepts what a human types: casing, spaces and hyphens are all forgiven. */
-export function normalizeLineLinkCode(text: string): string {
+export function normalizeTypableCode(text: string): string {
   return text.trim().toUpperCase().replaceAll(/[\s-]/g, "");
 }
 
-/** True when the text could be a link code at all (cheap pre-check). */
-export function looksLikeLineLinkCode(text: string): boolean {
-  const code = normalizeLineLinkCode(text);
+/** True when the text could be a typable code at all (cheap pre-check). */
+export function looksLikeTypableCode(text: string): boolean {
+  const code = normalizeTypableCode(text);
   return code.length === CODE_LEN && [...code].every((c) => CODE_ALPHABET.includes(c));
 }
+
+// The LINE names stay as aliases: the LINE webhook and its tests use them.
+export const normalizeLineLinkCode = normalizeTypableCode;
+export const looksLikeLineLinkCode = looksLikeTypableCode;
 
 /**
  * Issues the user's one-time LINE link code, invalidating the previous one.
@@ -536,7 +690,7 @@ export async function issueLineLinkCode(
 ): Promise<string | null> {
   const cur = await getUser(kv, userId);
   if (cur === null) return null;
-  const code = lineLinkCodeFrom(ids.randomToken());
+  const code = typableCodeFrom(ids.randomToken());
   const tx = kv.atomic()
     .set([LINE_CODE, code], { userId, created_at: ids.nowIso() }, { expireIn: LINE_CODE_TTL_MS })
     .set([USER, userId], { ...cur, lineLinkCode: code, updated_at: ids.nowIso() });
@@ -628,6 +782,7 @@ export async function deleteAccount(
   // Leaving this behind would let a forwarded mail resolve to a deleted user.
   if (user.mailSecret !== null) await kv.delete([MAIL, user.mailSecret]);
   if (user.apiToken !== null) await kv.delete([APITOKEN, user.apiToken]);
+  await deleteAllApiTokens(kv, userId);
   // The LINE link must go with the account: leaving the reverse index behind
   // would let that LINE sender resolve to a deleted user.
   if (user.lineUserId !== null) await kv.delete([BY_LINE, user.lineUserId]);
