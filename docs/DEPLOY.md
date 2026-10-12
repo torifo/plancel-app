@@ -272,7 +272,17 @@ Production タイムラインは `production` を追う。赤なら何も出な�
   - **追加ログインメール**（`altEmail`、例 iCloud）
   - **パスワード設定/変更**（`POST /auth/password`）: Google
     アカウントにパスワードログインを足せる。
-  - **パーソナル API トークン**（`POST/DELETE /auth/token`、§6 MCP 用）。
+  - **パーソナル API トークン**（§6 MCP 用、**デバイスごと・最大5本**、2026-10-13）: `POST /auth/token`
+    は名前付きで1本足す（他は失効しない）、`GET /auth/tokens` で一覧（秘密は含まない）、
+    `DELETE /auth/tokens/:id` で1本だけ失効。一覧・失効はセッション専用（ヘッダトークンでは 401）。
+    KV: `["apitoken", <token>] → { userId, tokenId }`、`["apitoken_by_user", userId, id] → { name, kind, created_at, last_used_at }`。
+  - **デバイス承認（RFC 8628 型、issue #1）**: PC の MCP が `POST /auth/device/code`（認証なし）で
+    `user_code`（8文字・10分）を受け取り、ログイン済みのスマホが `GET /auth/device/pending?code=` で
+    要求元の名乗り・要求時刻を見て `POST /auth/device/approve | deny`。PC は `POST /auth/device/token` で
+    ポーリング（`interval` 5秒、速すぎると `slow_down` で +5秒、200回で打ち切り）し、承認済みなら
+    **1回だけ** トークンを受け取る（atomic な取り出し）。承認・照会・拒否は `pair:<userId>` で 15分10回。
+    `verification_uri_complete` は出さない（コードを URL から読ませない＝フィッシング耐性）。
+    KV: `["device_code", <device_code>]`・`["device_user_code", <user_code>]`（ともに `expireIn` 10分）。
   - **メール転送先アドレス**（2026-07-27、§3.1）: `GET /auth/me` の `mailAddress`
     （`p-<mailSecret>@<PLANCEL_INBOUND_DOMAIN>`、ドメイン未設定なら `null`）。
     `POST /auth/mail/rotate` で再発行 → 新しい `mailAddress` を返し、旧アドレスは即座に無効。
@@ -315,24 +325,28 @@ Production タイムラインは `production` を追う。赤なら何も出な�
 
 ## 6. MCP 連携（remote モード）
 
-Claude Desktop 等から本番の台帳を直接操作できる。
+Claude Desktop / Claude Code から本番の台帳を直接操作できる。
 
-- **remote モード**: env `PLANCEL_API_URL` + `PLANCEL_API_TOKEN` が揃うと、`src/mcp/main.ts` は
-  ローカル core ストアではなく本番 Web API を叩く 15 ツールを serve する。予約 7
-  （list / create / confirm / cancel / restore / update / delete）＋
-  施設の既定規定 4（`list_policy_templates` / `lookup_policy_template` /
-  `save_policy_template` / `delete_policy_template` → `/api/policy-templates`）＋
-  共有 4（`list_reservation_members` / `share_reservation`（`role` で「編集を許可」）/
-  `set_member_role` / `unshare_reservation` → `/api/reservations/:id/members`）。トークンはマイページの
-  カレンダー連携画面で発行するパーソナル API トークン（`x-plancel-token`）。Claude で作った予約が
-  家族の見る台帳に入り、確定はカレンダーにも流れる。
-- **local core モード**: env 無しなら従来どおりローカル KV の core ストアを操作する。
+- **モード**（`src/mcp/main.ts`、2026-10-13）:
+  - env 無し → **local core**（従来どおりローカル KV のコア台帳。既定）
+  - `PLANCEL_API_URL` + `PLANCEL_API_TOKEN` → **remote・固定トークン**（従来方式、後方互換）
+  - `PLANCEL_API_URL` のみ → **remote・デバイス承認**（issue #1）。最初のツール呼び出しが
+    8文字のコードと手順を返す（ポーリングは裏で続く）。スマホの「連携」④で承認すると、次の呼び出しから
+    台帳が返る。トークンは `$XDG_CONFIG_HOME/plancel/credentials.json`（無ければ `~/.config/plancel/`、
+    `PLANCEL_CREDENTIALS` で上書き可）に **0600** で置かれ、API の URL ごとに分かれる。
+    env の `PLANCEL_API_TOKEN` はファイルより優先（明示 ＞ 暗黙）。
+- **ツール**: 予約 7 ＋ 施設の既定規定 4 ＋ 共有 4 ＋ **承認 3**（`pair_with_plancel` / `pairing_status` /
+  `unpair_plancel`＝ローカルの資格情報を消すだけ。サーバ側の失効はマイページ）。承認 3 は未連携でも常に
+  登録されている（クライアントのツール一覧キャッシュを揺らさないため）。API が 401 を返したら資格情報を
+  捨てて「連携が解除されています」と返し、次の呼び出しで再ペアリングする。
+- **権限フラグ**: remote は `--allow-net=<host>` と資格情報ディレクトリへの `--allow-read/--allow-write`
+  が要る。local は `--allow-read/--allow-write`（KV）。README の例は両方を載せている。
+- **stdio**: stdout は JSON-RPC 専用なので、MCP の入口のログは stderr に出す。
 - **原則**: 「GUI でできることは MCP でもできる」を目指す。ただし**uid 確定・アカウント連携/マージ・
-  LINE 連携コードの発行は GUI 専用**（アイデンティティ確定は人手のみ）で MCP には出さない。
-  施設の既定規定と共有（招待・権限）はこの例外に当たらないので MCP にも出す（上記8ツール）。
-  共有ツールも API 側の分界に従うので、オーナー専用の操作は MCP からも実行できない。
+  LINE 連携コードの発行・トークンの一覧と失効は GUI 専用**（アイデンティティ確定は人手のみ）。
+  施設の既定規定と共有（招待・権限）はこの例外に当たらないので MCP にも出す。
 
-Claude Desktop の設定例（`claude_desktop_config.json`）:
+Claude Desktop の設定例（`claude_desktop_config.json`、デバイス承認方式）:
 
 ```json
 {
@@ -342,15 +356,14 @@ Claude Desktop の設定例（`claude_desktop_config.json`）:
       "args": [
         "run",
         "--allow-env",
-        "--allow-net",
+        "--allow-net=plancel-app.torifo.deno.net",
+        "--allow-read=/Users/<you>/.config/plancel",
+        "--allow-write=/Users/<you>/.config/plancel",
         "--unstable-temporal",
         "--unstable-kv",
         "/absolute/path/to/plancel/src/mcp/main.ts"
       ],
-      "env": {
-        "PLANCEL_API_URL": "https://plancel-app.torifo.deno.net",
-        "PLANCEL_API_TOKEN": "<マイページで発行したトークン>"
-      }
+      "env": { "PLANCEL_API_URL": "https://plancel-app.torifo.deno.net" }
     }
   }
 }

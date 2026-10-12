@@ -167,7 +167,14 @@
 ## Progress
 
 - **実装タスク: 21/21 完了**（Wave 1〜8。Task 6.2/6.3 はコード完了として集計）
-- **自動検証（2026-09-03）**: 768 tests green / scenario OK / replay 10/10 identical
+- **自動検証（2026-10-13）**: 803 tests green / scenario OK / replay 10/10 identical
+- **MCP スマホ承認ペアリング（2026-10-13、issue #1）**: トークンをデバイスごと・名前付き・個別失効に
+  （上限5本、旧単一トークンは初回読み取りで一覧へ畳む）。RFC 8628 型の `/auth/device/*`（PC 側は無認証、
+  スマホ側はセッション専用・15分10回）。「連携」④を承認画面＋デバイス一覧に作り直し（`#pair`、コードは
+  URL から読まない）。MCP は `PLANCEL_API_URL` のみで起動すると初回呼び出しでコードを返し、裏でポーリング、
+  資格情報は `~/.config/plancel/credentials.json`（0600）。401 で資格情報を捨てて再ペアリング。
+  dev サーバで実機 E2E 済み（コード→承認→台帳取得→失効→「解除されています」→再ペアリング）。
+  発見: `Deno.hostname()` は `--allow-sys` 無しで落ちる → 'pc' にフォールバック。
 - **障害対応と再発防止（2026-09-02〜03、ADR-13〜15）**: Groq が `llama-3.3-70b-versatile` を引退させ
   貼り付けが数日間 Gemini 一本に落ちていた（ログ無言・応答200）。一次を `openai/gpt-oss-120b` へ。
   ①`parserFailures`/`allParsersFailed` で「プロバイダが答えなかった」を全経路の log level と

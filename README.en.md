@@ -17,7 +17,7 @@ notified **right before each fee boundary** with the concrete amount at stake. p
 ```sh
 deno task seed        # load demo data
 deno task scenario    # one-command E2E: confirm → advance 3 days → list notifications
-deno task test        # 768 tests — completes with zero external connections
+deno task test        # 803 tests — completes with zero external connections
 deno task verify      # fmt + check + lint + test + replay in one go
 ```
 
@@ -70,10 +70,23 @@ Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/S
   interface)
 - **Entry point**: Claude MCP (`@modelcontextprotocol/sdk`) + LINE Bot webhook (live in production
   since 2026-07-26; signature path device-verified)
-- **Tests**: 768 via `deno test`, shared contract suite across both Store implementations,
+- **Tests**: 803 via `deno test`, shared contract suite across both Store implementations,
   one-command E2E, parse replay regression
 
 ## Usage (Claude MCP)
+
+To drive the production ledger (the one the family sees) from Claude, approve the PC from your phone instead of handing out a token:
+
+```sh
+claude mcp add plancel -e PLANCEL_API_URL=https://plancel-app.torifo.deno.net -- \
+  deno run --allow-env --allow-net=plancel-app.torifo.deno.net \
+  --allow-read=$HOME/.config/plancel --allow-write=$HOME/.config/plancel \
+  --unstable-temporal --unstable-kv /path/to/plancel/src/mcp/main.ts
+```
+
+The first request shows an 8-character code; open plancel on your phone → 連携 → "④ Claude（PC）を承認する", type the code and approve. The token lives only in `~/.config/plancel/credentials.json` (0600) — never in the chat or the MCP config.
+
+For the local core ledger only, leave the URL off:
 
 ```sh
 claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv /path/to/plancel/src/mcp/main.ts

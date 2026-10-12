@@ -1,7 +1,7 @@
 # plancel 検証ガイド（ローカル検証 + ドキュメント整合 + 本番実機）
 
 > 最終更新: 2026-08-12。§1 のローカルコマンドは 2026-08-12 に再実行して期待出力を確認済み
-> （768 passed | 0 failed、replay 10/10 identical）。
+> （803 passed | 0 failed、replay 10/10 identical）。
 > §3（ログイン・カレンダー・MCP・LINE・Resend の本番トラック）は 2026-07-26 時点の実装を反映。
 > デプロイ前は §1 を上から順に全部通すこと。§2 はドキュメントを触ったとき・リリース前の照合用。 §3
 > はデプロイ後の実機確認（done-when）。
@@ -20,7 +20,7 @@
 ```sh
 deno task check     # 型 + Date直呼び禁止lint → "no_direct_date_check: OK"
 deno lint           # 0 problems
-deno task test      # 768 passed | 0 failed
+deno task test      # 803 passed | 0 failed
 deno task verify    # fmt check + 上記検査 + replayを一括実行
 ```
 
@@ -162,13 +162,13 @@ to_cancel）が返ることを確認。 `PLANCEL_DEBUG=1` なら `debug_dump_sta
 ## 2. ドキュメント整合チェック（既存ドキュメントの検証）
 
 ドキュメントの「実装状態を主張する記述」と実体の照合表。**コード・テスト数・タスク状態を変えたら該当行を更新すること**。
-2026-08-12 時点: 768（終わった予約の履歴化＝日付からの導出・`endsAt` の保持と正規化・
+2026-08-12 時点: 803（終わった予約の履歴化＝日付からの導出・`endsAt` の保持と正規化・
 クライアント写しの固定・カレンダーの終了時刻・healthz のビルドIDを追加）。
 2026-08-01 時点: 669（Groq主系＋条件付きGemini査読、意味的日時比較、採用出力の検証を追加）。
 2026-07-31 時点: 653（キャンセル規定の境界表記まわりを追加。コーパスに「N日前から◯%」表記の実データ2件）。2026-07-28 時点: README・本ガイドのテスト数を621へ統一（予約の共有編集権限・施設の既定規定・
 メール転送インテーク・文字サイズ3段階の追加分を含む。`specs/plancel/tasks.md` は本更新の対象外
 なので別途確認すること）。コード実装済みと本番実機acceptance未完了を分けて記載。
-2026-09-03 時点: 768（報告動線 `src/web/reports.ts`・プロバイダのカナリア `src/parse/canary.ts` /
+2026-09-03 時点: 803（報告動線 `src/web/reports.ts`・プロバイダのカナリア `src/parse/canary.ts` /
 `src/web/canary-watch.ts`・5xx の再試行と12秒のタイムアウト・規則ベースの日付抽出 `src/parse/rules.ts`
 （床＋`date_not_in_text` 検査）・コーパスの `truth` と `parse:bench`。ADR-13〜15）
 
@@ -259,22 +259,19 @@ curl -s "$BASE/api/reservations" \
 4. 同一 email で Google ログインを試すと乗っ取り防止で `auth_error=email_taken` になり、自動合流
    しないこと。マイページから明示的に Google を「連携」すると検証済みへ昇格し合流する。
 
-### 3.3 トラック3: MCP トークン → ツール操作
+### 3.3 トラック3: MCP ペアリング → ツール操作（2026-10-13〜）
 
-1. マイページのカレンダー連携画面でパーソナル API トークンを発行（`POST /auth/token`）。
-2. env を設定して MCP を remote モードで起動:
-
-```sh
-PLANCEL_API_URL=https://plancel-app.torifo.deno.net \
-PLANCEL_API_TOKEN=<発行トークン> \
-deno run --allow-env --allow-net --unstable-temporal --unstable-kv src/mcp/main.ts
-# 起動ログに mode: "web-api" が出る（env 無しなら "local-core"）
-```
-
-3. Claude Desktop からは `claude_desktop_config.json` に上記 env を書く（DEPLOY.md §6 の JSON 例）。
-4. `create_reservation`（`confirmed: true`）→ `list_reservations` で本番台帳に入ること、確定分が
-   トラック1のカレンダーにも流れることを確認。uid 確定・アカウント連携/マージ・LINE連携コード発行の
-   各ツールは**存在しない**（GUI 専用）ことも確認。
+1. トークン無しで MCP を remote モードで登録する（README「使い方」の1つ目のコマンド。`PLANCEL_API_URL` のみ）。
+2. Claude に「予約を見せて」と頼む → **8文字のコードと手順**が返る（トークンは出ない）。
+3. スマホの plancel（ログイン済み）→ 下のメニュー「連携」→「④ Claude（PC）を承認する」にコードを入力して
+   「確認」→ **要求元の名乗り・要求時刻・アカウント名**が出る → 「承認する」。
+4. PC 側でもう一度「予約を見せて」→ 本番台帳が返る。`~/.config/plancel/credentials.json` が **0600** で
+   あること、トークン文字列が会話にも `claude mcp` の設定にも無いことを確認。
+5. 2台目の PC を同じ手順で承認しても1台目が動き続けること。マイページ「承認済みのデバイス」で1台目を
+   失効すると、1台目だけが「連携が解除されています」になること。
+6. 拒否すると Claude は「拒否されました」と返し、自動では再発行しない。10分放置すると次の呼び出しで新しい
+   コードが出る。
+7. 従来の `PLANCEL_API_TOKEN` env 方式がそのまま動く（env がファイルより優先）。
 
 ### 3.4 トラック4: LINE実機 → 台帳
 

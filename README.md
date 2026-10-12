@@ -17,7 +17,7 @@
 ```sh
 deno task seed        # デモデータ投入
 deno task scenario    # E2E: 確定 → 3日進める → 通知列挙 を1コマンドで体験
-deno task test        # 768 tests — 外部サービス接続ゼロで完結
+deno task test        # 803 tests — 外部サービス接続ゼロで完結
 deno task verify      # fmt + check + lint + test + replay を一括実行
 ```
 
@@ -69,6 +69,19 @@ MCPから利用する。非決定性の源（**時刻・外部送信・LLM**）�
 - **テスト**: `deno test` 690件 + 契約テスト（Store 2実装共通）+ E2E シナリオ + パース回帰リプレイ
 
 ## 使い方（Claude MCP）
+
+本番の台帳（家族が見ている方）を Claude から操作するには、トークンを配らずに**スマホで承認**します：
+
+```sh
+claude mcp add plancel -e PLANCEL_API_URL=https://plancel-app.torifo.deno.net -- \
+  deno run --allow-env --allow-net=plancel-app.torifo.deno.net \
+  --allow-read=$HOME/.config/plancel --allow-write=$HOME/.config/plancel \
+  --unstable-temporal --unstable-kv /path/to/plancel/src/mcp/main.ts
+```
+
+最初に「予約を見せて」と頼むと 8 文字のコードが出るので、スマホの plancel →「連携」→「④ Claude（PC）を承認する」に入力して承認します。トークンは `~/.config/plancel/credentials.json`（0600）にだけ置かれ、会話にも設定にも出ません。
+
+ローカルのコア台帳で試すだけなら、URL を付けずに:
 
 ```sh
 claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv /path/to/plancel/src/mcp/main.ts
