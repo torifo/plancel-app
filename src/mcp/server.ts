@@ -115,18 +115,35 @@ export async function runToolForMcp(
  * to `ctx`. Debug tools (SDD §10.5) are included only when `options.debug`
  * is true — defaulting to the `PLANCEL_DEBUG=1` env flag.
  */
+/** Prefix on every local-core tool description. */
+const LOCAL_LEDGER_TAG = "[ローカル台帳]";
+
+/** What pairing_status answers in local-core mode (issue #3). */
+export const LOCAL_LEDGER_NOTICE =
+  "接続先: この PC のローカル KV にあるコア台帳です。本番の台帳ではないので、ここで作った予約は" +
+  "スマホの plancel には出ません。スマホと同じ台帳を使うには、PLANCEL_API_URL を付けて MCP を登録し直して" +
+  "ください（README「使い方」の最初のコマンド）。";
+
 export function buildServer(ctx: ToolContext, options: { debug?: boolean } = {}): McpServer {
   const server = new McpServer({ name: "plancel", version: "0.1.0" });
   const debug = options.debug ?? debugFlagFromEnv();
 
+  // Several names here (create_reservation, confirm_reservation) also exist on
+  // the remote server with different arguments and meaning (issue #3). The
+  // prefix tells the model which ledger a tool writes to; pairing_status below
+  // answers the question outright, under the same name as remote mode.
   for (const def of serverTools(debug)) {
     server.registerTool(
       def.name,
-      { description: def.description, inputSchema: passthroughSchema },
+      { description: `${LOCAL_LEDGER_TAG} ${def.description}`, inputSchema: passthroughSchema },
       // deno-lint-ignore no-explicit-any
       (args: any) => runToolForMcp(def, ctx, args ?? {}),
     );
   }
+  server.registerTool("pairing_status", {
+    description: "どの台帳に接続しているかを返す（このサーバーはローカルのコア台帳）",
+    inputSchema: passthroughSchema,
+  }, () => ({ content: [{ type: "text" as const, text: LOCAL_LEDGER_NOTICE }] }));
 
   return server;
 }

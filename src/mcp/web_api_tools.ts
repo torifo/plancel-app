@@ -153,7 +153,9 @@ export function pairingInstructions(state: PairingStateView): string {
     case "expired":
       return "連携コードの期限が切れました。もう一度 pair_with_plancel を呼ぶと新しいコードを出します。";
     case "paired":
-      return `${state.account.label} の台帳に接続しています。`;
+      // Says WHICH ledger, not just that it is paired: the local-core server
+      // answers the same tool, and the two are easy to confuse (issue #3).
+      return `接続先: 本番の台帳（${state.account.label}）。スマホの plancel と同じ台帳です。`;
     case "idle":
       return "plancel と連携していません。pair_with_plancel を呼ぶとコードが出ます。";
   }
@@ -416,11 +418,14 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     return textResult(pairingInstructions(state), state.kind !== "paired");
   });
   server.registerTool("pairing_status", {
-    description: "plancel との連携状態（どのアカウントに接続しているか）を返す",
+    description:
+      "どの台帳に接続しているか（本番の台帳＝スマホと同じ／そのアカウント）と連携状態を返す",
     inputSchema: z.object({}).passthrough(),
   }, async () => {
     if (cfg.pairing === undefined) {
-      return textResult("PLANCEL_API_TOKEN による固定接続です。");
+      return textResult(
+        "接続先: 本番の台帳（PLANCEL_API_TOKEN による固定接続）。スマホの plancel と同じ台帳です。",
+      );
     }
     const token = await resolveToken(cfg);
     return textResult(

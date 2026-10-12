@@ -352,3 +352,27 @@ Deno.test("web-api MCP: create_reservation tells the model how a policy is decid
     assertStringIncludes(create.description!, "update_reservation");
   });
 });
+
+Deno.test("pairing_status names the ledger it talks to: the production one the phone shows (issue #3)", async () => {
+  const { fetchFn } = fakeApi();
+  // Paired through the phone.
+  const { cfg } = pairingHarness({ token: "paired-secret", state: "idle" });
+  const paired = {
+    ...cfg,
+    pairing: {
+      ...cfg.pairing,
+      current: () => ({ kind: "paired" as const, account: { label: "@torifo" } }),
+    },
+  };
+  await withPairedClient({ ...paired, fetchFn }, async (client) => {
+    const r = await client.callTool({ name: "pairing_status", arguments: {} });
+    assertStringIncludes(textOf(r), "本番の台帳");
+    assertStringIncludes(textOf(r), "@torifo");
+    assertStringIncludes(textOf(r), "スマホ");
+  });
+  // Fixed token from env: still the production ledger.
+  await withClient(fetchFn, async (client) => {
+    const r = await client.callTool({ name: "pairing_status", arguments: {} });
+    assertStringIncludes(textOf(r), "本番の台帳");
+  });
+});

@@ -81,13 +81,15 @@ claude mcp add plancel -e PLANCEL_API_URL=https://plancel-app.torifo.deno.net --
 
 最初に「予約を見せて」と頼むと 8 文字のコードが出るので、スマホの plancel →「連携」→「④ Claude（PC）を承認する」に入力して承認します。トークンは `~/.config/plancel/credentials.json`（0600）にだけ置かれ、会話にも設定にも出ません。
 
-ローカルのコア台帳で試すだけなら、URL を付けずに:
+あとは会話で「7/12 19時に◯◯を仮予約、前日まで無料」「◯◯に決めた」と伝えるだけ。どの台帳に繋がっているか迷ったら「plancel の接続先は？」（`pairing_status`）と聞くと「本番の台帳（アカウント名）」と答えます。
+
+### 開発者向け: ローカルのコア台帳（スマホには出ません）
+
+`PLANCEL_API_URL` を付けずに登録すると、MCP は **この PC のローカル KV にある別の台帳**（コア台帳）で起動します。ここで作った予約は本番にもスマホにも反映されず、ツールの体系も違います（`plan` が ID 制で `confirm_quota` がある等。説明文はすべて「[ローカル台帳]」で始まり、`pairing_status` もそう答えます）。コアのドメインを単体で試したいときだけ使ってください:
 
 ```sh
-claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv /path/to/plancel/src/mcp/main.ts
+claude mcp add plancel-local -- deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv /path/to/plancel/src/mcp/main.ts
 ```
-
-あとは会話で「7/12 19時に◯◯を仮予約、前日まで無料」「◯◯に決めた」と伝えるだけ。
 
 ## ステータス
 

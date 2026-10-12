@@ -128,10 +128,13 @@ curl -s http://localhost:18091/healthz    # → ok dev（ローカルはビル�
 > 200 + 連携案内が返り、ParseJob も予約も作られない。`deno task line` 単体モードは連携インデックスを
 > 持たないので、従来どおり許可リストが唯一の認可。
 
-### 1.7 MCP サーバー（任意）
+### 1.7 MCP サーバー（任意・ローカルのコア台帳）
+
+env 無しの登録は **ローカル KV のコア台帳**で起動する（本番の台帳・スマホには反映されない。ツールの説明文は
+「[ローカル台帳]」で始まり、`pairing_status` もそう答える）。本番の台帳に対する確認は 3.3 トラック3。
 
 ```sh
-claude mcp add plancel -- deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv $(pwd)/src/mcp/main.ts
+claude mcp add plancel-local -- deno run --allow-env --allow-read --allow-write --unstable-temporal --unstable-kv $(pwd)/src/mcp/main.ts
 ```
 
 Claude から `create_reservation` → `confirm_reservation` して副作用一覧（siblings の

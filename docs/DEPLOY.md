@@ -341,6 +341,10 @@ Claude Desktop / Claude Code から本番の台帳を直接操作できる。
   捨てて「連携が解除されています」と返し、次の呼び出しで再ペアリングする。
 - **権限フラグ**: remote は `--allow-net=<host>` と資格情報ディレクトリへの `--allow-read/--allow-write`
   が要る。local は `--allow-read/--allow-write`（KV）。README の例は両方を載せている。
+- **どちらのモードで動いているか**（issue #3）: 両モードに `pairing_status` がある。remote は
+  「接続先: 本番の台帳（アカウント）」、local は「接続先: ローカル KV のコア台帳（スマホには出ない）」と
+  答える。local のツール説明はすべて「[ローカル台帳]」で始まる（`create_reservation` /
+  `confirm_reservation` は両モードに同名で存在し、引数も意味も違う）。
 - **stdio**: stdout は JSON-RPC 専用なので、MCP の入口のログは stderr に出す。
 - **原則**: 「GUI でできることは MCP でもできる」を目指す。ただし**uid 確定・アカウント連携/マージ・
   LINE 連携コードの発行・トークンの一覧と失効は GUI 専用**（アイデンティティ確定は人手のみ）。
