@@ -240,6 +240,32 @@ Deno.test("規定モデルの写し: 無料キャンセル期限は最後の pct
   }
 });
 
+Deno.test("規定モデルの写し: 開始日時の読み方がサーバと同じ（読めない開始は期限なし）", async () => {
+  const client = await loadMirror();
+  // サーバは toInstantOrNull（オフセット無しは JST）。ブラウザの new Date は
+  // "2026/10/27 19:00" まで読むので、素のままだと画面にだけ期限が出る（issue #2）。
+  const STARTS = [
+    "2026-08-22T15:00:00+09:00",
+    "2026-08-22T06:00:00.000Z",
+    "2026-08-22T15:00", // オフセット無し = JST
+    "2026-08-22", // 日付だけ = JST のその日の始まり
+    "2026/10/27 19:00",
+    "10月27日 19時",
+    "来週の金曜",
+    "",
+  ];
+  for (const startsAt of STARTS) {
+    for (const policy of POLICIES) {
+      assertEquals(
+        client.freeDeadline({ policy, startsAt }),
+        freeDeadlineMs(policy, startsAt),
+        `${DRIFT}\n開始の読み方が違います (${JSON.stringify(policy)}, startsAt=${startsAt})。`,
+      );
+    }
+  }
+  assertEquals(client.freeDeadline({ policy: "free24", startsAt: "2026/10/27 19:00" }), null);
+});
+
 Deno.test("規定モデルの写し: 段階表・期限・最大キャンセル料・文言・料率が全ケースで一致する", async () => {
   const client = await loadMirror();
 

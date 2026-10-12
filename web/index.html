@@ -2928,7 +2928,16 @@
       const st = stagesOf(r);
       return !!st && st.every((s) => s.pct === 0);
     };
-    const startMs = (r) => new Date(r.startsAt).getTime();
+    // サーバの toInstantOrNull（src/web/instant.ts）の写し: ISO 8601 だけ読み、オフセット無しは JST。
+    // new Date は "2026/10/27 19:00" も読むので、サーバが期限を出さない行に画面だけ期限が出ていた。
+    const ISO_START =
+      /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?)([Zz]|[+-]\d{2}:?\d{2})?)?$/;
+    const startMs = (r) => {
+      const m = typeof r.startsAt === "string" ? ISO_START.exec(r.startsAt) : null;
+      // オフセットは大文字に（Safari の Date.parse は小文字の "z" を読まない）。
+      return m ? Date.parse(`${m[1]}T${m[2] || "00:00"}${(m[3] || "+09:00").toUpperCase()}`) : NaN;
+    };
+    const BAD_START = "日時が読めません（編集して直してください）";
     const yen = (n) => "¥" + (n || 0).toLocaleString("ja-JP");
     const fmtDate = (ms) => {
       const d = new Date(ms);
@@ -2979,7 +2988,9 @@
       // 2026-07-25 修正: 従来の「最初の有料ステージの h」は1段ズレていた。
       const lastFree = [...st].reverse().find((s) => s.pct === 0);
       if (!lastFree) return null; // 最初から有料 — 無料期間なし
-      return boundaryMs(startMs(r), lastFree.h);
+      const start = startMs(r);
+      if (Number.isNaN(start)) return null; // 開始が読めない（サーバの freeDeadlineMs も null）
+      return boundaryMs(start, lastFree.h);
     }
     function maxLoss(r) {
       const st = stagesOf(r);
@@ -3471,12 +3482,15 @@
     function rowHtml(r) {
       const now = Date.now(),
         start = startMs(r),
+        badStart = Number.isNaN(start),
         span = Math.max(start - now, DAY),
         dl = freeDeadline(r);
       const pos = (t) => Math.max(0, Math.min(100, ((t - now) / span) * 100));
       const freePct = dl ? pos(dl) : 0;
-      const track = unknownPolicy(r)
-        ? `<div class="bar unknown" title="キャンセル規定が不明です"></div>`
+      const track = unknownPolicy(r) || badStart
+        ? `<div class="bar unknown" title="${
+          badStart ? "開始日時が読めません" : "キャンセル規定が不明です"
+        }"></div>`
         : `<div class="bar" style="background:${barGradient(r, now)}">${
           dl && dl > now
             ? `<span class="mark" style="left:${freePct}%" title="無料キャンセル期限 ${
@@ -3487,7 +3501,9 @@
       // 無料期限のない規定は2種類ある（いつでも無料／最初から有料）ので区別する。
       // 「終了」と言えるのは期限が実在して過ぎた時だけ。最初から無料期間が無い規定に
       // 「終了」と書くと、あったものを逃したように読めてしまう（LINE 側は「無料期間なし」）。
-      const mid = unknownPolicy(r)
+      const mid = badStart
+        ? "日時を直すと期限を見張れます"
+        : unknownPolicy(r)
         ? "規定が不明だと見張れません"
         : (alwaysFree(r)
           ? "いつでも無料で戻れます"
@@ -3502,7 +3518,9 @@
       const timeS = (d.getHours() || d.getMinutes())
         ? ` ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
         : "";
-      const sub = `${fmtDate(start)}${timeS} · ${r.amount ? yen(r.amount) : "金額未定"}`;
+      const sub = `${badStart ? BAD_START : fmtDate(start) + timeS} · ${
+        r.amount ? yen(r.amount) : "金額未定"
+      }`;
       const locLink = locationHtml(r);
       const off = r.status === "to_cancel" ? " off" : "";
       const cut = r.status === "to_cancel" ? ` <span class="cut">✂ 要キャンセル</span>` : "";
@@ -3944,13 +3962,17 @@
       q("#f_plan").value = (r && r.plan) ? r.plan : "";
       q("#f_service").value = (r && r.service) ? r.service : "";
       q("#f_location").value = (r && r.location) ? r.location : "";
-      const d = (r && r.startsAt) ? new Date(r.startsAt) : new Date(Date.now() + 7 * DAY);
-      q("#f_date").value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
-        String(d.getDate()).padStart(2, "0")
-      }`;
-      q("#f_time").value = `${String(d.getHours()).padStart(2, "0")}:${
-        String(d.getMinutes()).padStart(2, "0")
-      }`;
+      // 読めない開始は空欄で開く。保存時の「予約日は必須」で選び直してもらう。
+      const startAt = (r && r.startsAt) ? startMs(r) : Date.now() + 7 * DAY;
+      const d = Number.isNaN(startAt) ? null : new Date(startAt);
+      q("#f_date").value = d
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
+          String(d.getDate()).padStart(2, "0")
+        }`
+        : "";
+      q("#f_time").value = d
+        ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+        : "";
       // 終了日は「日」だけ見せる（判定に使うのは日だけ — finishedAt）。読み取れて
       // いたチェックアウト時刻は formEndTime に取っておき、日付を直しても 10:00 が
       // 23:59 に書き換わらないようにする。
