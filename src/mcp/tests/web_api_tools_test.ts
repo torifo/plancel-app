@@ -313,3 +313,30 @@ Deno.test("pairing: a fixed env token never enters the pairing flow", async () =
     },
   );
 });
+
+Deno.test("web-api MCP: a natural-language startsAt is refused before any API call (issue #2)", async () => {
+  const { calls, fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    const created = await client.callTool({
+      name: "create_reservation",
+      arguments: { service: "鮨", startsAt: "10月27日 19時" },
+    });
+    assertEquals(created.isError, true);
+    const text = (created.content as { text: string }[])[0]!.text;
+    assertStringIncludes(text, "2026-10-27T19:00:00+09:00");
+
+    const edited = await client.callTool({
+      name: "update_reservation",
+      arguments: { id: "R1", startsAt: "来週の金曜" },
+    });
+    assertEquals(edited.isError, true);
+    assertEquals(calls.length, 0, "the API never sees an unreadable date");
+
+    // The tool description tells the model how to hand over a date.
+    const tools = await client.listTools();
+    const create = tools.tools.find((t: { name: string }) => t.name === "create_reservation")!;
+    const schema = JSON.stringify(create.inputSchema);
+    assertStringIncludes(schema, "ISO 8601");
+    assertStringIncludes(schema, "JST");
+  });
+});

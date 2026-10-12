@@ -1,5 +1,10 @@
-import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { normalizeInstant, normalizeRequiredInstant, toInstantOrNull } from "../instant.ts";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
+import {
+  normalizeInstant,
+  normalizeRequiredInstant,
+  readableInstantSchema,
+  toInstantOrNull,
+} from "../instant.ts";
 
 Deno.test("toInstantOrNull: an offset is honoured, a missing one reads as JST", () => {
   assertEquals(String(toInstantOrNull("2026-08-05T10:00:00+09:00")), "2026-08-05T01:00:00Z");
@@ -31,4 +36,20 @@ Deno.test("normalizeRequiredInstant: an unreadable start is kept, never dropped"
   assertEquals(normalizeRequiredInstant("2026-08-05T10:00"), "2026-08-05T01:00:00.000Z");
   // 落とすと予約がどの一覧にも出なくなる。見えていて間違っている方が直せる。
   assertEquals(normalizeRequiredInstant("来週の金曜"), "来週の金曜");
+});
+
+Deno.test("readableInstantSchema: rejects what no reader can parse, with the accepted shape", () => {
+  const ok = readableInstantSchema.safeParse("2026-10-27T19:00:00+09:00");
+  assertEquals(ok.success, true);
+  // The model's "10月27日 19時" and the browser-only "2026/10/27 19:00" (issue #2):
+  // Date.parse reads the latter, Temporal does not, so the row would look fine on
+  // the phone while the server could not sort it or compute its deadline.
+  for (const bad of ["10月27日 19時", "来週の金曜", "2026/10/27 19:00", ""]) {
+    const r = readableInstantSchema.safeParse(bad);
+    assertEquals(r.success, false, `${bad} は受け付けない`);
+    if (!r.success) {
+      assertStringIncludes(r.error.issues[0]!.message, "2026-10-27T19:00:00+09:00");
+      assertStringIncludes(r.error.issues[0]!.message, "JST");
+    }
+  }
 });

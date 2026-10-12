@@ -23,6 +23,7 @@
  * MUST stay in lockstep with this module.
  */
 import { z } from "zod";
+import { toInstantOrNull } from "./instant.ts";
 
 const HOUR_MS = 3_600_000;
 /** A boundary further out than a year is a data error, not a policy. */
@@ -168,7 +169,12 @@ export function freeDeadlineMs(policy: WebPolicy, startsAt: string): number | nu
   if (!stages.some((s) => s.pct > 0)) return null; // free throughout
   const lastFree = [...stages].reverse().find((s) => s.pct === 0);
   if (lastFree === undefined) return null; // paid from the outset
-  return boundaryMs(Temporal.Instant.from(startsAt).epochMilliseconds, lastFree.h);
+  // A legacy row may hold a start nobody can read (writes once let one through,
+  // issue #2). No deadline then — never a throw: the notification sweep walks
+  // every ledger in one pass, and one bad row must not silence everyone after it.
+  const start = toInstantOrNull(startsAt);
+  if (start === null) return null;
+  return boundaryMs(start.epochMilliseconds, lastFree.h);
 }
 
 /** Worst-case cancellation fee (放置損失): amount × the highest stage %. */

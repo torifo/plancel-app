@@ -12,7 +12,12 @@
 import { z } from "zod";
 import { webPolicySchema } from "./policy.ts";
 import { isFinished } from "./lifecycle.ts";
-import { normalizeInstant, normalizeRequiredInstant, toInstantOrNull } from "./instant.ts";
+import {
+  normalizeInstant,
+  normalizeRequiredInstant,
+  readableInstantSchema,
+  toInstantOrNull,
+} from "./instant.ts";
 import { getTemplate } from "./policy-template.ts";
 
 // The policy model (presets + arbitrary stage tables) and its math live in
@@ -62,8 +67,10 @@ export type WebActor = string | null;
 export const webCreateSchema = z.object({
   plan: z.string().nullable().default(null),
   service: z.string().min(1),
-  startsAt: z.string().min(1),
-  endsAt: z.string().nullable().default(null),
+  // Readable or refused (./instant.ts): the stored record stays `z.string()` so
+  // a legacy row never vanishes, but no new unreadable value gets in.
+  startsAt: readableInstantSchema,
+  endsAt: readableInstantSchema.nullable().default(null),
   amount: z.number().nullable().default(null),
   location: z.string().nullable().default(null),
   policy: webPolicySchema.default("unknown"),
@@ -74,8 +81,8 @@ export const webCreateSchema = z.object({
 export const webPatchSchema = z.object({
   plan: z.string().nullable().optional(),
   service: z.string().min(1).optional(),
-  startsAt: z.string().min(1).optional(),
-  endsAt: z.string().nullable().optional(),
+  startsAt: readableInstantSchema.optional(),
+  endsAt: readableInstantSchema.nullable().optional(),
   amount: z.number().nullable().optional(),
   location: z.string().nullable().optional(),
   policy: webPolicySchema.optional(),

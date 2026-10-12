@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@^1.0.19";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import { handleWebApi, isApiPath } from "../api.ts";
 import type { WebIds } from "../store.ts";
 
@@ -401,12 +401,17 @@ Deno.test("web api: endsAt is optional, stored, and editable", async () => {
       ids,
     )).json()).reservation;
     assertEquals(loose.endsAt, "2026-09-03T01:00:00.000Z");
-    const junk = (await (await handleWebApi(
+    // 読めない値は入口で弾く（issue #2）。黙って null にすると「終了日を入れたつもり」
+    // が消えたことに気づけない。保存されている値はそのまま。
+    const junk = await handleWebApi(
       kv,
       reqOf("PATCH", `${BASE}/${created.id}`, "t", { endsAt: "来週の金曜" }),
       ids,
-    )).json()).reservation;
-    assertEquals(junk.endsAt, null);
+    );
+    assertEquals(junk.status, 400);
+    const kept = (await (await handleWebApi(kv, reqOf("GET", BASE, "t"), ids)).json())
+      .reservations[0];
+    assertEquals(kept.endsAt, "2026-09-03T01:00:00.000Z");
 
     // 日程が縮んだときに終了日だけ消せる（null で明示できる）。
     const cleared = (await (await handleWebApi(
@@ -494,5 +499,60 @@ Deno.test("web api: patch/confirm/delete on unknown id -> 404", async () => {
       404,
     );
     assertEquals((await handleWebApi(kv, reqOf("DELETE", `${BASE}/nope`, "t"), ids)).status, 404);
+  });
+});
+
+Deno.test("web api: an unreadable startsAt is refused on create and edit (issue #2)", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    // 「10月27日 19時」 is what a model writes; "2026/10/27 19:00" is the nasty one —
+    // the browser's Date.parse reads it, so the phone shows a normal row while the
+    // server can neither sort it nor compute its cancellation deadline.
+    for (const startsAt of ["10月27日 19時", "来週の金曜", "2026/10/27 19:00"]) {
+      const res = await handleWebApi(
+        kv,
+        reqOf("POST", BASE, "t", { service: "宿", startsAt }),
+        ids,
+      );
+      assertEquals(res.status, 400, `${startsAt} は 400`);
+      const body = await res.json();
+      assertEquals(body.error, "invalid");
+      assertEquals(body.issues[0].path, ["startsAt"]);
+      assertStringIncludes(body.issues[0].message, "2026-10-27T19:00:00+09:00");
+    }
+    // endsAt is optional but, when given, must be readable too.
+    const badEnd = await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        service: "宿",
+        startsAt: "2026-10-27T15:00:00+09:00",
+        endsAt: "翌日",
+      }),
+      ids,
+    );
+    assertEquals(badEnd.status, 400);
+    assertEquals((await badEnd.json()).issues[0].path, ["endsAt"]);
+
+    // An offset-less ISO string is JST, stored in canonical form.
+    const created = await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", { service: "宿", startsAt: "2026-10-26T19:00" }),
+      ids,
+    );
+    assertEquals(created.status, 201);
+    const { reservation } = await created.json();
+    assertEquals(reservation.startsAt, "2026-10-26T10:00:00.000Z");
+
+    // Edit: the same gate, and the stored value is untouched by a refused edit.
+    const edit = await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${reservation.id}`, "t", { startsAt: "来週の金曜" }),
+      ids,
+    );
+    assertEquals(edit.status, 400);
+    assertEquals((await edit.json()).issues[0].path, ["startsAt"]);
+    const list = await (await handleWebApi(kv, reqOf("GET", BASE, "t"), ids)).json();
+    assertEquals(list.reservations[0].startsAt, "2026-10-26T10:00:00.000Z");
+    assertEquals(list.reservations.length, 1);
   });
 });

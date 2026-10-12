@@ -13,6 +13,8 @@
  * one canonical instant string here, and readers can be strict.
  */
 
+import { z } from "zod";
+
 /**
  * The instant a stored timestamp means, or null when it says nothing readable.
  *
@@ -46,3 +48,23 @@ export function normalizeInstant(value: unknown): string | null {
 export function normalizeRequiredInstant(value: string): string {
   return normalizeInstant(value) ?? value;
 }
+
+/**
+ * What a write may hand us as a timestamp: anything `toInstantOrNull` reads.
+ *
+ * Writes used to take any non-empty string and `normalizeRequiredInstant` kept
+ * the unreadable ones as they came (issue #2). A model writing 「10月27日 19時」
+ * then landed on the phone as `NaN/NaN(undefined)`, and "2026/10/27 19:00" was
+ * worse: the browser's `Date.parse` reads it, so the row looked normal while the
+ * server sorted it last and never computed its cancellation deadline. The
+ * leniency belongs to READS of legacy rows only; a new value is refused here,
+ * and the message says what shape is accepted so the caller can rewrite it.
+ */
+export const INSTANT_FORMAT_HINT =
+  "日時として読めません。ISO 8601 で渡してください（例 2026-10-27T19:00:00+09:00。" +
+  "オフセットが無ければ JST とみなします）";
+
+export const readableInstantSchema = z.string().min(1, INSTANT_FORMAT_HINT).refine(
+  (v) => toInstantOrNull(v) !== null,
+  { message: INSTANT_FORMAT_HINT },
+);

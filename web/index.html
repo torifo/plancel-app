@@ -2931,6 +2931,9 @@
     const yen = (n) => "¥" + (n || 0).toLocaleString("ja-JP");
     const fmtDate = (ms) => {
       const d = new Date(ms);
+      // 読めない開始日時は NaN で届く（新規の書き込みは弾くが、以前に通った行は残る）。
+      // 「NaN/NaN(undefined)」より、直せると分かる言葉で出す。
+      if (Number.isNaN(d.getTime())) return "日時が読めません";
       return `${d.getMonth() + 1}/${d.getDate()}(${"日月火水木金土"[d.getDay()]})`;
     };
     // キャンセル期限は「日付」であって時刻ではない。「7日前まで無料」はその日いっぱい
