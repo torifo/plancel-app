@@ -19,7 +19,16 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { type Clock, SystemClock } from "../core/clock/mod.ts";
 import { readableInstantSchema } from "../web/instant.ts";
+import {
+  type ApiReservation,
+  findDuplicate,
+  listFilterSchema,
+  presentList,
+  presentReservation,
+  presentResponse,
+} from "./web_api_view.ts";
 import { webPolicyInputSchema } from "../web/policy.ts";
 import { templatePolicyInputSchema } from "../web/policy-template.ts";
 import { memberRoleSchema } from "../web/sharing.ts";
@@ -34,6 +43,8 @@ export interface WebApiConfig {
    */
   token: string | (() => Promise<string | null>);
   fetchFn?: typeof fetch;
+  /** For 「終わった予約」 and deadline views; the system clock when absent. */
+  clock?: Clock;
   /**
    * Present in pairing mode. `start()` begins (or reports) a request;
    * `forget()` drops a token the API just refused. Absent → a missing token
@@ -68,11 +79,17 @@ const STARTS_AT_DESC =
 const createInput = z.object({
   service: z.string().min(1).describe("お店・宿・サービス名"),
   startsAt: readableInstantSchema.describe(STARTS_AT_DESC),
+  endsAt: readableInstantSchema.nullable().default(null).describe(
+    "終了日時（宿泊のチェックアウトなど。ISO 8601、任意）",
+  ),
   plan: z.string().nullable().default(null).describe("プラン名（候補を束ねる場合）"),
   amount: z.number().int().min(0).nullable().default(null).describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().default(null).describe("場所（店名・住所、任意）"),
   policy: webPolicyInputSchema.default("unknown").describe(POLICY_DESC),
   confirmed: z.boolean().default(false).describe("true で確定済みとして登録"),
+  allowDuplicate: z.boolean().default(false).describe(
+    "同じ店・同じ開始日時の予約が既にあっても別件として登録する（既定 false: 既存の予約を返す）",
+  ),
 });
 
 const idInput = z.object({ id: z.string().min(1).describe("予約ID") });
@@ -95,9 +112,12 @@ const patchInput = z.object({
   id: z.string().min(1).describe("予約ID"),
   service: z.string().min(1).optional().describe("お店・宿・サービス名"),
   startsAt: readableInstantSchema.optional().describe(STARTS_AT_DESC),
-  plan: z.string().nullable().optional(),
+  endsAt: readableInstantSchema.nullable().optional().describe(
+    "終了日時（ISO 8601。null で消す）",
+  ),
+  plan: z.string().nullable().optional().describe("プラン名（null で外す）"),
   amount: z.number().int().min(0).nullable().optional().describe("金額（円、0 以上の整数）"),
-  location: z.string().nullable().optional(),
+  location: z.string().nullable().optional().describe("場所（店名・住所。null で消す）"),
   policy: webPolicyInputSchema.optional().describe(POLICY_DESC),
 });
 
@@ -165,12 +185,46 @@ async function resolveToken(cfg: WebApiConfig): Promise<string | null> {
   return typeof cfg.token === "string" ? cfg.token : await cfg.token();
 }
 
+const nowMsOf = (cfg: WebApiConfig): number =>
+  (cfg.clock ?? new SystemClock()).now().epochMilliseconds;
+
+/** JSON of a body, or the raw text when it is not JSON. */
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
+/** The API answer the model reads: rows in JST with deadlines, errors with a hint. */
+function finish(cfg: WebApiConfig, res: Response, text: string): McpTextResult {
+  // 204 (template delete) carries no body, and MCP text content must not be empty.
+  if (text === "") return textResult(JSON.stringify({ ok: res.ok, status: res.status }), !res.ok);
+  const body = parseJson(text);
+  const shown = typeof body === "string"
+    ? body
+    : JSON.stringify(presentResponse(body, nowMsOf(cfg)));
+  return textResult(shown, !res.ok);
+}
+
 async function callApi(
   cfg: WebApiConfig,
   method: string,
   path: string,
   body?: unknown,
 ): Promise<McpTextResult> {
+  const r = await request(cfg, method, path, body);
+  return "res" in r ? finish(cfg, r.res, r.text) : r;
+}
+
+/** One API call, or the reply that stands in for it when the PC is not paired. */
+async function request(
+  cfg: WebApiConfig,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<McpTextResult | { res: Response; text: string }> {
   const token = await resolveToken(cfg);
   if (token === null) {
     // Not paired: say so with the code, and let the poll run behind the reply.
@@ -199,9 +253,16 @@ async function callApi(
       true,
     );
   }
-  // 204 (template delete) carries no body, and MCP text content must not be empty.
-  const reply = text === "" ? JSON.stringify({ ok: res.ok, status: res.status }) : text;
-  return textResult(reply, !res.ok);
+  return { res, text };
+}
+
+/** Every row of the ledger, or the stand-in reply when the API could not answer. */
+async function fetchRows(cfg: WebApiConfig): Promise<ApiReservation[] | McpTextResult> {
+  const r = await request(cfg, "GET", "/api/reservations");
+  if (!("res" in r)) return r;
+  if (!r.res.ok) return finish(cfg, r.res, r.text);
+  const body = parseJson(r.text) as { reservations?: ApiReservation[] };
+  return Array.isArray(body?.reservations) ? body.reservations : [];
 }
 
 /** Bad tool arguments: reported to the caller instead of hitting the API. */
@@ -216,9 +277,17 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
   const server = new McpServer({ name: "plancel-web", version: "0.1.0" });
 
   server.registerTool("list_reservations", {
-    description: "台帳の予約一覧（候補/確定/要キャンセル/キャンセル済み）を取得する",
-    inputSchema: z.object({}).passthrough(),
-  }, () => callApi(cfg, "GET", "/api/reservations"));
+    description:
+      "台帳の予約一覧。既定ではキャンセル済みと終わった予約を除き、開始が早い順に最大 50 件。" +
+      "日時は +09:00 表記、freeUntil が無料キャンセル期限（null なら規定不明などで見張れない）",
+    inputSchema: listFilterSchema.passthrough(),
+  }, async (args: unknown) => {
+    const filter = listFilterSchema.safeParse(args ?? {});
+    if (!filter.success) return invalidArgs(filter.error.issues);
+    const rows = await fetchRows(cfg);
+    if (!Array.isArray(rows)) return rows;
+    return textResult(JSON.stringify(presentList(rows, filter.data, nowMsOf(cfg))));
+  });
 
   server.registerTool(
     "create_reservation",
@@ -231,10 +300,25 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
         "（不明のままだとキャンセル期限を見張れない）",
       inputSchema: createInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
-    (args: any) => {
+    async (args: any) => {
       const parsed = createInput.safeParse(args ?? {});
       if (!parsed.success) return invalidArgs(parsed.error.issues);
-      return callApi(cfg, "POST", "/api/reservations", parsed.data);
+      const { allowDuplicate, ...input } = parsed.data;
+      if (!allowDuplicate) {
+        // A retried create must not make a second row (issue #5).
+        const rows = await fetchRows(cfg);
+        if (!Array.isArray(rows)) return rows;
+        const dup = findDuplicate(rows, input.service, input.startsAt);
+        if (dup !== null) {
+          return textResult(JSON.stringify({
+            warning: "duplicate",
+            hint: "同じ店・同じ開始日時の予約が既にあるので、新しくは作っていません。" +
+              "別件として登録するなら allowDuplicate: true で呼んでください。",
+            reservation: presentReservation(dup, nowMsOf(cfg)),
+          }));
+        }
+      }
+      return callApi(cfg, "POST", "/api/reservations", input);
     },
   );
 

@@ -79,14 +79,16 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
     });
 
     assertEquals(calls[0]?.url, "https://plancel.test/api/reservations");
-    assertEquals(calls[1]?.method, "POST");
+    // create reads the list first (duplicate check, issue #5), then posts.
+    assertEquals(calls[1]?.method, "GET");
+    assertEquals(calls[2]?.method, "POST");
     assertEquals(
-      (calls[1]?.body as { service: string; confirmed: boolean }).confirmed,
+      (calls[2]?.body as { service: string; confirmed: boolean }).confirmed,
       true,
     );
-    assertEquals(calls[2]?.url, "https://plancel.test/api/reservations/R1/confirm");
-    assertEquals(calls[3]?.method, "PATCH");
-    assertEquals((calls[3]?.body as { location: string }).location, "六本木");
+    assertEquals(calls[3]?.url, "https://plancel.test/api/reservations/R1/confirm");
+    assertEquals(calls[4]?.method, "PATCH");
+    assertEquals((calls[4]?.body as { location: string }).location, "六本木");
   });
 });
 
@@ -388,5 +390,105 @@ Deno.test("web-api MCP: a negative or fractional amount is refused before any AP
       assertEquals(r.isError, true, `${amount}`);
     }
     assertEquals(calls.length, 0);
+  });
+});
+
+// ---- what the model sees (issues #5, #6) ----
+
+const ROW = {
+  id: "R1",
+  plan: null,
+  service: "鮨 さいとう",
+  startsAt: "2026-12-20T10:00:00.000Z",
+  endsAt: null,
+  amount: 30000,
+  location: null,
+  policy: "staged",
+  status: "candidate",
+  created_at: "2026-10-01T00:00:00.000Z",
+  updated_at: "2026-10-01T00:00:00.000Z",
+  updated_by: "01USER",
+};
+
+/** A fake API whose answers the test chooses per request. */
+function scriptedApi(
+  answer: (method: string, url: string, body: unknown) => { status: number; json: unknown },
+) {
+  const calls: Captured[] = [];
+  const fetchFn = ((input: URL | RequestInfo, init?: RequestInit) => {
+    const call = {
+      method: init?.method ?? "GET",
+      url: String(input instanceof Request ? input.url : input),
+      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+    };
+    calls.push(call);
+    const a = answer(call.method, call.url, call.body);
+    return Promise.resolve(new Response(JSON.stringify(a.json), { status: a.status }));
+  }) as typeof fetch;
+  return { calls, fetchFn };
+}
+
+const parsed = (r: unknown) => JSON.parse(textOf(r));
+
+Deno.test("web-api MCP: list_reservations answers in JST with deadlines, filtered and trimmed", async () => {
+  const { fetchFn } = scriptedApi(() => ({ status: 200, json: { reservations: [ROW] } }));
+  await withClient(fetchFn, async (client) => {
+    const out = parsed(await client.callTool({ name: "list_reservations", arguments: {} }));
+    assertEquals(out.count, 1);
+    assertEquals(out.reservations[0].startsAt, "2026-12-20T19:00:00+09:00");
+    assertEquals(out.reservations[0].freeUntil, "2026-12-13T23:59:59+09:00");
+    assertEquals(out.reservations[0].updated_by, undefined);
+    const none = parsed(
+      await client.callTool({ name: "list_reservations", arguments: { status: ["cancelled"] } }),
+    );
+    assertEquals(none.count, 0);
+  });
+});
+
+Deno.test("web-api MCP: create_reservation returns the existing row instead of a second one (issue #5)", async () => {
+  const { calls, fetchFn } = scriptedApi((method) =>
+    method === "GET"
+      ? { status: 200, json: { reservations: [ROW] } }
+      : { status: 201, json: { reservation: { ...ROW, id: "R2" }, policySource: "explicit" } }
+  );
+  await withClient(fetchFn, async (client) => {
+    const dup = parsed(
+      await client.callTool({
+        name: "create_reservation",
+        arguments: { service: "鮨さいとう", startsAt: "2026-12-20T19:00:00+09:00" },
+      }),
+    );
+    assertEquals(dup.warning, "duplicate");
+    assertEquals(dup.reservation.id, "R1");
+    assertEquals(dup.reservation.startsAt, "2026-12-20T19:00:00+09:00");
+    assertEquals(calls.filter((c) => c.method === "POST").length, 0);
+
+    const forced = parsed(
+      await client.callTool({
+        name: "create_reservation",
+        arguments: {
+          service: "鮨さいとう",
+          startsAt: "2026-12-20T19:00:00+09:00",
+          endsAt: "2026-12-21T10:00:00+09:00",
+          allowDuplicate: true,
+        },
+      }),
+    );
+    assertEquals(forced.reservation.id, "R2");
+    const post = calls.find((c) => c.method === "POST")!;
+    assertEquals((post.body as { endsAt: string }).endsAt, "2026-12-21T10:00:00+09:00");
+    assertEquals("allowDuplicate" in (post.body as object), false);
+  });
+});
+
+Deno.test("web-api MCP: an API error code comes with a Japanese next step (issue #5)", async () => {
+  const { fetchFn } = scriptedApi(() => ({ status: 404, json: { error: "user_not_found" } }));
+  await withClient(fetchFn, async (client) => {
+    const r = await client.callTool({
+      name: "share_reservation",
+      arguments: { id: "R1", q: "x@example.com" },
+    });
+    assertEquals(r.isError, true);
+    assertStringIncludes(parsed(r).hint, "未登録");
   });
 });

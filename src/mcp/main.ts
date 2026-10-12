@@ -80,6 +80,7 @@ if (import.meta.main) {
     mode = envToken !== undefined && envToken !== "" ? "web-api" : "web-api (pairing)";
     server = buildWebApiServer({
       baseUrl,
+      clock,
       token: () => client.token(),
       pairing: {
         start: async (force) => {
