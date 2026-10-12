@@ -144,19 +144,18 @@ Deno.test("invite: owner adds a member; member sees the shared reservation and i
   });
 });
 
-Deno.test("invite: self / duplicate are no-op successes; unknown q -> 404 user_not_found", async () => {
+Deno.test("invite: self -> 400, duplicate is a no-op success, unknown q -> 404 user_not_found", async () => {
   await withKv(async (kv) => {
     const ids = makeAuthIds();
     const owner = await getOrCreateUserByEmail(kv, "o@x.jp", ids);
     const member = await getOrCreateUserByEmail(kv, "m@x.jp", ids);
     const rid = await createConfirmed(kv, ids, owner, "鮨");
 
-    // Self-invite: succeeds but adds nobody.
-    assertEquals(
-      (await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "o@x.jp" }))
-        .status,
-      200,
-    );
+    // Self-invite used to be a silent success; a model then told the user the
+    // share was done (issue #5). It is a mistake, so it is refused as one.
+    const self = await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "o@x.jp" });
+    assertEquals(self.status, 400);
+    assertEquals((await self.json()).error, "cannot_share_with_self");
     // Duplicate: idempotent success.
     await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "m@x.jp" });
     await asUser(kv, ids, owner, "POST", `${BASE}/${rid}/members`, { q: "m@x.jp" });

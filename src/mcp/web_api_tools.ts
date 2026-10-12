@@ -69,7 +69,7 @@ const createInput = z.object({
   service: z.string().min(1).describe("お店・宿・サービス名"),
   startsAt: readableInstantSchema.describe(STARTS_AT_DESC),
   plan: z.string().nullable().default(null).describe("プラン名（候補を束ねる場合）"),
-  amount: z.number().nullable().default(null).describe("金額（円）"),
+  amount: z.number().int().min(0).nullable().default(null).describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().default(null).describe("場所（店名・住所、任意）"),
   policy: webPolicyInputSchema.default("unknown").describe(POLICY_DESC),
   confirmed: z.boolean().default(false).describe("true で確定済みとして登録"),
@@ -96,7 +96,7 @@ const patchInput = z.object({
   service: z.string().min(1).optional().describe("お店・宿・サービス名"),
   startsAt: readableInstantSchema.optional().describe(STARTS_AT_DESC),
   plan: z.string().nullable().optional(),
-  amount: z.number().nullable().optional(),
+  amount: z.number().int().min(0).nullable().optional().describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().optional(),
   policy: webPolicyInputSchema.optional().describe(POLICY_DESC),
 });

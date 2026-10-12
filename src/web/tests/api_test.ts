@@ -556,3 +556,58 @@ Deno.test("web api: an unreadable startsAt is refused on create and edit (issue 
     assertEquals(list.reservations.length, 1);
   });
 });
+
+Deno.test("web api: amount must be a whole number of yen, zero or more (issue #5)", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const base = { service: "宿", startsAt: "2026-10-27T15:00:00+09:00" };
+    for (const amount of [-500, 1.5]) {
+      const res = await handleWebApi(kv, reqOf("POST", BASE, "t", { ...base, amount }), ids);
+      assertEquals(res.status, 400, `${amount} は 400`);
+      assertEquals((await res.json()).issues[0].path, ["amount"]);
+    }
+    const ok = await handleWebApi(kv, reqOf("POST", BASE, "t", { ...base, amount: 0 }), ids);
+    assertEquals(ok.status, 201);
+    const { reservation } = await ok.json();
+    const bad = await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${reservation.id}`, "t", { amount: -1 }),
+      ids,
+    );
+    assertEquals(bad.status, 400);
+  });
+});
+
+Deno.test("web api: a start in the past is accepted with warning past_start (issue #5)", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds(); // now = 2026-07-16
+    const past = await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", { service: "宿", startsAt: "2025-01-01T15:00:00+09:00" }),
+      ids,
+    );
+    assertEquals(past.status, 201);
+    const pastBody = await past.json();
+    assertEquals(pastBody.warning, "past_start");
+    assertStringIncludes(pastBody.hint, "過去");
+
+    const future = await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", { service: "宿", startsAt: "2026-10-27T15:00:00+09:00" }),
+      ids,
+    );
+    const futureBody = await future.json();
+    assertEquals(futureBody.warning, undefined);
+
+    // Moving a reservation into the past warns the same way.
+    const moved = await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${futureBody.reservation.id}`, "t", {
+        startsAt: "2025-01-01T15:00:00+09:00",
+      }),
+      ids,
+    );
+    assertEquals(moved.status, 200);
+    assertEquals((await moved.json()).warning, "past_start");
+  });
+});

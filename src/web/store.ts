@@ -63,6 +63,13 @@ export type WebReservation = z.infer<typeof webReservationSchema>;
  */
 export type WebActor = string | null;
 
+/**
+ * Yen: a whole number, zero or more. A model once sent -500 and 1.5 and the UI
+ * printed 「¥-500」 and 「¥1.5」 (issue #5). The stored record stays `z.number()`
+ * so an old row never fails to load.
+ */
+const yenSchema = z.number().int("金額は円の整数で").min(0, "金額は 0 以上で");
+
 /** Fields a client may set on create; server owns id/status/timestamps. */
 export const webCreateSchema = z.object({
   plan: z.string().nullable().default(null),
@@ -71,7 +78,7 @@ export const webCreateSchema = z.object({
   // a legacy row never vanishes, but no new unreadable value gets in.
   startsAt: readableInstantSchema,
   endsAt: readableInstantSchema.nullable().default(null),
-  amount: z.number().nullable().default(null),
+  amount: yenSchema.nullable().default(null),
   location: z.string().nullable().default(null),
   policy: webPolicySchema.default("unknown"),
   confirmed: z.boolean().default(false),
@@ -83,7 +90,7 @@ export const webPatchSchema = z.object({
   service: z.string().min(1).optional(),
   startsAt: readableInstantSchema.optional(),
   endsAt: readableInstantSchema.nullable().optional(),
-  amount: z.number().nullable().optional(),
+  amount: yenSchema.nullable().optional(),
   location: z.string().nullable().optional(),
   policy: webPolicySchema.optional(),
 });

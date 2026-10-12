@@ -376,3 +376,17 @@ Deno.test("pairing_status names the ledger it talks to: the production one the p
     assertStringIncludes(textOf(r), "本番の台帳");
   });
 });
+
+Deno.test("web-api MCP: a negative or fractional amount is refused before any API call (issue #5)", async () => {
+  const { calls, fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    for (const amount of [-500, 1.5]) {
+      const r = await client.callTool({
+        name: "create_reservation",
+        arguments: { service: "鮨", startsAt: "2026-10-27T19:00:00+09:00", amount },
+      });
+      assertEquals(r.isError, true, `${amount}`);
+    }
+    assertEquals(calls.length, 0);
+  });
+});

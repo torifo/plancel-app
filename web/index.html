@@ -2324,7 +2324,7 @@
         <input id="f_end_date" type="date">
         <div class="hint" style="margin:4px 0 0">宿のチェックアウト日。入れると、その日が終わるまで台帳に残ります。空のままなら予約日で判定します。</div>
         <label>金額（円）</label>
-        <input id="f_amount" type="number" inputmode="numeric" placeholder="例: 18000">
+        <input id="f_amount" type="number" min="0" step="1" inputmode="numeric" placeholder="例: 18000">
         <label>キャンセル料</label>
         <div class="pol-modes" id="polModes">
           <button type="button" class="pol-mode" data-pol="unknown">不明（あとで）</button>
@@ -2708,6 +2708,7 @@
       "invalid email": "メールアドレスの形式が正しくありません。",
       "invalid facility name": "施設名が正しくありません。",
       user_not_found: "その相手が見つかりませんでした。メールアドレスかユーザーIDをご確認ください。",
+      cannot_share_with_self: "自分自身には共有できません。",
       "login required": LINE_RELOAD,
       "not logged in": LINE_RELOAD,
       reauth: "確認のため、もう一度ログインしてください。",

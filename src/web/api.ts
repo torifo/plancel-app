@@ -39,6 +39,7 @@
  *   GET    /api/policy-templates/lookup?service=<name> pre-fill lookup
  */
 import { z } from "zod";
+import { toInstantOrNull } from "./instant.ts";
 import {
   deleteTemplate,
   facilitySchema,
@@ -100,6 +101,25 @@ const memberView = (u: WebUser, role: MemberRole) => ({
 export function isApiPath(pathname: string): boolean {
   return pathname === "/api/reservations" || pathname.startsWith("/api/reservations/") ||
     pathname === "/api/policy-templates" || pathname.startsWith("/api/policy-templates/");
+}
+
+/**
+ * A start already behind us is registered as asked — a late entry of a
+ * reservation that happened is legitimate — but flagged, so a model can check
+ * with the user that the date was not simply mistyped (issue #5).
+ */
+function pastStartWarning(
+  r: WebReservation,
+  ids: WebIds,
+): { warning?: "past_start"; hint?: string } {
+  const start = toInstantOrNull(r.startsAt);
+  if (start === null) return {};
+  if (start.epochMilliseconds >= Temporal.Instant.from(ids.nowIso()).epochMilliseconds) return {};
+  return {
+    warning: "past_start",
+    hint:
+      "開始日時が過去です。日付の入力違いでないかユーザーに確認してください（登録はされています）。",
+  };
 }
 
 /** True if this request targets the exact-match user lookup (invite box). */
@@ -269,15 +289,20 @@ export async function handleWebApi(
         : r.policy !== "unknown"
         ? "template"
         : "unknown";
+      const past = pastStartWarning(r, ids);
+      // One `hint` string: both nudges can apply to the same reservation.
+      const hints = [
+        past.hint,
+        policySource === "unknown"
+          ? "キャンセル規定が不明なので、キャンセル期限を見張れません。規定が分かったら " +
+            "update_reservation（画面では「日付変更・編集」）の policy に入れてください。"
+          : undefined,
+      ].filter((h): h is string => h !== undefined);
       return json({
         reservation: r,
         policySource,
-        ...(policySource === "unknown"
-          ? {
-            hint: "キャンセル規定が不明なので、キャンセル期限を見張れません。規定が分かったら " +
-              "update_reservation（画面では「日付変更・編集」）の policy に入れてください。",
-          }
-          : {}),
+        ...(past.warning !== undefined ? { warning: past.warning } : {}),
+        ...(hints.length > 0 ? { hint: hints.join(" ") } : {}),
       }, 201);
     }
     return json({ error: "method not allowed" }, 405);
@@ -312,7 +337,9 @@ export async function handleWebApi(
       if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
       const target = await lookupUser(kv, parsed.data.q);
       if (target === null) return json({ error: "user_not_found" }, 404);
-      if (target.id === owner.id) return json({ ok: true });
+      // A share with oneself is a mistake, not a no-op: as a silent success a
+      // model reported it as done (issue #5).
+      if (target.id === owner.id) return json({ error: "cannot_share_with_self" }, 400);
       // A re-invite must not silently re-grade an existing member: the owner
       // changes a role through the explicit PATCH below.
       if (await isMember(kv, owner.id, id, target.id)) return json({ ok: true });
@@ -413,7 +440,10 @@ export async function handleWebApi(
       }
       if (r === null) return json({ error: "not found" }, 404);
       mutated(r.id, ledgerOwner);
-      return json({ reservation: r });
+      return json({
+        reservation: r,
+        ...(parsed.data.startsAt !== undefined ? pastStartWarning(r, ids) : {}),
+      });
     }
     if (req.method === "DELETE") {
       const ok = await deleteReservation(kv, token, id);
