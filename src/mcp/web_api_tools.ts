@@ -26,10 +26,32 @@ import { memberRoleSchema } from "../web/sharing.ts";
 export interface WebApiConfig {
   /** e.g. https://plancel-app.torifo.deno.net */
   baseUrl: string;
-  /** Personal API token (x-plancel-token). */
-  token: string;
+  /**
+   * Personal API token (x-plancel-token) — a fixed string, or a lazy supplier
+   * for device pairing (issue #1), where the token arrives later than the
+   * server starts. `null` means "not paired yet".
+   */
+  token: string | (() => Promise<string | null>);
   fetchFn?: typeof fetch;
+  /**
+   * Present in pairing mode. `start()` begins (or reports) a request;
+   * `forget()` drops a token the API just refused. Absent → a missing token
+   * is a configuration error, reported as such.
+   */
+  pairing?: {
+    start(force?: boolean): Promise<PairingStateView>;
+    forget(): Promise<void>;
+    current(): PairingStateView;
+  };
 }
+
+/** What a tool reply needs to know about pairing — nothing about the token. */
+export type PairingStateView =
+  | { kind: "idle" }
+  | { kind: "pending"; userCode: string; verificationUri: string; expiresAtMs: number }
+  | { kind: "paired"; account: { label: string } }
+  | { kind: "denied" }
+  | { kind: "expired" };
 
 /** Presets stay one word; any other policy goes through the stage table. */
 const POLICY_DESC =
@@ -98,25 +120,79 @@ interface McpTextResult {
   isError?: boolean;
 }
 
+const textResult = (text: string, isError = false): McpTextResult => ({
+  content: [{ type: "text", text }],
+  ...(isError ? { isError: true } : {}),
+});
+
+/** The sentence Claude relays when the PC is not paired yet (issue #1). */
+export function pairingInstructions(state: PairingStateView): string {
+  switch (state.kind) {
+    case "pending":
+      return [
+        "plancel との連携がまだです。スマホの plancel で次のとおり承認してください。",
+        "",
+        `  コード: ${state.userCode}`,
+        "",
+        "  1. スマホで plancel を開く（ログイン済みのアカウントで）",
+        "  2. 下のメニュー「連携」→「④ Claude（PC）を承認する」",
+        "  3. 上のコードを入力して「確認」→ 要求元と時刻を見て「承認する」",
+        "",
+        "承認が済んだら、同じ操作をもう一度頼んでください。コードは10分で失効します。",
+        "このコードを Claude に伝える必要はありません（会話に貼らないでください）。",
+      ].join("\n");
+    case "denied":
+      return "連携はスマホ側で拒否されました。やり直すときは pair_with_plancel を force: true で呼んでください。";
+    case "expired":
+      return "連携コードの期限が切れました。もう一度 pair_with_plancel を呼ぶと新しいコードを出します。";
+    case "paired":
+      return `${state.account.label} の台帳に接続しています。`;
+    case "idle":
+      return "plancel と連携していません。pair_with_plancel を呼ぶとコードが出ます。";
+  }
+}
+
+async function resolveToken(cfg: WebApiConfig): Promise<string | null> {
+  return typeof cfg.token === "string" ? cfg.token : await cfg.token();
+}
+
 async function callApi(
   cfg: WebApiConfig,
   method: string,
   path: string,
   body?: unknown,
 ): Promise<McpTextResult> {
+  const token = await resolveToken(cfg);
+  if (token === null) {
+    // Not paired: say so with the code, and let the poll run behind the reply.
+    if (cfg.pairing === undefined) {
+      return textResult("PLANCEL_API_TOKEN が設定されていません。", true);
+    }
+    const state = await cfg.pairing.start();
+    return textResult(pairingInstructions(state), true);
+  }
   const fetchFn = cfg.fetchFn ?? fetch;
   const res = await fetchFn(`${cfg.baseUrl}${path}`, {
     method,
     headers: {
-      "x-plancel-token": cfg.token,
+      "x-plancel-token": token,
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const text = await res.text();
+  if (res.status === 401 && cfg.pairing !== undefined && typeof cfg.token !== "string") {
+    // The token was revoked on マイページ. Drop it; the next call re-pairs.
+    await cfg.pairing.forget();
+    return textResult(
+      "plancel との連携が解除されています（マイページで失効されたか、アカウントが変わりました）。" +
+        "もう一度操作を頼むと、新しい連携コードを出します。",
+      true,
+    );
+  }
   // 204 (template delete) carries no body, and MCP text content must not be empty.
   const reply = text === "" ? JSON.stringify({ ok: res.ok, status: res.status }) : text;
-  return { content: [{ type: "text", text: reply }], ...(res.ok ? {} : { isError: true }) };
+  return textResult(reply, !res.ok);
 }
 
 /** Bad tool arguments: reported to the caller instead of hitting the API. */
@@ -307,6 +383,52 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       return callApi(cfg, "DELETE", path);
     },
   );
+
+  // ---- pairing (issue #1): always registered, so a client's cached tool list
+  // never differs between paired and unpaired. The token itself never passes
+  // through any of these.
+  server.registerTool("pair_with_plancel", {
+    description:
+      "plancel とこの PC を連携する（スマホで承認するコードを出す）。すでに連携済みなら接続先を返す。" +
+      "force=true で拒否・期限切れのあとに出し直す",
+    inputSchema: z.object({ force: z.boolean().default(false) }).passthrough(),
+  }, async (args: { force?: boolean }) => {
+    if (cfg.pairing === undefined) {
+      return textResult(
+        "この MCP は PLANCEL_API_TOKEN で固定接続されています。承認フローは使いません。",
+      );
+    }
+    if ((await resolveToken(cfg)) !== null && !args.force) {
+      return textResult(pairingInstructions(cfg.pairing.current()));
+    }
+    const state = await cfg.pairing.start(args.force === true);
+    return textResult(pairingInstructions(state), state.kind !== "paired");
+  });
+  server.registerTool("pairing_status", {
+    description: "plancel との連携状態（どのアカウントに接続しているか）を返す",
+    inputSchema: z.object({}).passthrough(),
+  }, async () => {
+    if (cfg.pairing === undefined) {
+      return textResult("PLANCEL_API_TOKEN による固定接続です。");
+    }
+    const token = await resolveToken(cfg);
+    return textResult(
+      pairingInstructions(token === null ? cfg.pairing.current() : cfg.pairing.current()),
+    );
+  });
+  server.registerTool("unpair_plancel", {
+    description:
+      "この PC に保存された plancel の連携を消す（ローカルの資格情報のみ。サーバ側の失効はマイページで）",
+    inputSchema: z.object({}).passthrough(),
+  }, async () => {
+    if (cfg.pairing === undefined) {
+      return textResult("PLANCEL_API_TOKEN による固定接続です。環境変数を外してください。");
+    }
+    await cfg.pairing.forget();
+    return textResult(
+      "この PC の連携を消しました。サーバ側のトークンはマイページ →「連携」④ で失効できます。",
+    );
+  });
 
   return server;
 }

@@ -44,6 +44,7 @@ import {
 import { finishedAtMs, isFinished } from "../lifecycle.ts";
 import { webStatusSchema } from "../store.ts";
 import { LINE_CODE_TTL_MS } from "../users.ts";
+import { DEVICE_CODE_TTL_MS } from "../auth/device.ts";
 import { STATUS_LABEL } from "../../line/web-commands.ts";
 
 const HTML_URL = new URL("../../../web/index.html", import.meta.url);
@@ -375,5 +376,17 @@ Deno.test("終わった予約の判定: クライアント写しがサーバと�
     }),
     Temporal.Instant.from("2026-08-14T23:59:59.999+09:00").epochMilliseconds,
     "終わった予約の境界は「終わる日（JST）の終わり」です。",
+  );
+});
+
+Deno.test("デバイス承認コードの有効期限: クライアントの控えがサーバとズレない", async () => {
+  const html = await Deno.readTextFile(HTML_URL);
+  const declared = /const PAIR_CODE_SEC = (\d+);/.exec(html)?.[1];
+  if (declared === undefined) return;
+  assertEquals(
+    Number(declared),
+    DEVICE_CODE_TTL_MS / 1000,
+    "web/index.html の PAIR_CODE_SEC が src/web/auth/device.ts の DEVICE_CODE_TTL_MS と違います" +
+      "（承認画面の残り時間表示が実際の有効期限とズレます）。",
   );
 });

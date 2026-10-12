@@ -1214,6 +1214,13 @@
       color: var(--ink);
       margin-bottom: 6px;
     }
+    .pair-row { display: flex; gap: 8px; align-items: center; }
+    .pair-row input { flex: 1; min-width: 0; }
+    .pair-box { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+    .pair-line { font-size: calc(14px * var(--fs)); margin: 2px 0; }
+    .pair-warn { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--danger-soft, #fff5f5); color: var(--danger-ink, #742a2a); font-size: calc(13px * var(--fs)); }
+    .pair-dev { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 6px 0; border-top: 1px dashed var(--line); font-size: calc(13px * var(--fs)); }
+    .pair-dev:first-child { border-top: 0; }
     .line-code-box {
       margin-top: 10px;
       padding: calc(12px * var(--fs)) 14px;
@@ -2571,10 +2578,36 @@
           <div class="modal-foot" style="margin-top:8px"><button class="btn-primary" id="gcalConnectBtn">Google カレンダーと連携する</button></div>
         </div>
 
-        <div class="sec">
-          <div class="sec-h">④ Claude（MCP）から操作</div>
-          <div class="hint" style="margin:0 0 8px" id="mcpStatus">Claude に予約の登録・確定などを頼めるようになります。発行したトークンは MCP 設定の環境変数（PLANCEL_API_URL / PLANCEL_API_TOKEN）に入れてください。</div>
-          <div class="hint"><a id="mcpIssue" style="cursor:pointer;text-decoration:underline">🔑 MCP 用トークンを発行（再発行で旧トークンは失効）</a> · <a id="mcpRevoke" style="cursor:pointer;text-decoration:underline">失効</a></div>
+        <!-- ④ デバイス承認（issue #1、RFC 8628 型）。PC の Claude が出したコードを、ログイン済みの
+             この画面で承認する。コードは URL からは決して受け取らない（フィッシング耐性）。
+             表示する「要求元」は相手の名乗りであって身元ではない。 -->
+        <div class="sec" id="pairSec">
+          <div class="sec-h">④ Claude（PC）を承認する</div>
+          <p class="hint" style="margin:0 0 8px">PC の Claude に「plancel と連携して」と頼むと、8文字のコードが出ます。そのコードをここに入れて承認すると、その PC の Claude がこの台帳を読み書きできます。</p>
+          <div class="pair-row">
+            <input id="pairCode" inputmode="latin" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="例: WXYZ-2345" maxlength="12" style="font-family:ui-monospace,monospace;letter-spacing:.08em">
+            <button class="btn-ghost" id="pairLookup">確認</button>
+          </div>
+          <div class="hint" id="pairMsg" style="margin:6px 0 0"></div>
+          <div class="pair-box" id="pairBox" style="display:none">
+            <div class="pair-line">要求元（名乗り）: <b id="pairClient"></b></div>
+            <div class="pair-line">要求時刻: <span id="pairWhen"></span> · <span id="pairLeft" role="status" aria-live="polite"></span></div>
+            <div class="pair-line">承認すると <b id="pairAccount"></b> の台帳を、この PC の Claude が読み書きできます。</div>
+            <div class="pair-warn">⚠ いまあなた自身が PC で Claude を操作していないなら、承認しないでください。</div>
+            <label for="pairName" style="margin-top:8px">この PC の名前（任意）</label>
+            <input id="pairName" placeholder="例: 自宅の MacBook" maxlength="60">
+            <div class="modal-foot" style="margin-top:8px">
+              <button class="btn-ghost" id="pairDeny">拒否</button>
+              <button class="btn-primary" id="pairApprove">承認する</button>
+            </div>
+          </div>
+          <div class="sec-h" style="margin-top:14px">承認済みのデバイス</div>
+          <div id="pairDevices" class="hint">読み込んでいます…</div>
+          <details style="margin-top:10px">
+            <summary class="hint" style="cursor:pointer">手動でトークンを発行する（従来方式）</summary>
+            <div class="hint" style="margin:6px 0 0">環境変数 PLANCEL_API_TOKEN に入れて使う方式です。ほかのデバイスのトークンは失効しません。</div>
+            <div class="hint" style="margin-top:4px"><a id="mcpIssue" style="cursor:pointer;text-decoration:underline">🔑 トークンを発行</a></div>
+          </details>
         </div>
       </div>
     </div>
@@ -4477,6 +4510,9 @@
 
     // calendar integration modal
     q("#calBtn").onclick = () => {
+      hidePairBox();
+      pairNote("");
+      renderDevices();
       q("#icsUrl").value = location.origin + ME.icsPath;
       const st = q("#gcalStatus");
       const btn = q("#gcalConnectBtn");
@@ -4864,16 +4900,201 @@
         : "退会処理に失敗しました。時間をおいて再度お試しください。");
     };
 
+    // ---- ④ デバイス承認（issue #1）----
+    // サーバの有効期限（src/web/auth/device.ts DEVICE_CODE_TTL_MS）の控え。
+    // 照会の返事に expiresInSec が無いときだけ使う。policy_mirror_test が一致を見張る。
+    const PAIR_CODE_SEC = 600;
+    let pairUntil = 0;
+    let pairTimer = null;
+    let pairCodeShown = null;
+    function pairNote(msg, kind) {
+      const el = q("#pairMsg");
+      el.textContent = msg;
+      el.style.color = kind === "err" ? "var(--danger-ink)" : (kind === "ok" ? "var(--safe-ink)" : "");
+    }
+    function stopPairCountdown() {
+      if (pairTimer === null) return;
+      clearInterval(pairTimer);
+      pairTimer = null;
+    }
+    function renderPairCountdown() {
+      const left = Math.max(0, Math.ceil((pairUntil - Date.now()) / 1000));
+      if (left === 0) {
+        stopPairCountdown();
+        q("#pairLeft").textContent = "期限切れ。PC 側でもう一度コードを出してください";
+        q("#pairApprove").disabled = true;
+        return;
+      }
+      q("#pairLeft").textContent = `のこり ${Math.floor(left / 60)}分${String(left % 60).padStart(2, "0")}秒`;
+    }
+    const fmtWhen = (iso) => {
+      const ms = Date.parse(iso);
+      if (Number.isNaN(ms)) return "";
+      const ago = Math.max(0, Math.round((Date.now() - ms) / 60000));
+      return ago === 0 ? "たった今" : `${ago}分前`;
+    };
+    async function renderDevices() {
+      const box = q("#pairDevices");
+      let res;
+      try {
+        res = await fetch("/auth/tokens");
+      } catch (e) {
+        box.textContent = LINE_OFFLINE;
+        return;
+      }
+      if (!res.ok) {
+        box.textContent = res.status === 401 ? LINE_RELOAD : "読み込めませんでした。";
+        return;
+      }
+      const { tokens } = await res.json();
+      if (!tokens.length) {
+        box.textContent = "まだありません。";
+        return;
+      }
+      const d = (iso) => {
+        try {
+          return new Date(iso).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" });
+        } catch (e) {
+          return "";
+        }
+      };
+      box.innerHTML = tokens.map((t) =>
+        `<div class="pair-dev"><span><b>${esc(t.name)}</b> <span class="hint">${t.kind === "device" ? "承認" : "手動"} · ${esc(d(t.created_at))}${t.last_used_at ? ` · 最終使用 ${esc(d(t.last_used_at))}` : ""}</span></span><a data-revoke="${esc(t.id)}" style="cursor:pointer;text-decoration:underline;white-space:nowrap">失効</a></div>`
+      ).join("");
+      box.querySelectorAll("[data-revoke]").forEach((a) => {
+        a.onclick = async () => {
+          if (!confirm("このデバイスのトークンを失効します。そのデバイスの Claude からは操作できなくなります。")) return;
+          const r = await fetch("/auth/tokens/" + encodeURIComponent(a.dataset.revoke), { method: "DELETE" });
+          if (!r.ok) {
+            failed(Object.assign(new Error("HTTP " + r.status), { status: r.status, path: "/auth/tokens" }), "失効できませんでした。");
+            return;
+          }
+          await renderDevices();
+        };
+      });
+    }
+    function hidePairBox() {
+      stopPairCountdown();
+      q("#pairBox").style.display = "none";
+      pairCodeShown = null;
+    }
+    q("#pairLookup").onclick = async () => {
+      const code = q("#pairCode").value.trim();
+      if (!code) {
+        pairNote("PC に出ているコードを入力してください。", "err");
+        return;
+      }
+      pairNote("確認しています…");
+      hidePairBox();
+      let res;
+      try {
+        res = await fetch("/auth/device/pending?code=" + encodeURIComponent(code));
+      } catch (e) {
+        pairNote(LINE_OFFLINE, "err");
+        return;
+      }
+      if (res.status === 404) {
+        pairNote("そのコードは見つかりません。打ち間違いか、期限切れです。", "err");
+        return;
+      }
+      if (res.status === 429) {
+        pairNote("続けて確認されました。しばらく待ってからお試しください。", "err");
+        return;
+      }
+      if (res.status === 401) {
+        pairNote(LINE_RELOAD, "err");
+        return;
+      }
+      if (!res.ok) {
+        pairNote("確認できませんでした。", "err");
+        return;
+      }
+      const j = await res.json();
+      pairNote("");
+      pairCodeShown = code;
+      q("#pairClient").textContent = j.client_name || "（名乗りなし）";
+      q("#pairWhen").textContent = fmtWhen(j.requestedAt);
+      q("#pairAccount").textContent = (j.account && j.account.label) || (ME && (ME.uid ? "@" + ME.uid : ME.email)) || "";
+      q("#pairName").value = "";
+      q("#pairApprove").disabled = false;
+      const sec = Number(j.expiresInSec) > 0 ? Number(j.expiresInSec) : PAIR_CODE_SEC;
+      pairUntil = Date.now() + sec * 1000;
+      q("#pairBox").style.display = "";
+      renderPairCountdown();
+      pairTimer = setInterval(renderPairCountdown, 1000);
+    };
+    async function decidePair(verb) {
+      if (!pairCodeShown) return;
+      const body = { code: pairCodeShown };
+      if (verb === "approve") body.name = q("#pairName").value.trim();
+      q("#pairApprove").disabled = true;
+      q("#pairDeny").disabled = true;
+      let res;
+      try {
+        res = await fetch("/auth/device/" + verb, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        q("#pairApprove").disabled = false;
+        q("#pairDeny").disabled = false;
+        pairNote(LINE_OFFLINE, "err");
+        return;
+      }
+      q("#pairDeny").disabled = false;
+      if (res.ok) {
+        hidePairBox();
+        q("#pairCode").value = "";
+        pairNote(verb === "approve"
+          ? "承認しました。PC 側の Claude は、次の操作から台帳を使えます。"
+          : "拒否しました。", "ok");
+        await renderDevices();
+        return;
+      }
+      const err = (await res.json().catch(() => ({}))).error;
+      if (res.status === 403 && err === "token_limit") {
+        pairNote("デバイスが上限（5台）です。下の一覧で使っていないものを失効してから、もう一度承認してください。", "err");
+        q("#pairApprove").disabled = false;
+        return;
+      }
+      if (res.status === 409) {
+        pairNote("このコードはすでに決まっています。", "err");
+        hidePairBox();
+        return;
+      }
+      if (res.status === 404) {
+        pairNote("期限切れです。PC 側でもう一度コードを出してください。", "err");
+        hidePairBox();
+        return;
+      }
+      pairNote(res.status === 429 ? "続けて操作されました。しばらく待ってください。" : "うまくいきませんでした。", "err");
+      q("#pairApprove").disabled = false;
+    }
+    q("#pairApprove").onclick = () => decidePair("approve");
+    q("#pairDeny").onclick = () => decidePair("deny");
+    q("#pairCode").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") q("#pairLookup").onclick();
+    });
     q("#mcpIssue").onclick = async () => {
-      const j = await (await fetch("/auth/token", { method: "POST" })).json();
+      const name = prompt("このトークンの名前（どの PC で使うか）:", "手動発行");
+      if (name === null) return;
+      const res = await fetch("/auth/token", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))).error;
+        alert(err === "token_limit"
+          ? "デバイスが上限（5台）です。使っていないものを失効してから発行してください。"
+          : "発行できませんでした。");
+        return;
+      }
+      const j = await res.json();
       ME.hasApiToken = true;
       prompt("MCP 用トークンです。今だけ表示されるのでコピーしてください:", j.token);
-    };
-    q("#mcpRevoke").onclick = async () => {
-      if (!confirm("MCP 用トークンを失効します。Claude からの操作はできなくなります。")) return;
-      await fetch("/auth/token", { method: "DELETE" });
-      ME.hasApiToken = false;
-      alert("失効しました。");
+      await renderDevices();
     };
     q("#icsRotate").onclick = async () => {
       if (!confirm("購読 URL を再発行します。古い URL は使えなくなります。よろしいですか？")) return;
@@ -5213,7 +5434,7 @@
     // ログイン後の boot() で効かせる。
     function routeHash() {
       const h = location.hash;
-      if (h !== "#import" && h !== "#link" && h !== "#help" && h !== "#mail") return;
+      if (h !== "#import" && h !== "#link" && h !== "#help" && h !== "#mail" && h !== "#pair") return;
       if (!ME) return;
       history.replaceState(null, "", location.pathname + location.search);
       if (h === "#help") {
@@ -5238,6 +5459,12 @@
       }
       closeAll();
       q("#calBtn").onclick();
+      if (h === "#pair") {
+        // ④ の承認欄へ。コードは URL から読まない — 人が打つ（フィッシング耐性、issue #1）。
+        q("#pairSec").scrollIntoView({ block: "start" });
+        q("#pairCode").focus();
+        return;
+      }
       // ①の LINE の節から読み始められるようにする（前に開いたときのスクロール位置を
       // 引きずらない）。連携モーダルは .modal の内側がスクロールする。
       const modal = q("#calOverlay .modal");

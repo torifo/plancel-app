@@ -369,7 +369,7 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
         deps.fetchFn,
       );
     } catch (err) {
-      console.error("auth: code exchange failed:", err);
+      log.error("code exchange failed", { err: String(err) });
       return redirect("/?auth_error=exchange_failed");
     }
 

@@ -56,10 +56,13 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
       "list_reservation_members",
       "list_reservations",
       "lookup_policy_template",
+      "pair_with_plancel",
+      "pairing_status",
       "restore_reservation",
       "save_policy_template",
       "set_member_role",
       "share_reservation",
+      "unpair_plancel",
       "unshare_reservation",
       "update_reservation",
     ]);
@@ -176,4 +179,137 @@ Deno.test("web-api MCP tools surface validation errors without calling the API",
     assertStringIncludes(JSON.stringify(res.content), "service");
     assertEquals(calls.length, 0);
   });
+});
+
+// ---- device pairing from the tool side (issue #1) ----
+
+function pairingHarness(opts: { token: string | null; state: "idle" | "pending" | "denied" }) {
+  const events: string[] = [];
+  let current = opts.state === "pending"
+    ? {
+      kind: "pending" as const,
+      userCode: "WXYZ-2345",
+      verificationUri: "https://plancel.test/#pair",
+      expiresAtMs: 0,
+    }
+    : { kind: opts.state } as { kind: "idle" | "denied" };
+  let token = opts.token;
+  const cfg = {
+    baseUrl: "https://plancel.test",
+    token: () => Promise.resolve(token),
+    pairing: {
+      start: (force?: boolean) => {
+        events.push(`start${force ? ":force" : ""}`);
+        if (current.kind !== "denied" || force) {
+          current = {
+            kind: "pending",
+            userCode: "WXYZ-2345",
+            verificationUri: "https://plancel.test/#pair",
+            expiresAtMs: 0,
+          };
+        }
+        return Promise.resolve(current);
+      },
+      forget: () => {
+        events.push("forget");
+        token = null;
+        current = { kind: "idle" };
+        return Promise.resolve();
+      },
+      current: () => current,
+    },
+  };
+  return { cfg, events, setToken: (t: string | null) => (token = t) };
+}
+
+async function withPairedClient(
+  cfg: Parameters<typeof buildWebApiServer>[0],
+  fn: (client: Client) => Promise<void>,
+) {
+  const server = buildWebApiServer(cfg);
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test", version: "0.0.0" });
+  await Promise.all([server.connect(serverT), client.connect(clientT)]);
+  try {
+    await fn(client);
+  } finally {
+    await client.close();
+  }
+}
+
+const textOf = (r: unknown) => ((r as { content: { text: string }[] }).content[0]?.text ?? "");
+
+Deno.test("pairing: an unpaired tool call returns the code and instructions at once, no API call", async () => {
+  const { calls, fetchFn } = fakeApi();
+  const { cfg, events } = pairingHarness({ token: null, state: "idle" });
+  await withPairedClient({ ...cfg, fetchFn }, async (client) => {
+    const r = await client.callTool({ name: "list_reservations", arguments: {} });
+    assertEquals((r as { isError?: boolean }).isError, true);
+    assertStringIncludes(textOf(r), "WXYZ-2345");
+    assertStringIncludes(textOf(r), "④ Claude（PC）を承認する");
+    // The token never appears, and the ledger API was never hit.
+    assertEquals(calls.length, 0);
+    assertEquals(events, ["start"]);
+  });
+});
+
+Deno.test("pairing: once paired, tools call the API with the paired token", async () => {
+  const { calls, fetchFn } = fakeApi();
+  const { cfg } = pairingHarness({ token: "paired-secret", state: "idle" });
+  const seen: string[] = [];
+  const spy = ((input: URL | RequestInfo, init?: RequestInit) => {
+    seen.push(String((init?.headers as Record<string, string>)["x-plancel-token"]));
+    return fetchFn(input, init);
+  }) as typeof fetch;
+  await withPairedClient({ ...cfg, fetchFn: spy }, async (client) => {
+    const r = await client.callTool({ name: "list_reservations", arguments: {} });
+    assertEquals((r as { isError?: boolean }).isError, undefined);
+    assertEquals(calls.length, 1);
+    assertEquals(seen, ["paired-secret"]);
+  });
+});
+
+Deno.test("pairing: a 401 drops the credentials and says to re-pair; the next call starts over", async () => {
+  const { cfg, events } = pairingHarness({ token: "stale", state: "idle" });
+  const fetchFn =
+    (() =>
+      Promise.resolve(new Response('{"error":"login required"}', { status: 401 }))) as typeof fetch;
+  await withPairedClient({ ...cfg, fetchFn }, async (client) => {
+    const r = await client.callTool({ name: "list_reservations", arguments: {} });
+    assertStringIncludes(textOf(r), "連携が解除されています");
+    assertEquals(events, ["forget"]);
+    const again = await client.callTool({ name: "list_reservations", arguments: {} });
+    assertStringIncludes(textOf(again), "WXYZ-2345");
+    assertEquals(events, ["forget", "start"]);
+  });
+});
+
+Deno.test("pairing: denied is not retried on its own; force starts over; status and unpair", async () => {
+  const { fetchFn } = fakeApi();
+  const { cfg, events } = pairingHarness({ token: null, state: "denied" });
+  await withPairedClient({ ...cfg, fetchFn }, async (client) => {
+    const r = await client.callTool({ name: "list_reservations", arguments: {} });
+    assertStringIncludes(textOf(r), "拒否されました");
+    const forced = await client.callTool({ name: "pair_with_plancel", arguments: { force: true } });
+    assertStringIncludes(textOf(forced), "WXYZ-2345");
+    assertEquals(events, ["start", "start:force"]);
+    const status = await client.callTool({ name: "pairing_status", arguments: {} });
+    assertStringIncludes(textOf(status), "WXYZ-2345");
+    const un = await client.callTool({ name: "unpair_plancel", arguments: {} });
+    assertStringIncludes(textOf(un), "連携を消しました");
+    assertEquals(events.at(-1), "forget");
+  });
+});
+
+Deno.test("pairing: a fixed env token never enters the pairing flow", async () => {
+  const { calls, fetchFn } = fakeApi();
+  await withPairedClient(
+    { baseUrl: "https://plancel.test", token: "env-secret", fetchFn },
+    async (client) => {
+      const r = await client.callTool({ name: "pair_with_plancel", arguments: {} });
+      assertStringIncludes(textOf(r), "固定接続");
+      await client.callTool({ name: "list_reservations", arguments: {} });
+      assertEquals(calls.length, 1);
+    },
+  );
 });
