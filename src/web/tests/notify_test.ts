@@ -164,6 +164,70 @@ Deno.test("an unreadable start does not stop the sweep for anyone else", async (
     assertEquals(await notified(kv, a.id, "OK-A"), true);
     assertEquals(await notified(kv, b.id, "OK-B"), true);
     assertEquals(await notified(kv, a.id, "BAD1"), false);
+
+    // The skipped records are named once per sweep (ids only, never the value),
+    // so the developer can find them in the logs.
+    const warns = logs.map((l) => JSON.parse(l)).filter((l) =>
+      l.msg === "reservations with an unreadable start were skipped"
+    );
+    assertEquals(warns.length, 1);
+    assertEquals(warns[0].level, "warn");
+    assertEquals(warns[0].count, 2);
+    const named = warns[0].reservations as { userId: string; resvId: string }[];
+    assertEquals(named.sort((x, y) => x.resvId.localeCompare(y.resvId)), [
+      { userId: a.id, resvId: "BAD1" },
+      { userId: a.id, resvId: "BAD2" },
+    ]);
+    assertEquals(logs.some((l) => l.includes("10月27日")), false);
+  });
+});
+
+/** `kv`, except that listing one ledger's reservations throws. */
+function failingLedger(kv: Deno.Kv, ledger: string): Deno.Kv {
+  return new Proxy(kv, {
+    get(target, prop) {
+      if (prop === "list") {
+        return (selector: Deno.KvListSelector, options?: Deno.KvListOptions) => {
+          if ("prefix" in selector && selector.prefix[1] === ledger) {
+            throw new Error("ledger read failed");
+          }
+          return target.list(selector, options);
+        };
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+// Whatever goes wrong inside one user's turn stays in that turn: it is logged,
+// the next user is still swept, and the failed user is retried next sweep.
+Deno.test("a failure inside one user's turn does not end the sweep", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const a = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    const b = await getOrCreateUserByEmail(kv, "c@d.jp", ids);
+    await putResv(kv, a.ledgerId, "RA", "free24", "candidate", NOW + 36 * H);
+    await putResv(kv, b.ledgerId, "RB", "free24", "candidate", NOW + 36 * H);
+
+    const sent: Sent[] = [];
+    const logs: string[] = [];
+    const deps = makeDeps(kv, sent, NOW, { logWrite: (l) => logs.push(l) });
+    assertEquals(
+      await sweepDeadlineNotifications({ ...deps, kv: failingLedger(kv, a.ledgerId) }),
+      1,
+    );
+    assertEquals(sent.map((s) => s.email), ["c@d.jp"]);
+    const warn = logs.map((l) => JSON.parse(l)).find((l) =>
+      l.msg === "deadline sweep skipped a user after an error"
+    );
+    assertEquals(warn?.level, "warn");
+    assertEquals(warn?.userId, a.id);
+    assertEquals(warn?.err, "Error: ledger read failed");
+
+    // Nothing was marked for `a`, so the next healthy sweep delivers it.
+    assertEquals(await sweepDeadlineNotifications(deps), 1);
+    assertEquals(sent.map((s) => s.email), ["c@d.jp", "a@b.jp"]);
   });
 });
 

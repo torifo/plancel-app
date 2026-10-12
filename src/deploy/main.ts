@@ -53,6 +53,7 @@ import {
   realParsers,
 } from "../parse/mod.ts";
 import { runTick } from "../cron/tick.ts";
+import { runSteps } from "../cron/steps.ts";
 import { createLineClient } from "../line/client.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../line/webhook.ts";
 import { handleUserLookup, handleWebApi, isApiPath, isUsersLookupPath } from "../web/api.ts";
@@ -345,40 +346,54 @@ if (import.meta.main) {
 
   // Cron: shares the startup Store; never closes it (isolate-lived). Also
   // retries any calendar syncs the inline pass left dirty.
+  // Each job runs on its own (runSteps): a throw is logged and the next job still runs.
   Deno.cron(CRON_NAME, CRON_SCHEDULE, async () => {
-    await runTick({ store, clock, notifier });
-    const repaired = await sweepDirtySync(syncDeps);
-    if (repaired > 0) log.info("gcal sweep repaired", { repaired });
-    const notified = await sweepDeadlineNotifications({
-      kv: store.kv,
-      nowMs: clock.now().epochMilliseconds,
-      baseUrl: webNotifyBaseUrl,
-      send: webNotifySend,
-      emailDailyCap,
-      allowedEmails,
-      ...(webNotifyLine !== null ? { line: webNotifyLine } : {}),
-    });
-    if (notified > 0) log.info("web deadline notifications sent", { notified });
-    // Once a day, ask each provider whether it is still there. A retired
-    // model is otherwise indistinguishable from an unreadable mail, and the
-    // only detector was a family member saying so (ADR-13/14).
-    //
-    // Wrapped, and last: the tick is the job this cron exists for, and asking
-    // two providers over the network is the slowest, least certain thing in
-    // the callback. Observed 2026-09-02: without this the whole invocation
-    // was cut off mid-canary and the tick's own work went unrecorded.
-    try {
-      const canary = await sweepCanary({ clock, parsers, reports: reportDeps });
-      if (canary.ran) {
-        log.info("provider canary", {
-          checked: canary.checked,
-          reported: canary.reported,
-          faults: canary.faults,
-        });
-      }
-    } catch (err) {
-      log.error("provider canary failed", { err: String(err) });
-    }
+    await runSteps([
+      { name: "core tick", run: () => runTick({ store, clock, notifier }) },
+      {
+        name: "gcal sweep",
+        run: async () => {
+          const repaired = await sweepDirtySync(syncDeps);
+          if (repaired > 0) log.info("gcal sweep repaired", { repaired });
+        },
+      },
+      {
+        name: "web deadline sweep",
+        run: async () => {
+          const notified = await sweepDeadlineNotifications({
+            kv: store.kv,
+            nowMs: clock.now().epochMilliseconds,
+            baseUrl: webNotifyBaseUrl,
+            send: webNotifySend,
+            emailDailyCap,
+            allowedEmails,
+            ...(webNotifyLine !== null ? { line: webNotifyLine } : {}),
+          });
+          if (notified > 0) log.info("web deadline notifications sent", { notified });
+        },
+      },
+      // Once a day, ask each provider whether it is still there. A retired
+      // model is otherwise indistinguishable from an unreadable mail, and the
+      // only detector was a family member saying so (ADR-13/14).
+      //
+      // Last: the tick is the job this cron exists for, and asking two
+      // providers over the network is the slowest, least certain thing in the
+      // callback. Observed 2026-09-02: placed earlier, the whole invocation was
+      // cut off mid-canary and the tick's own work went unrecorded.
+      {
+        name: "provider canary",
+        run: async () => {
+          const canary = await sweepCanary({ clock, parsers, reports: reportDeps });
+          if (canary.ran) {
+            log.info("provider canary", {
+              checked: canary.checked,
+              reported: canary.reported,
+              faults: canary.faults,
+            });
+          }
+        },
+      },
+    ], log);
   });
   log.info("cron registered", { schedule: CRON_SCHEDULE, notifier: kind });
   // Web intake: pasted mail text / screenshot images through the parse chain.

@@ -44,6 +44,8 @@ const NOTIFIED_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
 /** The counter only has to outlive its own JST day; 3 days covers any skew. */
 const EMAIL_QUOTA_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const TOKYO_OFFSET = "+09:00";
+/** Keeps the per-sweep warning about unreadable starts to one bounded line. */
+const MAX_LOGGED_UNREADABLE = 20;
 
 /**
  * Default daily EMAIL ceiling. Resend's free tier stops accepting past
@@ -185,11 +187,23 @@ function orderUsers(users: WebUser[], allowedEmails: ReadonlySet<string>): WebUs
   return [...users].sort((a, b) => Number(guaranteed(b)) - Number(guaranteed(a)) || byId(a, b));
 }
 
-/** Every not-yet-notified reservation of this user crossing the boundary now. */
-async function collectDue(deps: NotifyDeps, user: WebUser): Promise<Due[]> {
+/** What one user's ledger holds for this sweep. */
+interface Collected {
+  /** Every not-yet-notified reservation crossing the boundary now. */
+  due: Due[];
+  /** Ids of active reservations whose start cannot be read (no deadline to compute). */
+  unreadable: string[];
+}
+
+async function collectDue(deps: NotifyDeps, user: WebUser): Promise<Collected> {
   const due: Due[] = [];
+  const unreadable: string[] = [];
   for (const resv of await listReservations(deps.kv, user.ledgerId)) {
     if (!ACTIVE_STATUSES.has(resv.status)) continue;
+    if (toInstantOrNull(resv.startsAt) === null) {
+      unreadable.push(resv.id);
+      continue;
+    }
     const deadlineMs = freeDeadlineMs(resv.policy, resv.startsAt);
     if (deadlineMs === null) continue;
     if (!withinBoundary(deadlineMs, deps.nowMs)) continue;
@@ -198,10 +212,11 @@ async function collectDue(deps: NotifyDeps, user: WebUser): Promise<Due[]> {
   }
   // Soonest deadline first so the bundle reads as a to-do list; the id
   // tiebreak keeps identical deadlines in a fixed order.
-  return due.sort((a, b) =>
+  due.sort((a, b) =>
     a.deadlineMs - b.deadlineMs ||
     (a.resv.id < b.resv.id ? -1 : a.resv.id > b.resv.id ? 1 : 0)
   );
+  return { due, unreadable };
 }
 
 async function readEmailCount(kv: Deno.Kv, date: string): Promise<number> {
@@ -232,52 +247,69 @@ export async function sweepDeadlineNotifications(deps: NotifyDeps): Promise<numb
   // sits under Resend's real limit).
   let emailsToday = await readEmailCount(deps.kv, date);
   let sent = 0;
+  const unreadable: { userId: string; resvId: string }[] = [];
   const users = orderUsers(await listUsers(deps.kv), deps.allowedEmails ?? NO_ALLOWED_EMAILS);
   for (const user of users) {
-    const due = await collectDue(deps, user);
-    if (due.length === 0) continue;
-
-    // Own LINE linked → push there; everyone else → email/console. Same
-    // markers on both routes: the channel never changes idempotency.
-    const line = deps.line;
-    const lineUserId = user.lineUserId;
-    const viaLine = line !== undefined && lineUserId !== null;
-    if (!viaLine && emailsToday >= cap) {
-      // No markers → these reservations are picked up again by the first sweep
-      // of the next JST day, which starts a fresh counter bucket.
-      log.warn("daily email cap reached; deferring to the next JST day", {
-        userId: user.id,
-        date,
-        cap,
-        deferred: due.length,
-      });
-      continue;
-    }
-
-    const body = buildBody(due, deps.baseUrl);
+    // A failure stays in this user's turn; whatever it left undone retries next sweep.
     try {
-      if (line !== undefined && lineUserId !== null) await line.push(lineUserId, body);
-      else await deps.send(user.email, subjectFor(due.length), body);
+      const { due, unreadable: skipped } = await collectDue(deps, user);
+      for (const resvId of skipped) unreadable.push({ userId: user.id, resvId });
+      if (due.length === 0) continue;
+
+      // Own LINE linked → push there; everyone else → email/console. Same
+      // markers on both routes: the channel never changes idempotency.
+      const line = deps.line;
+      const lineUserId = user.lineUserId;
+      const viaLine = line !== undefined && lineUserId !== null;
+      if (!viaLine && emailsToday >= cap) {
+        // No markers → these reservations are picked up again by the first sweep
+        // of the next JST day, which starts a fresh counter bucket.
+        log.warn("daily email cap reached; deferring to the next JST day", {
+          userId: user.id,
+          date,
+          cap,
+          deferred: due.length,
+        });
+        continue;
+      }
+
+      const body = buildBody(due, deps.baseUrl);
+      try {
+        if (line !== undefined && lineUserId !== null) await line.push(lineUserId, body);
+        else await deps.send(user.email, subjectFor(due.length), body);
+      } catch (err) {
+        // Leave every marker unset so the next sweep retries the whole bundle.
+        log.warn("deadline notification send failed; will retry", {
+          userId: user.id,
+          resvIds: due.map((d) => d.resv.id),
+          channel: viaLine ? "line" : "email",
+          err: String(err),
+        });
+        continue;
+      }
+      if (!viaLine) {
+        emailsToday++;
+        await deps.kv.set([EMAIL_QUOTA, date], emailsToday, { expireIn: EMAIL_QUOTA_TTL_MS });
+      }
+      for (const d of due) {
+        await deps.kv.set(markerKey(user.id, d.resv.id), { at: deps.nowMs }, {
+          expireIn: NOTIFIED_TTL_MS,
+        });
+      }
+      sent++;
     } catch (err) {
-      // Leave every marker unset so the next sweep retries the whole bundle.
-      log.warn("deadline notification send failed; will retry", {
+      log.warn("deadline sweep skipped a user after an error", {
         userId: user.id,
-        resvIds: due.map((d) => d.resv.id),
-        channel: viaLine ? "line" : "email",
         err: String(err),
       });
-      continue;
     }
-    if (!viaLine) {
-      emailsToday++;
-      await deps.kv.set([EMAIL_QUOTA, date], emailsToday, { expireIn: EMAIL_QUOTA_TTL_MS });
-    }
-    for (const d of due) {
-      await deps.kv.set(markerKey(user.id, d.resv.id), { at: deps.nowMs }, {
-        expireIn: NOTIFIED_TTL_MS,
-      });
-    }
-    sent++;
+  }
+  if (unreadable.length > 0) {
+    // Ids only — the stored value is the user's own text.
+    log.warn("reservations with an unreadable start were skipped", {
+      count: unreadable.length,
+      reservations: unreadable.slice(0, MAX_LOGGED_UNREADABLE),
+    });
   }
   return sent;
 }
