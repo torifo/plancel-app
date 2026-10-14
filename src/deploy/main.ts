@@ -42,6 +42,9 @@
  *   PLANCEL_MAIL_DAILY_CAP (accepted forwards per user per day, default 50)
  *   PLANCEL_DEMO=1 / PLANCEL_DEMO_PASSWORD (test-account deployment: seeds the
  *     demo user on an empty store and switches LINE/mail/Google/dev-login off)
+ *   PLANCEL_AGENT_TOKEN (shared secret for POST /agent/run, i.e. Cloud Scheduler)
+ *   PLANCEL_VERTEX_PROJECT / PLANCEL_VERTEX_LOCATION / PLANCEL_AGENT_MODEL (the
+ *     agent's Gemini: Vertex AI via the service account, else GEMINI_API_KEY)
  *   PLANCEL_KV_PATH (local KV file, e.g. /tmp/plancel.kv on Cloud Run; unset =
  *     the platform default KV)
  */
@@ -88,7 +91,9 @@ import { sweepCanary } from "../web/canary-watch.ts";
 import { handleAdminDateAudit, isAdminDateAuditPath } from "../web/date-audit.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
-import { demoEnv, seedDemoIfEmpty } from "./demo.ts";
+import { demoEnv, resetDemoLedger, seedDemoIfEmpty } from "./demo.ts";
+import { selectTransport } from "../agent/gemini.ts";
+import { type AgentRouteDeps, handleAgentRoute, isAgentPath } from "../agent/routes.ts";
 
 const CRON_NAME = "plancel-boundary-check";
 const CRON_SCHEDULE = "*/15 * * * *";
@@ -469,6 +474,41 @@ if (import.meta.main) {
     domain: env.get("PLANCEL_INBOUND_DOMAIN") ?? null,
   });
 
+  // キャンセル・コンシェルジュ (src/agent): Gemini on Vertex AI when
+  // PLANCEL_VERTEX_PROJECT is set, else the Gemini API key. Cloud Scheduler calls
+  // POST /agent/run with PLANCEL_AGENT_TOKEN; a signed-in user runs it from the UI.
+  const agentTransport = selectTransport(env, { clock });
+  const agentDeps: AgentRouteDeps = {
+    kv: store.kv,
+    clock,
+    ids: webIds,
+    transport: agentTransport,
+    agentToken: env.get("PLANCEL_AGENT_TOKEN"),
+    resolveUser: async (req) => (await resolveIdentity(req, authDeps)).user,
+    onMutate: (user, resvId) => {
+      if (user.google === null) return;
+      requestSync(syncDeps, user.id, resvId).catch((err) =>
+        log.error("requestSync failed", { err: String(err) })
+      );
+    },
+    ...(demo
+      ? {
+        resetDemo: (user) =>
+          resetDemoLedger({
+            kv: store.kv,
+            clock,
+            ids: authIds,
+            password: undefined,
+          }, user),
+      }
+      : {}),
+  };
+  log.info("agent configured", {
+    transport: agentTransport?.name ?? null,
+    model: agentTransport?.model ?? null,
+    schedulerTrigger: agentDeps.agentToken !== undefined && agentDeps.agentToken !== "",
+  });
+
   Deno.serve({ port: Number(env.get("PORT") ?? "8000") }, async (req) => {
     const url = new URL(req.url);
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
@@ -480,6 +520,9 @@ if (import.meta.main) {
     }
     if (isAuthPath(url.pathname)) {
       return await handleAuthApi(req, authDeps);
+    }
+    if (isAgentPath(url.pathname)) {
+      return await handleAgentRoute(req, agentDeps);
     }
     if (isCalendarFeedPath(url.pathname)) {
       return await handleCalendarFeed(store.kv, req);

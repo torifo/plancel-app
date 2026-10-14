@@ -3,6 +3,7 @@
  * Rows go through the same store functions as the HTTP API, dated from the injected clock.
  */
 import type { Clock } from "../core/clock/mod.ts";
+import { clearAgentState } from "../agent/store.ts";
 import { hashPassword } from "../lib/password.ts";
 import { createReservationWithEffects, type WebIds } from "../web/store.ts";
 import type { webCreateSchema } from "../web/store.ts";
@@ -193,4 +194,15 @@ export async function seedDemoIfEmpty(deps: DemoDeps): Promise<DemoSeedResult> {
   ) ?? created;
   const reservations = await seedDemoLedger(deps.kv, user.ledgerId, deps.clock, deps.ids);
   return { status: "seeded", user, reservations };
+}
+
+/** Wipes the demo account's ledger and agent history and files the demo ledger afresh (demo user only). */
+export async function resetDemoLedger(deps: DemoDeps, user: WebUser): Promise<boolean> {
+  if (user.email !== DEMO_EMAIL) return false;
+  for await (const e of deps.kv.list({ prefix: ["web", user.ledgerId] })) {
+    await deps.kv.delete(e.key);
+  }
+  await clearAgentState(deps.kv, user.id);
+  await seedDemoLedger(deps.kv, user.ledgerId, deps.clock, deps.ids);
+  return true;
 }

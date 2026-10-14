@@ -1,12 +1,13 @@
 import { assert, assertEquals } from "jsr:@std/assert@^1.0.19";
 import { VirtualClock } from "../../core/clock/mod.ts";
 import { makeIds, withKv } from "../../agent/tests/helpers.ts";
-import { listReservations } from "../../web/store.ts";
+import { cancelReservation, listReservations } from "../../web/store.ts";
+import { listProposals, putProposal } from "../../agent/store.ts";
 import { freeDeadlineMs } from "../../web/policy.ts";
 import { isFinished } from "../../web/lifecycle.ts";
-import { findUserByEmail } from "../../web/users.ts";
+import { findUserByEmail, getOrCreateUserByEmail } from "../../web/users.ts";
 import { verifyPassword } from "../../lib/password.ts";
-import { DEMO_EMAIL, demoEnv, seedDemoIfEmpty } from "../demo.ts";
+import { DEMO_EMAIL, demoEnv, resetDemoLedger, seedDemoIfEmpty } from "../demo.ts";
 
 const HOUR = 3_600_000;
 
@@ -113,4 +114,53 @@ Deno.test("demoEnv hides every outbound integration but leaves the rest readable
   }
   assertEquals(masked.get("GEMINI_API_KEY"), "keep");
   assertEquals(masked.get("PORT"), "8080");
+});
+
+Deno.test("demo reset refiles the ledger and forgets the agent's history, for the demo user only", async () => {
+  await withKv(async (kv) => {
+    const clock = new VirtualClock("2026-10-15T11:00:00Z");
+    const ids = makeIds(clock);
+    const deps = { kv, clock, ids, password: "demo-pass-1234" };
+    const seeded = await seedDemoIfEmpty(deps);
+    if (seeded.status !== "seeded") throw new Error("seed failed");
+    const user = seeded.user;
+
+    // Make a mess: cancel a row and leave agent records behind.
+    const rows = await listReservations(kv, user.ledgerId);
+    await cancelReservation(kv, user.ledgerId, rows[0]!.id, ids);
+    await putProposal(kv, user.id, {
+      id: "P1",
+      runId: "R1",
+      reservationId: rows[0]!.id,
+      service: "x",
+      startsAt: "x",
+      reason: "x",
+      draftMessage: "x",
+      urgency: "normal",
+      estimate: {
+        pctNow: null,
+        lossNowYen: null,
+        lossAfterNextBoundaryYen: null,
+        nextBoundaryAt: null,
+        freeUntil: null,
+      },
+      status: "pending",
+      createdAt: "2026-10-15T11:00:00Z",
+      decidedAt: null,
+      outcome: null,
+    });
+
+    clock.advance("P5D");
+    assertEquals(await resetDemoLedger(deps, user), true);
+    const after = await listReservations(kv, user.ledgerId);
+    assertEquals(after.length, 6);
+    assertEquals(after.filter((r) => r.status === "cancelled").length, 0);
+    assertEquals((await listProposals(kv, user.id)).length, 0);
+    // Dates follow the clock, so the demo is "this week" again, not five days stale.
+    const alba = after.find((r) => r.service === "トラットリア アルバ")!;
+    assert(Temporal.Instant.from(alba.startsAt).epochMilliseconds > clock.now().epochMilliseconds);
+
+    const other = await getOrCreateUserByEmail(kv, "someone@example.com", ids);
+    assertEquals(await resetDemoLedger(deps, other), false);
+  });
 });

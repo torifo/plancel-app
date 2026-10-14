@@ -110,6 +110,9 @@ const GCAL = "gcal_map";
 const DIRTY = "gcal_dirty";
 const SHARED_IN = "shared_in";
 const RESV_MEMBERS = "resv_members";
+// The cancellation agent's per-user records (src/agent/store.ts).
+const AGENT_RUN = "agent_run";
+const AGENT_PROPOSAL = "agent_proposal";
 // Reservation store layout (mirrors store.ts NS/RESV) — kept local so this
 // module stays free of a store.ts import.
 const WEB_NS = "web";
@@ -165,6 +168,16 @@ export async function countUsers(kv: Deno.Kv): Promise<number> {
   let n = 0;
   for await (const _ of kv.list({ prefix: [USER] })) n++;
   return n;
+}
+
+/** Every registered user, oldest key first. Rows that no longer parse are skipped. */
+export async function listUsers(kv: Deno.Kv): Promise<WebUser[]> {
+  const out: WebUser[] = [];
+  for await (const e of kv.list({ prefix: [USER] })) {
+    const parsed = webUserSchema.safeParse(e.value);
+    if (parsed.success) out.push(parsed.data);
+  }
+  return out;
 }
 
 async function putUser(kv: Deno.Kv, user: WebUser): Promise<void> {
@@ -765,7 +778,14 @@ export async function deleteAccount(
 
   // 2. per-user prefixes (a prefix no code writes lists as empty — safe).
   for (
-    const prefix of [[GCAL, userId], [DIRTY, userId], [SHARED_IN, userId], [RESV_MEMBERS, userId]]
+    const prefix of [
+      [GCAL, userId],
+      [DIRTY, userId],
+      [SHARED_IN, userId],
+      [RESV_MEMBERS, userId],
+      [AGENT_RUN, userId],
+      [AGENT_PROPOSAL, userId],
+    ]
   ) {
     for await (const e of kv.list({ prefix })) {
       await kv.delete(e.key);
