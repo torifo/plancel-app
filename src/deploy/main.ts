@@ -40,6 +40,8 @@
  *   PLANCEL_INBOUND_DOMAIN / RESEND_WEBHOOK_SECRET (メール転送インテーク; the
  *     Received-Emails read also needs RESEND_API_KEY)
  *   PLANCEL_MAIL_DAILY_CAP (accepted forwards per user per day, default 50)
+ *   PLANCEL_KV_PATH (local KV file, e.g. /tmp/plancel.kv on Cloud Run; unset =
+ *     the platform default KV)
  */
 import { SystemClock } from "../core/clock/mod.ts";
 import { KvStore } from "../core/store/mod.ts";
@@ -92,7 +94,12 @@ if (import.meta.main) {
   const log = logger("deploy.main");
   const env = denoEnvReader();
 
-  const store = await KvStore.open();
+  // PLANCEL_KV_PATH: a local SQLite file instead of the platform's managed KV
+  // (Cloud Run has none — the container disk is the store; see Dockerfile and
+  // docs/gc-hackathon.md). Unset keeps the old behaviour: Deno's default KV,
+  // which on Deno Deploy is the managed one.
+  const kvPath = env.get("PLANCEL_KV_PATH");
+  const store = await KvStore.open(kvPath !== undefined && kvPath !== "" ? kvPath : undefined);
   const clock = new SystemClock();
   const ctx = { store, clock, ids: { newUlid: () => ulid() } };
 

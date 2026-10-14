@@ -1,0 +1,18 @@
+# Everything the image does not need to run the server. Keeps the build context
+# small and, more importantly, keeps secrets and local work out of the image.
+.git
+.github
+.claude
+.env
+.env.*
+local
+docs
+specs
+fixtures
+scripts
+README*.md
+ROADMAP.md
+Dockerfile
+.dockerignore
+**/tests
+**/*_test.ts
