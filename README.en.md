@@ -62,6 +62,9 @@ core is deterministically testable offline.
 Specs: [`specs/`](./specs/) ・ Design decisions (ADR): [`docs/SDD.md`](./docs/SDD.md) ・ Roadmap:
 [`ROADMAP.md`](./ROADMAP.md)
 
+Google Cloud edition (Cloud Run + a Gemini cancellation concierge, in Japanese):
+[`docs/gc-hackathon.md`](./docs/gc-hackathon.md)
+
 ## Stack
 
 - **Runtime**: Deno 2.9 (TypeScript, `unstable-temporal` / `unstable-kv`)

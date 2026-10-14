@@ -59,6 +59,9 @@ MCPから利用する。非決定性の源（**時刻・外部送信・LLM**）�
 仕様: [`specs/`](./specs/) ・ 設計判断（ADR）: [`docs/SDD.md`](./docs/SDD.md) ・ ロードマップ:
 [`ROADMAP.md`](./ROADMAP.md)
 
+Google Cloud 版（Cloud Run + Gemini のキャンセル・コンシェルジュ）:
+[`docs/gc-hackathon.md`](./docs/gc-hackathon.md)
+
 ## スタック
 
 - **ランタイム**: Deno 2.9（TypeScript・`unstable-temporal` / `unstable-kv`）
