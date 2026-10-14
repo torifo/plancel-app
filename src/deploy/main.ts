@@ -40,6 +40,8 @@
  *   PLANCEL_INBOUND_DOMAIN / RESEND_WEBHOOK_SECRET (メール転送インテーク; the
  *     Received-Emails read also needs RESEND_API_KEY)
  *   PLANCEL_MAIL_DAILY_CAP (accepted forwards per user per day, default 50)
+ *   PLANCEL_DEMO=1 / PLANCEL_DEMO_PASSWORD (test-account deployment: seeds the
+ *     demo user on an empty store and switches LINE/mail/Google/dev-login off)
  *   PLANCEL_KV_PATH (local KV file, e.g. /tmp/plancel.kv on Cloud Run; unset =
  *     the platform default KV)
  */
@@ -86,13 +88,17 @@ import { sweepCanary } from "../web/canary-watch.ts";
 import { handleAdminDateAudit, isAdminDateAuditPath } from "../web/date-audit.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
+import { demoEnv, seedDemoIfEmpty } from "./demo.ts";
 
 const CRON_NAME = "plancel-boundary-check";
 const CRON_SCHEDULE = "*/15 * * * *";
 
 if (import.meta.main) {
   const log = logger("deploy.main");
-  const env = denoEnvReader();
+  // PLANCEL_DEMO=1: a test-account deployment (docs/gc-hackathon.md). LINE, mail,
+  // Google login and auto-login are switched off whatever env is present.
+  const demo = denoEnvReader().get("PLANCEL_DEMO") === "1";
+  const env = demo ? demoEnv(denoEnvReader()) : denoEnvReader();
 
   // PLANCEL_KV_PATH: a local SQLite file instead of the platform's managed KV
   // (Cloud Run has none — the container disk is the store; see Dockerfile and
@@ -166,6 +172,24 @@ if (import.meta.main) {
       return hexEncode(b);
     },
   };
+  if (demo) {
+    const seeded = await seedDemoIfEmpty({
+      kv: store.kv,
+      clock,
+      ids: authIds,
+      password: env.get("PLANCEL_DEMO_PASSWORD"),
+    });
+    if (seeded.status === "no_password" || seeded.status === "weak_password") {
+      log.error(
+        "demo mode: PLANCEL_DEMO_PASSWORD must be set (8+ chars); demo account not created",
+      );
+    } else {
+      log.info("demo mode", {
+        account: seeded.status,
+        ...(seeded.status === "seeded" ? { reservations: seeded.reservations } : {}),
+      });
+    }
+  }
   const googleClientId = env.get("GOOGLE_CLIENT_ID");
   const googleClientSecret = env.get("GOOGLE_CLIENT_SECRET");
   const googleApp = googleClientId !== undefined && googleClientSecret !== undefined
