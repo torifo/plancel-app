@@ -140,6 +140,16 @@ export function metadataTokenProvider(
   };
 }
 
+/** How long a 429 that says "retry in Ns" may hold a conversation before we give up on it. */
+export const MAX_QUOTA_WAIT_MS = 30_000;
+
+/** The wait a 429 asks for (RetryInfo.retryDelay, or "retry in 12.3s" in the message), in ms. */
+export function quotaRetryDelayMs(body: string): number | null {
+  const m = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(body) ??
+    /retry in (\d+(?:\.\d+)?)s/i.exec(body);
+  return m === null ? null : Math.ceil(Number(m[1]) * 1000);
+}
+
 export interface HttpTransportOptions {
   name: string;
   model: string;
@@ -149,6 +159,8 @@ export interface HttpTransportOptions {
   timeoutMs?: number;
   /** Pause before the single 5xx retry; 0 in tests. */
   retryDelayMs?: number;
+  /** Longest per-minute-quota wait to sit out (see MAX_QUOTA_WAIT_MS); 0 disables it. */
+  maxQuotaWaitMs?: number;
 }
 
 export class HttpGeminiTransport implements GeminiTransport {
@@ -160,17 +172,28 @@ export class HttpGeminiTransport implements GeminiTransport {
   }
 
   async generate(req: GeminiRequest): Promise<GeminiResponse> {
-    const { res, body } = await postRetryingOn5xx(
-      this.o.fetchFn ?? fetch,
-      this.o.url,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", ...await this.o.headers() },
-        body: JSON.stringify(req),
-      },
-      this.o.retryDelayMs,
-      this.o.timeoutMs ?? AGENT_REQUEST_TIMEOUT_MS,
-    );
+    const send = async () =>
+      await postRetryingOn5xx(
+        this.o.fetchFn ?? fetch,
+        this.o.url,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", ...await this.o.headers() },
+          body: JSON.stringify(req),
+        },
+        this.o.retryDelayMs,
+        this.o.timeoutMs ?? AGENT_REQUEST_TIMEOUT_MS,
+      );
+    let { res, body } = await send();
+    // A per-minute quota says how long to wait; sitting that out beats failing a run half-way.
+    // A quota with no short wait (daily, or none given) is not retried.
+    if (res.status === 429) {
+      const wait = quotaRetryDelayMs(body);
+      if (wait !== null && wait <= (this.o.maxQuotaWaitMs ?? MAX_QUOTA_WAIT_MS)) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        ({ res, body } = await send());
+      }
+    }
     if (!res.ok) throw new GeminiTransportError(this.name, res.status, body);
     try {
       return JSON.parse(body) as GeminiResponse;
@@ -239,6 +262,7 @@ class PinnedConversation implements GeminiTransport {
   async generate(req: GeminiRequest): Promise<GeminiResponse> {
     if (this.#pinned !== null) return await this.#pinned.generate(req);
     let failure: unknown;
+    let failed = false;
     for (const t of this.parent.order()) {
       try {
         const res = await t.generate(req);
@@ -246,7 +270,9 @@ class PinnedConversation implements GeminiTransport {
         this.parent.prefer(t);
         return res;
       } catch (err) {
-        failure = err;
+        // The preferred model's failure is the informative one; later ones are often just "not offered".
+        if (!failed) failure = err;
+        failed = true;
         logger("agent.gemini").warn("transport failed, trying the next", {
           transport: t.name,
           model: t.model,

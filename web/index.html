@@ -1503,6 +1503,184 @@
       border-top: 1px solid var(--line);
       padding-top: 12px;
     }
+    /* ═══ エージェント（キャンセル・コンシェルジュ） ═══ */
+    .agent {
+      margin-top: 34px;
+    }
+    .agent-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .agent-head h3 {
+      font-size: calc(15px * var(--fs));
+      font-weight: 700;
+    }
+    .agent-head .hint {
+      margin: 4px 0 0;
+    }
+    .agent-acts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .agent-acts button:disabled {
+      opacity: .6;
+      cursor: default;
+    }
+    .agent-msg {
+      min-height: 1.7em;
+      margin: 0 0 8px;
+    }
+    .agent-msg.err {
+      color: var(--danger-ink);
+    }
+    .prop {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--lamp);
+      border-radius: 10px;
+      padding: calc(12px * var(--fs)) 14px;
+      margin-bottom: 10px;
+      box-shadow: var(--shadow);
+    }
+    .prop.high {
+      border-left-color: var(--danger);
+    }
+    .prop .pt {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 8px;
+      align-items: center;
+      font-size: calc(14px * var(--fs));
+      font-weight: 700;
+    }
+    .prop .why {
+      margin-top: 6px;
+      font-size: calc(13px * var(--fs));
+      color: var(--ink-2);
+    }
+    .prop .money {
+      margin-top: 6px;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+    }
+    .prop .money b {
+      color: var(--danger-ink);
+    }
+    .prop summary {
+      cursor: pointer;
+      margin-top: 8px;
+      font-size: calc(12.5px * var(--fs));
+      font-weight: 700;
+      color: var(--lamp-ink);
+    }
+    .prop textarea {
+      display: block;
+      width: 100%;
+      min-height: 8em;
+      margin-top: 6px;
+      padding: 8px 10px;
+      font: inherit;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink);
+      background: var(--card2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      resize: vertical;
+    }
+    .prop .btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .prop .after {
+      margin-top: 8px;
+      font-size: calc(12px * var(--fs));
+      color: var(--soft);
+    }
+    .runs-h {
+      margin: 18px 0 8px;
+      font-size: calc(12px * var(--fs));
+      font-weight: 700;
+      color: var(--soft);
+    }
+    .run {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: calc(11px * var(--fs)) 14px;
+      margin-bottom: 9px;
+    }
+    .run-top {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      align-items: center;
+      font-size: calc(12px * var(--fs));
+      color: var(--soft);
+    }
+    .run-sum {
+      margin-top: 6px;
+      font-size: calc(13px * var(--fs));
+      white-space: pre-wrap;
+    }
+    .run-err {
+      margin-top: 6px;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--danger-ink);
+    }
+    .run .tl {
+      list-style: none;
+      margin: 8px 0 0 6px;
+      padding: 0;
+      border-left: 2px solid var(--line);
+    }
+    .run .tl li {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      padding: 3px 0 3px 12px;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+    }
+    .run .tl .tx {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .ph {
+      flex: none;
+      padding: 0 8px;
+      border-radius: 9px;
+      font-size: calc(10.5px * var(--fs));
+      font-weight: 700;
+      letter-spacing: .06em;
+    }
+    .ph.observe {
+      background: var(--card2);
+      color: var(--soft);
+    }
+    .ph.decide {
+      background: var(--lamp-soft);
+      color: var(--lamp-ink);
+    }
+    .ph.act {
+      background: var(--danger-soft);
+      color: var(--danger-ink);
+    }
+    .run .notes {
+      margin-top: 8px;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+    }
+    .run .notes div {
+      margin-top: 3px;
+    }
     /* ═══ PWA install / update ═══ */
     .pwa-panel {
       display: grid;
@@ -2013,6 +2191,7 @@
         <div class="chips">
           <span class="chip lamp" id="chipNext">◆ 次の無料キャンセル期限 —</span>
           <span class="chip">最大キャンセル料 <b style="color:var(--danger-ink)" id="stLoss">¥0</b></span>
+          <button class="chip lamp" id="chipAgent" style="display:none;cursor:pointer" type="button"></button>
         </div>
         <div class="miniacts">
           <button class="btn-ghost mini" id="addBtn">＋手動で追加</button>
@@ -2034,6 +2213,22 @@
           <div id="rail"></div>
         </aside>
       </div>
+
+      <section class="agent" id="agentSec" aria-labelledby="agentH">
+        <div class="agent-head">
+          <div>
+            <h3 id="agentH">エージェント（キャンセル・コンシェルジュ）</h3>
+            <p class="hint">台帳を見張り、放置すると損をする候補を先に見つけて、キャンセルを提案します。提案を承認するまで、台帳は変わりません。</p>
+          </div>
+          <div class="agent-acts">
+            <button class="btn-primary" id="agentRun">今すぐエージェントを実行</button>
+            <button class="btn-ghost mini" id="demoResetBtn" style="display:none">デモデータをリセット</button>
+          </div>
+        </div>
+        <div class="hint agent-msg" id="agentMsg" role="status" aria-live="polite"></div>
+        <div id="agentPending"></div>
+        <div id="agentRuns"></div>
+      </section>
 
       <p class="foot-note">データはログイン中のアカウントに紐づけてサーバ（KV）に保存されます。別の端末でも同じアカウントでログインすれば同じ台帳が開きます。</p>
       </div>
@@ -3062,6 +3257,8 @@
       renderLoadState();
       q("#dataBar").style.display = viewingDemo ? "none" : "flex";
       q("#demoBar").classList.toggle("on", viewingDemo);
+      // エージェントは本物の台帳を見張るので、組み込みのデモ表示中は出さない。
+      q("#agentSec").style.display = viewingDemo ? "none" : "";
       if (ME) q("#meEmail").textContent = ME.email;
       const now = Date.now();
       const live = data.filter((r) => r.status !== "cancelled");
@@ -5509,6 +5706,179 @@
       email_taken: "そのメールアドレスのアカウントが既にあります。メールアドレス＋パスワードでログインし、マイページから Google を紐付けてください。",
       google_taken: "その Google アカウントは別のアカウントに紐付いています。",
     };
+    // ---- エージェント（キャンセル・コンシェルジュ）----
+    // 見張るのも提案するのもサーバ側（src/agent）。ここは記録を読んで並べ、承認・却下を
+    // 送るだけで、キャンセルを決めるのは承認ボタンを押した本人。
+    let agentData = null;
+    let agentBusy = false;
+    const PHASE_LABEL = { observe: "観測", decide: "判断", act: "実行" };
+    const TOOL_LABEL = {
+      list_reservations: "台帳を読む",
+      get_reservation: "予約を確認",
+      estimate_loss: "損失を試算",
+      propose_cancellation: "キャンセルを提案",
+      notify_user: "お知らせ",
+    };
+    const URGENCY_LABEL = { high: "至急", normal: "通常", low: "余裕あり" };
+    const PROPOSAL_STATUS = {
+      pending: ["candidate", "承認待ち"],
+      approved: ["confirmed", "承認済み"],
+      rejected: ["cancelled", "却下"],
+      stale: ["cancelled", "無効"],
+    };
+    const AGENT_ERRORS = {
+      agent_not_configured: "このサーバでは Gemini が設定されていないため、エージェントは使えません。",
+      agent_busy: "いま別の実行が進んでいます。終わるまでお待ちください。",
+      not_pending: "この提案は、すでに処理されています。",
+      stale: "予約の状態が変わっていたため、実行しませんでした。",
+    };
+    function agentErr(e, lead) {
+      const code = e && e.message;
+      return AGENT_ERRORS[code] ? lead + AGENT_ERRORS[code] : apiErrorText(e, lead);
+    }
+    function agentMsg(text, isErr) {
+      const el = q("#agentMsg");
+      el.textContent = text || "";
+      el.classList.toggle("err", !!isErr);
+    }
+    function agentWhen(iso) {
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? "" : d.toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+    // サーバが返す +09:00 の文字列を「10/15 23:59」に。
+    function jstShort(s) {
+      const m = /^\d{4}-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(s || "");
+      return m ? `${Number(m[1])}/${Number(m[2])} ${m[3]}` : "";
+    }
+    function proposalCard(p) {
+      const e = p.estimate || {};
+      const after = e.nextBoundaryAt && e.lossAfterNextBoundaryYen != null
+        ? ` ・ ◆${esc(jstShort(e.nextBoundaryAt))} を過ぎると <b>${yen(e.lossAfterNextBoundaryYen)}</b>`
+        : "";
+      const now = e.lossNowYen == null ? "規定不明" : yen(e.lossNowYen);
+      return `<div class="prop ${p.urgency === "high" ? "high" : ""}" data-prop="${esc(p.id)}">
+        <div class="pt"><span>${esc(p.service)} のキャンセルを提案</span><span class="pill ${p.urgency === "high" ? "to_cancel" : "candidate"}">${esc(URGENCY_LABEL[p.urgency] || "")}</span></div>
+        <div class="why">${esc(p.reason)}</div>
+        <div class="money">いまキャンセルすると ${now}${after}</div>
+        <details><summary>施設へのキャンセル連絡の下書き</summary>
+          <textarea id="draft-${esc(p.id)}" readonly>${esc(p.draftMessage)}</textarea>
+          <div class="btns"><button class="btn-ghost mini" data-copy="${esc(p.id)}">下書きをコピー</button></div>
+        </details>
+        <div class="btns">
+          <button class="btn-primary" data-approve="${esc(p.id)}">承認する（台帳をキャンセル済みにする）</button>
+          <button class="btn-ghost" data-reject="${esc(p.id)}">却下</button>
+        </div>
+        <div class="after">承認すると plancel の台帳が「キャンセル済み」になります。施設への連絡は、上の下書きを使ってご自身で行ってください。</div>
+      </div>`;
+    }
+    function runCard(r) {
+      const steps = r.steps.map((s) => {
+        const tool = s.tool ? (TOOL_LABEL[s.tool] || s.tool) : "";
+        const text = s.tool ? `${tool}${s.result ? "：" + s.result : ""}` : (s.result || "");
+        return `<li><span class="ph ${esc(s.phase)}">${esc(PHASE_LABEL[s.phase] || s.phase)}</span><span class="tx">${esc(text)}</span></li>`;
+      }).join("");
+      const props = r.proposals.map((p) => {
+        const st = PROPOSAL_STATUS[p.status] || ["candidate", p.status];
+        return `<div>${esc(p.service)} <span class="pill ${st[0]}">${esc(st[1])}</span></div>`;
+      }).join("");
+      const notes = r.notifications.map((n) =>
+        `<div>◆ ${esc(n.title)}：${esc(n.body)}</div>`
+      ).join("");
+      return `<div class="run">
+        <div class="run-top"><b>${esc(agentWhen(r.startedAt))}</b><span>${r.trigger === "scheduler" ? "定期実行" : "手動実行"}</span><span>${esc(r.model)}</span>${r.status === "error" ? '<span class="pill to_cancel">失敗</span>' : ""}</div>
+        ${r.error ? `<div class="run-err">実行できませんでした（${esc(r.error)}）</div>` : ""}
+        ${r.summary ? `<div class="run-sum">${esc(r.summary)}</div>` : ""}
+        ${steps ? `<ol class="tl">${steps}</ol>` : ""}
+        ${props || notes ? `<div class="notes">${props}${notes}</div>` : ""}
+      </div>`;
+    }
+    function renderAgent() {
+      const d = agentData;
+      if (!d) return;
+      q("#agentRun").disabled = agentBusy || !d.configured;
+      // 台帳の上の帯に件数を出し、下にある節へ案内する（承認待ちが見落とされないように）。
+      q("#chipAgent").style.display = d.pending.length ? "" : "none";
+      q("#chipAgent").textContent = `◆ エージェントの提案 ${d.pending.length}件（確認する）`;
+      q("#demoResetBtn").style.display = d.demo ? "" : "none";
+      if (!d.configured && !agentBusy) agentMsg(AGENT_ERRORS.agent_not_configured, false);
+      q("#agentPending").innerHTML = d.pending.map(proposalCard).join("");
+      q("#agentRuns").innerHTML = d.runs.length
+        ? `<div class="runs-h">エージェントの判断の記録</div>${d.runs.map(runCard).join("")}`
+        : `<div class="empty"><h3>まだ実行されていません</h3><p class="hint" style="margin:6px 0 0">「今すぐエージェントを実行」を押すか、定期実行をお待ちください。</p></div>`;
+    }
+    async function loadAgent() {
+      try {
+        agentData = await api("GET", "/api/agent/runs?limit=5");
+      } catch (e) {
+        if (!(e && e.status === 401)) agentMsg(agentErr(e, "エージェントの記録を読み込めませんでした。"), true);
+        return;
+      }
+      renderAgent();
+    }
+    async function runAgentNow() {
+      if (agentBusy) return;
+      agentBusy = true;
+      q("#agentRun").disabled = true;
+      agentMsg("エージェントが台帳を確認しています…（30秒ほどかかることがあります）");
+      try {
+        const j = await api("POST", "/api/agent/run");
+        agentMsg(j.run.status === "error" ? "" : "確認が終わりました。", false);
+      } catch (e) {
+        agentMsg(agentErr(e, "エージェントを実行できませんでした。"), true);
+      }
+      agentBusy = false;
+      await loadAgent();
+      await refresh();
+    }
+    async function decideProposal(id, verb) {
+      for (const b of document.querySelectorAll("[data-approve],[data-reject]")) b.disabled = true;
+      try {
+        await api("POST", `/api/agent/proposals/${encodeURIComponent(id)}/${verb}`);
+        agentMsg(verb === "approve" ? "承認しました。台帳を「キャンセル済み」にしました。" : "却下しました。台帳は変わっていません。", false);
+      } catch (e) {
+        agentMsg(agentErr(e, verb === "approve" ? "承認できませんでした。" : "却下できませんでした。"), true);
+      }
+      await loadAgent();
+      await refresh();
+    }
+    async function copyDraft(id) {
+      const ta = q("#draft-" + id);
+      if (!ta) return;
+      try {
+        await navigator.clipboard.writeText(ta.value);
+        agentMsg("下書きをコピーしました。", false);
+      } catch (e) {
+        ta.select();
+        agentMsg("コピーできませんでした。選択した文面を、手動でコピーしてください。", true);
+      }
+    }
+    q("#agentRun").onclick = runAgentNow;
+    q("#chipAgent").onclick = () => q("#agentSec").scrollIntoView({ behavior: "smooth" });
+    q("#demoResetBtn").onclick = async () => {
+      if (!confirm("デモの予約とエージェントの記録を、初期の状態に戻します。よろしいですか？")) return;
+      try {
+        await api("POST", "/api/demo/reset");
+        agentMsg("デモデータを初期の状態に戻しました。", false);
+      } catch (e) {
+        agentMsg(agentErr(e, "リセットできませんでした。"), true);
+      }
+      await loadAgent();
+      await refresh();
+    };
+    q("#agentSec").addEventListener("click", (ev) => {
+      const t = ev.target && ev.target.closest ? ev.target.closest("[data-approve],[data-reject],[data-copy]") : null;
+      if (!t) return;
+      if (t.dataset.approve) decideProposal(t.dataset.approve, "approve");
+      else if (t.dataset.reject) decideProposal(t.dataset.reject, "reject");
+      else if (t.dataset.copy) copyDraft(t.dataset.copy);
+    });
+
     async function boot() {
       const err = new URLSearchParams(location.search).get("auth_error");
       if (err) {
@@ -5556,6 +5926,7 @@
         }
       }
       await refresh();
+      loadAgent();
       routeHash();
       // 起動ビーコン（<body> 直後の <script>）への「ここまで来た」の合図。
       window.__plancelBooted = true;

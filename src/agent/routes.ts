@@ -60,6 +60,14 @@ export async function tokenMatches(provided: string | null, expected: string): P
   return diff === 0;
 }
 
+const URGENCY_RANK = { high: 0, normal: 1, low: 2 } as const;
+
+/** Pending proposals, most urgent first, then newest. */
+const pendingFirst = (proposals: Proposal[]) =>
+  proposals.filter((p) => p.status === "pending").sort((a, b) =>
+    URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency]
+  );
+
 const withProposals = (run: Run, byId: Map<string, Proposal>) => ({
   ...run,
   proposals: run.proposalIds.map((id) => byId.get(id)).filter((p): p is Proposal =>
@@ -119,7 +127,7 @@ export async function handleAgentRoute(req: Request, deps: AgentRouteDeps): Prom
       transport: deps.transport?.name ?? null,
       demo: deps.resetDemo !== undefined,
       runs: runs.map((r) => withProposals(r, byId)),
-      pending: proposals.filter((p) => p.status === "pending"),
+      pending: pendingFirst(proposals),
     });
   }
 

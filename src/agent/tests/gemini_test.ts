@@ -9,6 +9,7 @@ import {
   GeminiTransportError,
   HttpGeminiTransport,
   metadataTokenProvider,
+  quotaRetryDelayMs,
   selectTransport,
   vertexUrl,
 } from "../gemini.ts";
@@ -189,14 +190,19 @@ Deno.test("a list of models: the first that answers is kept for the whole conver
   assertEquals(seen[0], "overloaded");
 });
 
-Deno.test("every model failing surfaces the last error", async () => {
-  const fetchFn: typeof fetch = () => Promise.resolve(new Response("nope", { status: 404 }));
+Deno.test("every model failing surfaces the preferred model's error, not a later model's 404", async () => {
+  const fetchFn: typeof fetch = (input) =>
+    Promise.resolve(
+      String(input).includes("/a:")
+        ? new Response("busy", { status: 429 })
+        : new Response("gone", { status: 404 }),
+    );
   const t = selectTransport(env({ GEMINI_API_KEY: "k", PLANCEL_AGENT_MODEL: "a,b" }), {
     fetchFn,
     clock: new VirtualClock("2026-10-15T00:00:00Z"),
   })!;
   const err = await assertRejects(() => t.generate(REQ), GeminiTransportError);
-  assertEquals(err.status, 404);
+  assertEquals(err.status, 429);
 });
 
 Deno.test("an HTTP error carries the status and a clipped body, never the credential", async () => {
@@ -238,4 +244,39 @@ Deno.test("a 5xx is retried once, a 429 is not", async () => {
   });
   await assertRejects(() => quota.generate(REQ), GeminiTransportError);
   assertEquals(calls, 1);
+});
+
+Deno.test("a 429 that names a short wait is sat out once; a long or unstated one is not", async () => {
+  assertEquals(quotaRetryDelayMs('{"error":{"details":[{"retryDelay":"17s"}]}}'), 17_000);
+  assertEquals(quotaRetryDelayMs("Please retry in 2.5s."), 2_500);
+  assertEquals(quotaRetryDelayMs("You exceeded your current quota"), null);
+
+  const make = (bodyOf429: string, calls: { n: number }) =>
+    new HttpGeminiTransport({
+      name: "n",
+      model: "m",
+      url: "https://example.test/x",
+      headers: () => Promise.resolve({}),
+      retryDelayMs: 0,
+      maxQuotaWaitMs: 50,
+      fetchFn: () =>
+        Promise.resolve(
+          ++calls.n === 1 ? new Response(bodyOf429, { status: 429 }) : Response.json(OK),
+        ),
+    });
+
+  const short = { n: 0 };
+  await make('{"error":{"details":[{"retryDelay":"0.01s"}]}}', short).generate(REQ);
+  assertEquals(short.n, 2);
+
+  const long = { n: 0 };
+  await assertRejects(
+    () => make('{"error":{"details":[{"retryDelay":"3600s"}]}}', long).generate(REQ),
+    GeminiTransportError,
+  );
+  assertEquals(long.n, 1);
+
+  const unstated = { n: 0 };
+  await assertRejects(() => make("quota exceeded", unstated).generate(REQ), GeminiTransportError);
+  assertEquals(unstated.n, 1);
 });

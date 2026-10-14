@@ -12,7 +12,12 @@ import { isFinished } from "../web/lifecycle.ts";
 import { listReservations, type WebIds, type WebReservation } from "../web/store.ts";
 import { listUsers, type WebUser } from "../web/users.ts";
 import { jstOfEpoch } from "./loss.ts";
-import type { GeminiContent, GeminiPart, GeminiTransport } from "./gemini.ts";
+import {
+  type GeminiContent,
+  type GeminiPart,
+  type GeminiTransport,
+  GeminiTransportError,
+} from "./gemini.ts";
 import { acquireRunLock, listProposals, listRuns, putRun, releaseRunLock } from "./store.ts";
 import { AGENT_TOOLS, type RunState, sanitizeArgs, toolByName, type ToolCtx } from "./tools.ts";
 import type { Run, RunTrigger, Step } from "./types.ts";
@@ -43,7 +48,7 @@ export const AGENT_SYSTEM_PROMPT =
 - 確定済み（confirmed）の予約をキャンセル提案しない。終わった予約・キャンセル済みの予約には何もしない。
 - 日時・期限・金額は、ツールが返した値だけを使う。自分で計算し直さない。時刻は日本時間。
 - すでに提案済み（pending）の予約を提案し直さない。同じ内容の通知を繰り返さない。
-- ツール呼び出しは合計${MAX_TOOL_CALLS}回まで。
+- ツール呼び出しは合計${MAX_TOOL_CALLS}回まで。互いに依存しない呼び出し（複数の estimate_loss など）は、1回の応答にまとめて出す。
 - 最後に、何を見て、何を提案・通知したかを日本語3〜5文で報告する。対応が要らなければ「対応が必要な予約はありません」と書く。`;
 
 export interface AgentDeps {
@@ -69,6 +74,20 @@ async function fingerprintOf(rows: WebReservation[]): Promise<string> {
 }
 
 const clip = (s: string, n: number) => s.length > n ? s.slice(0, n) + "…" : s;
+
+/** What a failed run says on screen: a reason a person can act on, not the provider's JSON. */
+export function describeFailure(err: unknown): string {
+  if (err instanceof GeminiTransportError) {
+    if (err.status === 429) {
+      return "Gemini の利用上限（429）に達しました。少し待ってから、もう一度実行してください。";
+    }
+    if (err.status >= 500) {
+      return `Gemini が混み合っています（${err.status}）。少し待ってから、もう一度実行してください。`;
+    }
+    return `Gemini に受け付けられませんでした（${err.status}）。`;
+  }
+  return clip(String(err instanceof Error ? err.message : err).replace(/\s+/g, " "), 200);
+}
 
 function kickoff(
   nowMs: number,
@@ -164,8 +183,8 @@ export async function runAgentForUser(
     }
   } catch (err) {
     run.status = "error";
-    run.error = clip(String(err instanceof Error ? err.message : err), 400);
-    log.error("agent run failed", { userId: user.id, err: run.error });
+    run.error = describeFailure(err);
+    log.error("agent run failed", { userId: user.id, err: clip(String(err), 300) });
   } finally {
     run.finishedAt = deps.ids.nowIso();
     run.transport = deps.transport.name;

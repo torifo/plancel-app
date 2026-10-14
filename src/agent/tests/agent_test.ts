@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
 import { getReservation, listReservations } from "../../web/store.ts";
 import { deleteAccount } from "../../web/users.ts";
+import { GeminiTransportError } from "../gemini.ts";
 import { MAX_TOOL_CALLS, runAgentForUser, UNCHANGED_RECHECK_MS } from "../runner.ts";
 import { acquireRunLock, listProposals, listRuns, MANUAL_RUNS_PER_HOUR } from "../store.ts";
 import { tokenMatches } from "../routes.ts";
@@ -459,4 +460,21 @@ Deno.test("tokenMatches: equal secrets match, anything else does not (including 
   assertEquals(await tokenMatches("abcd", "abc"), false);
   assertEquals(await tokenMatches("", "abc"), false);
   assertEquals(await tokenMatches(null, "abc"), false);
+});
+
+Deno.test("a provider quota or overload is reported in words, not as the provider's JSON", async () => {
+  await withWorld(async (w) => {
+    const failing = (status: number) => ({
+      name: "gemini-api",
+      model: "m",
+      generate: () =>
+        Promise.reject(new GeminiTransportError("gemini-api", status, '{"error":{"code":429}}')),
+    });
+    const quota = await (await call(w.deps(failing(429)), "POST", "/api/agent/run", w.demo)).json();
+    assertEquals(quota.run.status, "error");
+    assertStringIncludes(quota.run.error, "利用上限");
+    assert(!quota.run.error.includes("{"));
+    const busy = await (await call(w.deps(failing(503)), "POST", "/api/agent/run", w.demo)).json();
+    assertStringIncludes(busy.run.error, "混み合って");
+  });
 });
