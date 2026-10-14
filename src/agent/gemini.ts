@@ -19,6 +19,7 @@ export const AGENT_DEFAULT_MODELS = [
   "gemini-flash-latest",
   "gemini-3-flash-preview",
   "gemini-2.5-flash",
+  "gemini-flash-lite-latest",
 ];
 export const AGENT_DEFAULT_MODEL = AGENT_DEFAULT_MODELS[0]!;
 export const VERTEX_DEFAULT_LOCATION = "asia-northeast1";
@@ -80,10 +81,7 @@ export interface GeminiTransport {
   readonly name: string;
   readonly model: string;
   generate(req: GeminiRequest): Promise<GeminiResponse>;
-  /**
-   * A handle that stays on one model for a whole conversation. A model's thought signatures
-   * are only valid for that model, so a run never switches models half-way.
-   */
+  /** A handle for one conversation: it stays on whichever model last answered, moving only on failure. */
   forRun?(): GeminiTransport;
 }
 
@@ -206,9 +204,10 @@ export class HttpGeminiTransport implements GeminiTransport {
 const STICKY_MS = 5 * 60_000;
 
 /**
- * Tries the chain in order for the first turn of a conversation, then stays on whichever answered.
- * The next conversation starts with that one (for a few minutes) rather than re-learning that the
- * preferred model is down.
+ * Tries the chain in order, then stays on whichever answered; the next conversation starts with that
+ * one (for a few minutes) instead of re-learning that the preferred model is down. A conversation
+ * also moves on mid-way when its model fails: thought signatures from one Gemini 3 model were
+ * accepted by another (measured 2026-10-15), whereas stripping them is a 400.
  */
 export class FallbackTransport implements GeminiTransport {
   #preferred: { index: number; untilMs: number } | null = null;
@@ -249,28 +248,31 @@ export class FallbackTransport implements GeminiTransport {
 }
 
 class PinnedConversation implements GeminiTransport {
-  #pinned: GeminiTransport | null = null;
+  #current: GeminiTransport | null = null;
   constructor(private readonly parent: FallbackTransport) {}
 
   get name(): string {
-    return (this.#pinned ?? this.parent.order()[0]!).name;
+    return (this.#current ?? this.parent.order()[0]!).name;
   }
   get model(): string {
-    return (this.#pinned ?? this.parent.order()[0]!).model;
+    return (this.#current ?? this.parent.order()[0]!).model;
   }
 
   async generate(req: GeminiRequest): Promise<GeminiResponse> {
-    if (this.#pinned !== null) return await this.#pinned.generate(req);
+    const current = this.#current;
+    const tries = current === null
+      ? this.parent.order()
+      : [current, ...this.parent.order().filter((t) => t !== current)];
     let failure: unknown;
     let failed = false;
-    for (const t of this.parent.order()) {
+    for (const t of tries) {
       try {
         const res = await t.generate(req);
-        this.#pinned = t;
+        this.#current = t;
         this.parent.prefer(t);
         return res;
       } catch (err) {
-        // The preferred model's failure is the informative one; later ones are often just "not offered".
+        // The first failure is the informative one; later ones are often just "not offered".
         if (!failed) failure = err;
         failed = true;
         logger("agent.gemini").warn("transport failed, trying the next", {

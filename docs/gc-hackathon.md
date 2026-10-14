@@ -42,7 +42,7 @@ flowchart LR
 - 判断の記録（観測/判断/実行、引数、結果、最終報告、提案の状態）はユーザーごとに KV へ残り、画面の「エージェントの判断の記録」に出る。
 - 台帳が前回から変わらず 6 時間以内なら、定期実行はモデルを呼ばない（15 分ごとに課金されない）。
 - ユーザーごとに KV のキーが分かれ、他人の実行・提案には届かない。手動実行は 1 時間 12 回まで。
-- Gemini の接続は小さなインターフェースの後ろ。`PLANCEL_VERTEX_PROJECT` があれば Vertex AI、なければ `GEMINI_API_KEY`（両方あれば Vertex を先に試す）。`PLANCEL_AGENT_MODEL` はカンマ区切りで順に試す。一度の実行は最初に答えたモデルのまま続ける（thought signature はモデル間で使えないため）。
+- Gemini の接続は小さなインターフェースの後ろ。`PLANCEL_VERTEX_PROJECT` があれば Vertex AI、なければ `GEMINI_API_KEY`（両方あれば Vertex を先に試す）。`PLANCEL_AGENT_MODEL` はカンマ区切りで順に試す。実行は答えたモデルで続け、そのモデルが途中で失敗したら次のモデルへ移って続行する（Gemini 3 系どうしで thought signature がそのまま通ることを確認済み。削ると 400）。
 
 HTTP:
 
@@ -65,7 +65,7 @@ HTTP:
 | `PLANCEL_AGENT_TOKEN` | `/agent/run` の共有シークレット。未設定なら `/agent/run` は 503。 |
 | `PLANCEL_VERTEX_PROJECT` | 設定すると Vertex AI を使う。 |
 | `PLANCEL_VERTEX_LOCATION` | 既定 `asia-northeast1`。`global` も可（ホストは `aiplatform.googleapis.com`）。 |
-| `PLANCEL_AGENT_MODEL` | モデル ID、またはカンマ区切りの順序つき一覧。既定 `gemini-flash-latest,gemini-3-flash-preview,gemini-2.5-flash`。 |
+| `PLANCEL_AGENT_MODEL` | モデル ID、またはカンマ区切りの順序つき一覧。既定 `gemini-flash-latest,gemini-3-flash-preview,gemini-2.5-flash,gemini-flash-lite-latest`（最後は精度より可用性のための予備）。 |
 | `GEMINI_API_KEY` | Gemini API を使う場合の鍵（Vertex が無い環境、または Vertex の予備）。 |
 | `PLANCEL_MAX_USERS` | 新規登録の上限（既定 50）。公開デモでは小さくする。 |
 

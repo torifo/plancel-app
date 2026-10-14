@@ -154,7 +154,7 @@ Deno.test("Vertex first, the API key as fallback; the wire that answered is the 
   assertEquals(seen.filter((u) => u.includes("generateContent")).length, 2);
 });
 
-Deno.test("a list of models: the first that answers is kept for the whole conversation, then preferred for a while", async () => {
+Deno.test("a list of models: the one that answers is kept, then preferred by later conversations for a while", async () => {
   const seen: string[] = [];
   const fetchFn: typeof fetch = (input) => {
     const url = String(input);
@@ -279,4 +279,30 @@ Deno.test("a 429 that names a short wait is sat out once; a long or unstated one
   const unstated = { n: 0 };
   await assertRejects(() => make("quota exceeded", unstated).generate(REQ), GeminiTransportError);
   assertEquals(unstated.n, 1);
+});
+
+Deno.test("a conversation whose model starts failing mid-way moves to the next model and carries on there", async () => {
+  const seen: string[] = [];
+  let steadyCalls = 0;
+  const fetchFn: typeof fetch = (input) => {
+    const model = String(input).match(/models\/([^:]+):/)![1]!;
+    seen.push(model);
+    if (model === "steady" && ++steadyCalls > 1) {
+      return Promise.resolve(new Response("busy", { status: 503 }));
+    }
+    return Promise.resolve(Response.json(OK));
+  };
+  const t = selectTransport(env({ GEMINI_API_KEY: "k", PLANCEL_AGENT_MODEL: "steady,spare" }), {
+    fetchFn,
+    clock: new VirtualClock("2026-10-15T00:00:00Z"),
+    retryDelayMs: 0,
+  })!;
+  const conversation = t.forRun!();
+  await conversation.generate(REQ);
+  assertEquals(conversation.model, "steady");
+  await conversation.generate(REQ); // steady 503s (retried once), spare answers
+  assertEquals(conversation.model, "spare");
+  seen.length = 0;
+  await conversation.generate(REQ);
+  assertEquals(seen, ["spare"]);
 });
