@@ -42,6 +42,8 @@
  *   PLANCEL_MAIL_DAILY_CAP (accepted forwards per user per day, default 50)
  *   PLANCEL_DEMO=1 / PLANCEL_DEMO_PASSWORD (test-account deployment: seeds the
  *     demo user on an empty store and switches LINE/mail/Google/dev-login off)
+ *   PLANCEL_DEMO_SANDBOX_MAX (concurrent 「デモを始める」 sandboxes, default 100) /
+ *     PLANCEL_DEMO_START_PER_HOUR (per-IP starts, default 10)
  *   PLANCEL_AGENT_TOKEN (shared secret for POST /agent/run, i.e. Cloud Scheduler)
  *   PLANCEL_VERTEX_PROJECT / PLANCEL_VERTEX_LOCATION / PLANCEL_AGENT_MODEL (the
  *     agent's Gemini: Vertex AI via the service account, else GEMINI_API_KEY)
@@ -92,6 +94,17 @@ import { handleAdminDateAudit, isAdminDateAuditPath } from "../web/date-audit.ts
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
 import { demoEnv, resetDemoLedger, seedDemoIfEmpty } from "./demo.ts";
+import {
+  demoSweepUsers,
+  handleDemoStart,
+  isSandbox,
+  markDemoHtml,
+  SANDBOX_MAX_DEFAULT,
+  type SandboxDeps,
+  START_PER_HOUR_DEFAULT,
+  StartRateLimiter,
+  touchSandbox,
+} from "./sandbox.ts";
 import { selectTransport } from "../agent/gemini.ts";
 import { type AgentRouteDeps, handleAgentRoute, isAgentPath } from "../agent/routes.ts";
 
@@ -157,7 +170,8 @@ if (import.meta.main) {
   log.info("webhook configured", { enabled: webhookDeps !== null });
 
   // Web UI served at `/` (read once at startup; the repo file ships with the deploy).
-  const INDEX_HTML = await Deno.readTextFile(new URL("../../web/index.html", import.meta.url));
+  const indexSource = await Deno.readTextFile(new URL("../../web/index.html", import.meta.url));
+  const INDEX_HTML = demo ? markDemoHtml(indexSource) : indexSource;
   const pwaAssets = await loadPwaAssets();
   const htmlHeaders = { "content-type": "text/html; charset=utf-8" };
 
@@ -484,7 +498,14 @@ if (import.meta.main) {
     ids: webIds,
     transport: agentTransport,
     agentToken: env.get("PLANCEL_AGENT_TOKEN"),
-    resolveUser: async (req) => (await resolveIdentity(req, authDeps)).user,
+    resolveUser: async (req) => {
+      const user = (await resolveIdentity(req, authDeps)).user;
+      // Using the app is what keeps a demo sandbox in the scheduler's sights.
+      if (demo && user !== null) {
+        await touchSandbox(store.kv, user.id, clock.now().epochMilliseconds);
+      }
+      return user;
+    },
     onMutate: (user, resvId) => {
       if (user.google === null) return;
       requestSync(syncDeps, user.id, resvId).catch((err) =>
@@ -493,24 +514,51 @@ if (import.meta.main) {
     },
     ...(demo
       ? {
-        resetDemo: (user) =>
-          resetDemoLedger({
-            kv: store.kv,
-            clock,
-            ids: authIds,
-            password: undefined,
-          }, user),
+        resetDemo: async (user) =>
+          resetDemoLedger(
+            {
+              kv: store.kv,
+              clock,
+              ids: authIds,
+              password: undefined,
+            },
+            user,
+            { sandbox: await isSandbox(store.kv, user.id) },
+          ),
+        // Demo: the fixed account and recently used sandboxes only, so Gemini use stays small.
+        sweepUsers: () => demoSweepUsers(store.kv, clock.now().epochMilliseconds),
+        isSandbox: (user) => isSandbox(store.kv, user.id),
       }
       : {}),
   };
+  // 「デモを始める」: a private seeded sandbox per visitor (demo mode only; elsewhere the route 404s).
+  const positiveInt = (raw: string | undefined, fallback: number) => {
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : fallback;
+  };
+  const sandboxDeps: SandboxDeps | null = demo
+    ? {
+      kv: store.kv,
+      clock,
+      ids: authIds,
+      max: positiveInt(env.get("PLANCEL_DEMO_SANDBOX_MAX"), SANDBOX_MAX_DEFAULT),
+      limiter: new StartRateLimiter(
+        positiveInt(env.get("PLANCEL_DEMO_START_PER_HOUR"), START_PER_HOUR_DEFAULT),
+      ),
+    }
+    : null;
   log.info("agent configured", {
     transport: agentTransport?.name ?? null,
     model: agentTransport?.model ?? null,
     schedulerTrigger: agentDeps.agentToken !== undefined && agentDeps.agentToken !== "",
   });
 
-  Deno.serve({ port: Number(env.get("PORT") ?? "8000") }, async (req) => {
+  Deno.serve({ port: Number(env.get("PORT") ?? "8000") }, async (req, info) => {
     const url = new URL(req.url);
+    if (url.pathname === "/api/demo/start") {
+      const remote = info.remoteAddr.transport === "tcp" ? info.remoteAddr.hostname : undefined;
+      return await handleDemoStart(req, sandboxDeps, remote);
+    }
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return new Response(INDEX_HTML, { headers: htmlHeaders });
     }

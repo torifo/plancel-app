@@ -113,6 +113,8 @@ const RESV_MEMBERS = "resv_members";
 // The cancellation agent's per-user records (src/agent/store.ts).
 const AGENT_RUN = "agent_run";
 const AGENT_PROPOSAL = "agent_proposal";
+/** Registry of demo sandbox users (src/deploy/sandbox.ts); they are not counted as signups. */
+export const SANDBOX_PREFIX = "sandbox";
 // Reservation store layout (mirrors store.ts NS/RESV) — kept local so this
 // module stays free of a store.ts import.
 const WEB_NS = "web";
@@ -163,10 +165,11 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** Total registered users — the signup-cap gate (owner 2026-07-23). */
+/** Registered users — the signup-cap gate (owner 2026-07-23). Demo sandboxes do not count. */
 export async function countUsers(kv: Deno.Kv): Promise<number> {
   let n = 0;
   for await (const _ of kv.list({ prefix: [USER] })) n++;
+  for await (const _ of kv.list({ prefix: [SANDBOX_PREFIX] })) n--;
   return n;
 }
 
@@ -794,6 +797,7 @@ export async function deleteAccount(
 
   // 3. the user record + every unique index that resolves to it.
   await kv.delete([USER, userId]);
+  await kv.delete([SANDBOX_PREFIX, userId]);
   await kv.delete([BY_EMAIL, user.email]);
   if (user.altEmail !== null) await kv.delete([BY_EMAIL, user.altEmail]);
   if (user.google !== null) await kv.delete([BY_GOOGLE, user.google.sub]);
@@ -813,11 +817,14 @@ export async function deleteAccount(
 
 const sessionSchema = z.object({ userId: z.string(), expiresAt: z.number() });
 
-export async function createSession(kv: Deno.Kv, userId: string, ids: AuthIds): Promise<string> {
+export async function createSession(
+  kv: Deno.Kv,
+  userId: string,
+  ids: AuthIds,
+  ttlMs: number = SESSION_TTL_MS,
+): Promise<string> {
   const sid = ids.randomToken();
-  await kv.set([SESSION, sid], { userId, expiresAt: ids.nowMs() + SESSION_TTL_MS }, {
-    expireIn: SESSION_TTL_MS,
-  });
+  await kv.set([SESSION, sid], { userId, expiresAt: ids.nowMs() + ttlMs }, { expireIn: ttlMs });
   return sid;
 }
 

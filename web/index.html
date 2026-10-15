@@ -346,6 +346,17 @@
     .databar .txt b {
       color: var(--ink);
     }
+    /* デモ環境（サーバが <html data-demo="1"> を付けたときだけ）: 「デモを始める」を出し、動かない Google ログインは隠す */
+    #demoStartBox {
+      display: none;
+    }
+    html[data-demo="1"] #demoStartBox {
+      display: block;
+    }
+    html[data-demo="1"] #googleLoginBtn,
+    html[data-demo="1"] #googleDivider {
+      display: none;
+    }
     .demobar {
       display: none;
       align-items: center;
@@ -2170,6 +2181,11 @@
 
     <div class="wrap">
       <div id="ledgerView">
+      <div class="demobar" id="sandboxBar" role="status">
+        <div><b>これはデモ用の環境です。データは一定時間で消えます。</b></div>
+        <button class="btn-small" id="sandboxResetBtn" type="button">デモデータをリセット</button>
+      </div>
+
       <div class="databar" id="dataBar">
         <div class="txt"><b>自分のデータ</b>　ログイン中: <span id="meEmail">…</span></div>
         <button class="btn-small" id="demoBtn">デモを見る</button>
@@ -2693,8 +2709,13 @@
       <div class="modal" style="max-width:400px">
         <h3 style="margin-bottom:6px">plancel にログイン</h3>
         <p class="hint" style="margin-bottom:14px">予約台帳はアカウントに紐づきます。Google でログインするか、メールアドレス（またはユーザーID）とパスワードでログインしてください。初めてのときは「新規登録」で作れます。</p>
+        <div id="demoStartBox">
+          <button class="btn-primary" id="demoStartBtn" type="button" style="width:100%;padding:14px 18px;font-size:calc(15px * var(--fs))">デモを始める（ログイン不要）</button>
+          <div class="hint" style="text-align:center;margin:8px 0 0">あなた専用のサンプル台帳がその場で作られます。入力するものはありません。</div>
+          <div class="hint" style="text-align:center;margin:12px 0">— または、アカウントをお持ちの方は —</div>
+        </div>
         <button class="btn-primary" id="googleLoginBtn" style="width:100%">Google でログイン</button>
-        <div class="hint" style="text-align:center;margin:10px 0">— またはメールアドレスで —</div>
+        <div class="hint" id="googleDivider" style="text-align:center;margin:10px 0">— またはメールアドレスで —</div>
         <label>メールアドレスまたはユーザーID</label>
         <input id="loginEmail" placeholder="you@example.com ／ planceluser" autocomplete="username">
         <label>パスワード（8文字以上）</label>
@@ -2885,6 +2906,7 @@
       return res.json();
     }
     let data = [];
+    let IS_SANDBOX = false; // デモの使い捨て環境（サーバが /api/agent/runs で教える）
     let editingId = null;
     // 編集中の予約が持っていた終了時刻（"HH:MM"）。フォームは終了「日」しか見せない
     // ので、読み取れていた時刻をここに退避して保存時に戻す。
@@ -3259,7 +3281,7 @@
       q("#demoBar").classList.toggle("on", viewingDemo);
       // エージェントは本物の台帳を見張るので、組み込みのデモ表示中は出さない。
       q("#agentSec").style.display = viewingDemo ? "none" : "";
-      if (ME) q("#meEmail").textContent = ME.email;
+      if (ME) q("#meEmail").textContent = IS_SANDBOX ? "デモ体験" : ME.email;
       const now = Date.now();
       const live = data.filter((r) => r.status !== "cancelled");
       // 台帳＝これから起こること。終わった予約は履歴へ落とし、合計からも外す
@@ -5801,6 +5823,12 @@
     function renderAgent() {
       const d = agentData;
       if (!d) return;
+      IS_SANDBOX = !!d.sandbox;
+      q("#sandboxBar").classList.toggle("on", IS_SANDBOX);
+      if (IS_SANDBOX) {
+        q("#meEmail").textContent = "デモ体験";
+        q("#demoBtn").style.display = "none"; // 組み込みの見本表示は、この環境では紛らわしい
+      }
       q("#agentRun").disabled = agentBusy || !d.configured;
       // 台帳の上の帯に件数を出し、下にある節へ案内する（承認待ちが見落とされないように）。
       q("#chipAgent").style.display = d.pending.length ? "" : "none";
@@ -5860,7 +5888,7 @@
     }
     q("#agentRun").onclick = runAgentNow;
     q("#chipAgent").onclick = () => q("#agentSec").scrollIntoView({ behavior: "smooth" });
-    q("#demoResetBtn").onclick = async () => {
+    async function resetDemoData() {
       if (!confirm("デモの予約とエージェントの記録を、初期の状態に戻します。よろしいですか？")) return;
       try {
         await api("POST", "/api/demo/reset");
@@ -5870,6 +5898,27 @@
       }
       await loadAgent();
       await refresh();
+    }
+    q("#demoResetBtn").onclick = resetDemoData;
+    q("#sandboxResetBtn").onclick = resetDemoData;
+    // 「デモを始める」: サーバが専用のサンプル台帳とセッションを用意するので、成功したら読み込み直すだけ。
+    q("#demoStartBtn").onclick = async () => {
+      const btn = q("#demoStartBtn");
+      btn.disabled = true;
+      q("#loginMsg").textContent = "デモの台帳を用意しています…";
+      try {
+        const res = await fetch("/api/demo/start", { method: "POST" });
+        if (res.ok) {
+          location.reload();
+          return;
+        }
+        q("#loginMsg").textContent = res.status === 429
+          ? "短い間に何度も開始されました。しばらく待ってから、もう一度お試しください。"
+          : "デモを始められませんでした。もう一度お試しください。";
+      } catch (e) {
+        q("#loginMsg").textContent = LINE_OFFLINE;
+      }
+      btn.disabled = false;
     };
     q("#agentSec").addEventListener("click", (ev) => {
       const t = ev.target && ev.target.closest ? ev.target.closest("[data-approve],[data-reject],[data-copy]") : null;

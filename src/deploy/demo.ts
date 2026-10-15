@@ -196,9 +196,13 @@ export async function seedDemoIfEmpty(deps: DemoDeps): Promise<DemoSeedResult> {
   return { status: "seeded", user, reservations };
 }
 
-/** Wipes the demo account's ledger and agent history and files the demo ledger afresh (demo user only). */
-export async function resetDemoLedger(deps: DemoDeps, user: WebUser): Promise<boolean> {
-  if (user.email !== DEMO_EMAIL) return false;
+/** Wipes a demo ledger and its agent history and files the sample again (demo account or sandbox only). */
+export async function resetDemoLedger(
+  deps: DemoDeps,
+  user: WebUser,
+  opts: { sandbox?: boolean } = {},
+): Promise<boolean> {
+  if (user.email !== DEMO_EMAIL && opts.sandbox !== true) return false;
   for await (const e of deps.kv.list({ prefix: ["web", user.ledgerId] })) {
     await deps.kv.delete(e.key);
   }

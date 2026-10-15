@@ -333,9 +333,9 @@ export interface SweepResult {
 /** Cloud Scheduler's entry: every user in turn (sequentially, to stay inside the model quota). */
 export async function runAgentSweep(
   deps: AgentDeps,
-  opts: { maxUsers?: number } = {},
+  opts: { maxUsers?: number; users?: WebUser[] } = {},
 ): Promise<SweepResult[]> {
-  const users = (await listUsers(deps.kv)).slice(0, opts.maxUsers ?? SWEEP_MAX_USERS);
+  const users = (opts.users ?? await listUsers(deps.kv)).slice(0, opts.maxUsers ?? SWEEP_MAX_USERS);
   const results: SweepResult[] = [];
   for (const user of users) {
     const o = await runAgentForUser(deps, user, "scheduler");

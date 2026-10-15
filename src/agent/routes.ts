@@ -37,6 +37,10 @@ export interface AgentRouteDeps {
   onMutate?(user: WebUser, reservationId: string): void;
   /** Present only on a demo deployment; refiles the demo account's ledger. */
   resetDemo?(user: WebUser): Promise<boolean>;
+  /** Whom the scheduler runs for. Unset: every user. Demo deployments narrow it. */
+  sweepUsers?(): Promise<WebUser[]>;
+  /** True for a demo sandbox user (the UI shows its banner). */
+  isSandbox?(user: WebUser): Promise<boolean>;
 }
 
 export function isAgentPath(pathname: string): boolean {
@@ -88,7 +92,11 @@ export async function handleAgentRoute(req: Request, deps: AgentRouteDeps): Prom
       return json({ error: "unauthorized" }, 401);
     }
     if (deps.transport === null) return json({ error: "agent_not_configured" }, 503);
-    const results = await runAgentSweep({ ...deps, transport: deps.transport });
+    const users = deps.sweepUsers === undefined ? undefined : await deps.sweepUsers();
+    const results = await runAgentSweep(
+      { ...deps, transport: deps.transport },
+      users === undefined ? {} : { users },
+    );
     return json({
       ran: results.filter((r) => r.status === "ran").length,
       skipped: results.filter((r) => r.status === "skipped").length,
@@ -126,6 +134,7 @@ export async function handleAgentRoute(req: Request, deps: AgentRouteDeps): Prom
       model: deps.transport?.model ?? null,
       transport: deps.transport?.name ?? null,
       demo: deps.resetDemo !== undefined,
+      sandbox: await deps.isSandbox?.(user) ?? false,
       runs: runs.map((r) => withProposals(r, byId)),
       pending: pendingFirst(proposals),
     });
