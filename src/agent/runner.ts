@@ -12,6 +12,7 @@ import { isFinished } from "../web/lifecycle.ts";
 import { listReservations, type WebIds, type WebReservation } from "../web/store.ts";
 import { listUsers, type WebUser } from "../web/users.ts";
 import { jstOfEpoch } from "./loss.ts";
+import { plainText } from "./plain.ts";
 import {
   type GeminiContent,
   type GeminiPart,
@@ -49,6 +50,8 @@ export const AGENT_SYSTEM_PROMPT =
 - 日時・期限・金額は、ツールが返した値だけを使う。自分で計算し直さない。時刻は日本時間。
 - すでに提案済み（pending）の予約を提案し直さない。同じ内容の通知を繰り返さない。
 - ツール呼び出しは合計${MAX_TOOL_CALLS}回まで。互いに依存しない呼び出し（複数の estimate_loss など）は、1回の応答にまとめて出す。
+- 書くものはすべて Markdown を使わない平文にする（**、__、#、バッククォート、行頭の * や - を使わない。並べるときは「・」）。
+- 予約の状態は画面の言葉で呼ぶ: 要キャンセル・候補・確定・キャンセル済み。to_cancel や candidate などの内部の識別子、予約IDは文章に書かない。
 - 最後に、何を見て、何を提案・通知したかを日本語3〜5文で報告する。対応が要らなければ「対応が必要な予約はありません」と書く。`;
 
 export interface AgentDeps {
@@ -227,7 +230,12 @@ async function converse(
     state,
   };
   const step = (s: Omit<Step, "seq" | "at">) =>
-    run.steps.push({ seq: run.steps.length + 1, at: deps.ids.nowIso(), ...s });
+    run.steps.push({
+      seq: run.steps.length + 1,
+      at: deps.ids.nowIso(),
+      ...s,
+      result: s.result === null ? null : plainText(s.result),
+    });
 
   const contents: GeminiContent[] = [
     { role: "user", parts: [{ text: kickoff(nowMs, trigger, state) }] },
@@ -265,7 +273,7 @@ async function converse(
         .map((p) => p.text).join("").trim();
       const calls = parts.filter((p) => p.functionCall !== undefined);
       if (calls.length === 0) {
-        run.summary = text === "" ? null : text;
+        run.summary = text === "" ? null : plainText(text);
         return;
       }
       if (text !== "") step({ phase: "decide", tool: null, args: null, result: clip(text, 500) });

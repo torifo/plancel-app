@@ -18,6 +18,7 @@ import type { WebReservation } from "../web/store.ts";
 import type { WebUser } from "../web/users.ts";
 import type { FunctionDeclaration } from "./gemini.ts";
 import { estimateLoss, jstOfEpoch } from "./loss.ts";
+import { plainText, STATUS_LABEL } from "./plain.ts";
 import { putProposal } from "./store.ts";
 import {
   type Notification,
@@ -196,7 +197,7 @@ const getReservationTool: AgentTool = {
     const rows = await listReservations(ctx.kv, ctx.ledger);
     return {
       response: { reservation: viewOf(r, rows, nowMs) },
-      summary: `${r.service}（${r.status}）`,
+      summary: `${r.service}（${STATUS_LABEL[r.status] ?? r.status}）`,
     };
   },
 };
@@ -312,8 +313,8 @@ const proposeTool: AgentTool = {
       reservationId: r.id,
       service: r.service,
       startsAt: presentReservation(r as ApiReservation, nowMs).startsAt,
-      reason: a.reason,
-      draftMessage: a.draft_message,
+      reason: plainText(a.reason),
+      draftMessage: plainText(a.draft_message),
       urgency: a.urgency,
       estimate: {
         pctNow: loss.now.pct,
@@ -406,8 +407,8 @@ const notifyTool: AgentTool = {
       id: ctx.ids.newId(),
       at: ctx.ids.nowIso(),
       level: a.level,
-      title: a.title,
-      body: a.body,
+      title: plainText(a.title),
+      body: plainText(a.body),
       reservationIds: a.reservation_ids,
     };
     ctx.state.notifications.push(n);
@@ -433,8 +434,10 @@ export const toolByName = (name: string): AgentTool | undefined =>
 export function sanitizeArgs(args: Record<string, unknown> | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args ?? {}).slice(0, 12)) {
-    if (typeof v === "string") out[k] = v.length > 240 ? v.slice(0, 240) + "…" : v;
-    else if (typeof v === "number" || typeof v === "boolean" || v === null) out[k] = v;
+    if (typeof v === "string") {
+      const t = plainText(v);
+      out[k] = t.length > 240 ? t.slice(0, 240) + "…" : t;
+    } else if (typeof v === "number" || typeof v === "boolean" || v === null) out[k] = v;
     else out[k] = JSON.stringify(v).slice(0, 240);
   }
   return out;
