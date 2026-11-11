@@ -492,3 +492,59 @@ Deno.test("web-api MCP: an API error code comes with a Japanese next step (issue
     assertStringIncludes(parsed(r).hint, "未登録");
   });
 });
+
+Deno.test("web-api MCP: a duplicate answer says nothing was created", async () => {
+  const { fetchFn } = scriptedApi(() => ({ status: 200, json: { reservations: [ROW] } }));
+  await withClient(fetchFn, async (client) => {
+    const dup = parsed(
+      await client.callTool({
+        name: "create_reservation",
+        arguments: { service: "鮨さいとう", startsAt: "2026-12-20T19:00:00+09:00" },
+      }),
+    );
+    assertEquals(dup.created, false);
+  });
+});
+
+Deno.test("pairing_status with a token from env names the ledger instead of saying 'not paired'", async () => {
+  // main.ts always passes `pairing`; with PLANCEL_API_TOKEN the pairing state
+  // stays idle while the token works. The answer used to be 「連携していません」.
+  const { fetchFn } = fakeApi();
+  const { cfg } = pairingHarness({ token: "env-token", state: "idle" });
+  await withPairedClient({ ...cfg, fetchFn }, async (client) => {
+    const r = await client.callTool({ name: "pairing_status", arguments: {} });
+    assertStringIncludes(textOf(r), "接続先");
+    assertStringIncludes(textOf(r), "plancel.test");
+    assertEquals(textOf(r).includes("連携していません"), false);
+  });
+  // A local server is not 「本番」.
+  await withPairedClient(
+    { ...cfg, baseUrl: "http://localhost:18097", fetchFn },
+    async (client) => {
+      const r = await client.callTool({ name: "pairing_status", arguments: {} });
+      assertStringIncludes(textOf(r), "開発用");
+      assertEquals(textOf(r).includes("本番"), false);
+    },
+  );
+});
+
+Deno.test("web-api MCP: descriptions say how stages, plans and 要キャンセル work", async () => {
+  const { fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    const { tools } = await client.listTools();
+    const tool = (name: string) => tools.find((t: { name: string }) => t.name === name)!;
+    const props = tool("create_reservation").inputSchema.properties as Record<
+      string,
+      { description: string }
+    >;
+    // 「3日前まで無料、そのあと50%、当日100%」 written out, so `h` is not guessed.
+    assertStringIncludes(
+      props.policy!.description,
+      '{"h":72,"pct":0},{"h":24,"pct":50},{"h":0,"pct":100}',
+    );
+    assertStringIncludes(props.plan!.description, "同じプラン名の中で確定できるのは1件");
+    const confirm = tool("confirm_reservation").description!;
+    assertStringIncludes(confirm, "お店に取り消しの連絡");
+    assertStringIncludes(confirm, "cancel_reservation");
+  });
+});

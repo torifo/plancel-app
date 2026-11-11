@@ -354,8 +354,21 @@ export async function confirmReservationWithEffects(
     const targetEntry = await kv.get<WebReservation>(key(token, id));
     if (targetEntry.value === null) return null;
     const cur = webReservationSchema.parse(targetEntry.value);
-    if (cur.status !== "candidate") {
-      throw new WebTransitionError("confirm", cur.status);
+    // `replace` also takes back a reservation the first choice turned to_cancel:
+    // 「やっぱりこっち」 is one step, not a restore and then a confirm (2026-11-11).
+    if (cur.status !== "candidate" && !(replace && cur.status === "to_cancel")) {
+      throw new WebTransitionError(
+        "confirm",
+        cur.status,
+        undefined,
+        cur.status === "to_cancel"
+          ? {
+            hint:
+              "この予約は要キャンセルになっています。こちらを確定に戻すなら confirm_reservation を " +
+              "replace: true で呼んでください（いま確定済みの方が要キャンセルになります）。",
+          }
+          : {},
+      );
     }
 
     const now = ids.nowIso();

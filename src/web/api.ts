@@ -320,7 +320,7 @@ export async function handleWebApi(
         past.hint,
         settled.hint,
         policySource === "unknown"
-          ? "キャンセル規定が不明なので、キャンセル期限を見張れません。規定が分かったら " +
+          ? "キャンセル規定が不明なので、キャンセル期限を見張れません。推測で入れず、ユーザーに確認して規定が分かったら " +
             "update_reservation（画面では「日付変更・編集」）の policy に入れてください。"
           : undefined,
       ].filter((h): h is string => h !== undefined);

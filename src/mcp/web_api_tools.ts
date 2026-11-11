@@ -68,7 +68,10 @@ export type PairingStateView =
 /** Presets stay one word; any other policy goes through the stage table. */
 const POLICY_DESC =
   'キャンセル規定: "unknown"/"none"(いつでも無料)/"free24"(前日まで無料)/"staged"(7日前まで無料→30%→50%→100%) ' +
-  'または任意の段階 {"stages":[{"h":120,"pct":0},{"h":0,"pct":100}]}（h=開始までの残り時間, pct=料率%、最後は h=0）';
+  "または任意の段階。各段階は「開始の h 時間前の日いっぱいまで pct%」で、h は日数×24（前日=24、3日前=72、" +
+  "当日=0）、期限は時刻でなくその日の終わりで切る。最後の段階は必ず h=0（当日）。" +
+  '例「3日前まで無料、そのあと50%、当日100%」= {"stages":[{"h":72,"pct":0},{"h":24,"pct":50},{"h":0,"pct":100}]}、' +
+  '「5日前まで無料、以降は全額」= {"stages":[{"h":120,"pct":0},{"h":0,"pct":100}]}';
 
 // 「10月27日 19時」のような自然文は受け付けない（issue #2）。モデルはそのまま渡しがち
 // なので、説明文で ISO に直してから渡すことを求め、zod で API に届く前に弾く。
@@ -82,7 +85,10 @@ const createInput = z.object({
   endsAt: readableInstantSchema.nullable().default(null).describe(
     "終了日時（宿泊のチェックアウトなど。ISO 8601、任意）",
   ),
-  plan: z.string().nullable().default(null).describe("プラン名（候補を束ねる場合）"),
+  plan: z.string().nullable().default(null).describe(
+    "プラン名。同じ予定の候補（どちらにするか迷っている店・宿）を束ねる名前で、同じプラン名の中で確定できるのは1件。" +
+      "候補が1つだけの予約は省略してよい",
+  ),
   amount: z.number().int().min(0).nullable().default(null).describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().default(null).describe("場所（店名・住所、任意）"),
   policy: webPolicyInputSchema.default("unknown").describe(POLICY_DESC),
@@ -179,6 +185,18 @@ export function pairingInstructions(state: PairingStateView): string {
     case "idle":
       return "plancel と連携していません。pair_with_plancel を呼ぶとコードが出ます。";
   }
+}
+
+/**
+ * Which ledger this server writes to. A server on this machine is a
+ * development ledger the phone never shows; anything else is the real one.
+ */
+function ledgerLine(cfg: WebApiConfig, account: string | null): string {
+  const host = new URL(cfg.baseUrl).host;
+  const who = account ?? "PLANCEL_API_TOKEN による固定接続";
+  return /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)
+    ? `接続先: 開発用の台帳（${host}、${who}）。この PC の中だけの台帳で、スマホの plancel には出ません。`
+    : `接続先: 本番の台帳（${host}、${who}）。スマホの plancel と同じ台帳です。`;
 }
 
 async function resolveToken(cfg: WebApiConfig): Promise<string | null> {
@@ -278,8 +296,9 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
 
   server.registerTool("list_reservations", {
     description:
-      "台帳の予約一覧。既定ではキャンセル済みと終わった予約を除き、開始が早い順に最大 50 件。" +
-      "日時は +09:00 表記、freeUntil が無料キャンセル期限（null なら規定不明などで見張れない）",
+      "台帳の予約一覧。既定ではキャンセル済みと終わった予約を除く（除いた件数は hidden に出る）。count が" +
+      "この応答の件数で、total は絞り込み（status / from / to / q）をかける前の台帳の全件数。開始が早い順に最大 50 件。日時は +09:00 表記。freeUntil が無料キャンセル期限" +
+      "（null なら規定不明などで見張れない。その件数が policyUnknown）、feeNow がいまキャンセルした場合の料率と金額",
     inputSchema: listFilterSchema.passthrough(),
   }, async (args: unknown) => {
     const filter = listFilterSchema.safeParse(args ?? {});
@@ -294,6 +313,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     {
       description:
         "台帳に予約を登録する（confirmed=true で確定として登録。確定は家族のカレンダーにも反映される）。" +
+        "同じ店・同じ開始日時の予約が既にあれば作らずに既存の予約を返す（created: false）。" +
         "キャンセル規定の決め方: 分かれば policy に入れる。分からなければ省略する（施設の既定規定が保存されて" +
         'いれば自動で適用され、応答の policySource が "template" になる）。それでも policySource が ' +
         '"unknown" で hint が返ったら、規定はユーザーに確認して update_reservation の policy で入れる' +
@@ -311,6 +331,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
         const dup = findDuplicate(rows, input.service, input.startsAt);
         if (dup !== null) {
           return textResult(JSON.stringify({
+            created: false,
             warning: "duplicate",
             hint: "同じ店・同じ開始日時の予約が既にあるので、新しくは作っていません。" +
               "別件として登録するなら allowDuplicate: true で呼んでください。",
@@ -331,8 +352,11 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "confirm_reservation",
     {
       description:
-        "候補を確定する（同プランの他候補は自動で要キャンセルになり、応答の affected に出る）。" +
-        "同プランに確定済みがあると invalid_transition になるので、差し替えるなら replace: true",
+        "候補を確定する。同プランの他候補は自動で要キャンセル（to_cancel）になり、応答の affected に出る。" +
+        "要キャンセル＝お店に取り消しの連絡が必要な状態なので、ユーザーに連絡を促し、連絡が済んだと聞いたら " +
+        "cancel_reservation でキャンセル済みにする（勝手にキャンセル済みにしない）。" +
+        "同プランに確定済みがあると invalid_transition になる。確定を差し替えるなら replace: true" +
+        "（要キャンセルになっている予約も replace: true なら一度で確定に戻せる）",
       inputSchema: confirmInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {
@@ -348,7 +372,11 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
   );
 
   const transitions: [string, string, string][] = [
-    ["cancel_reservation", "cancel", "予約をキャンセル済みにする"],
+    [
+      "cancel_reservation",
+      "cancel",
+      "予約をキャンセル済みにする（お店への取り消しの連絡が済んだあとに呼ぶ。期限の見張りから外れる）",
+    ],
     ["restore_reservation", "restore", "キャンセル済み/要キャンセルの予約を候補に復元する"],
   ];
   for (const [name, action, description] of transitions) {
@@ -531,13 +559,15 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     inputSchema: z.object({}).passthrough(),
   }, async () => {
     if (cfg.pairing === undefined) {
-      return textResult(
-        "接続先: 本番の台帳（PLANCEL_API_TOKEN による固定接続）。スマホの plancel と同じ台帳です。",
-      );
+      return textResult(ledgerLine(cfg, null));
     }
     const token = await resolveToken(cfg);
+    const state = cfg.pairing.current();
+    // A token from env works without any pairing, so the pairing state stays
+    // idle: answer with the ledger, not 「連携していません」 (found 2026-11-11).
+    if (token !== null && state.kind !== "paired") return textResult(ledgerLine(cfg, null));
     return textResult(
-      pairingInstructions(token === null ? cfg.pairing.current() : cfg.pairing.current()),
+      state.kind === "paired" ? ledgerLine(cfg, state.account.label) : pairingInstructions(state),
     );
   });
   server.registerTool("unpair_plancel", {

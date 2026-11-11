@@ -17,6 +17,7 @@ import {
   describePolicy,
   endOfJstDay,
   freeDeadlineMs,
+  pctAt,
   stagesOf,
   type WebPolicy,
 } from "../web/policy.ts";
@@ -53,6 +54,11 @@ export interface ModelReservation {
   freeUntil: string | null;
   /** When the first cancellation fee starts, and at what rate. */
   nextCharge: { at: string; pct: number } | null;
+  /**
+   * What cancelling right now would cost: the rate in force and, when the
+   * amount is known, the yen figure. Null when the policy is unknown.
+   */
+  feeNow: { pct: number; yen: number | null } | null;
   /** Already over (the day it ends has passed). */
   finished: boolean;
   shared?: { ownerDisplayName: string; role: string };
@@ -89,6 +95,15 @@ function nextCharge(policy: WebPolicy, startsAt: string): { at: string; pct: num
   return { at: jstOfMs(at), pct: first.pct };
 }
 
+/** The fee if cancelled at `nowMs` — the question 「いまキャンセルしたらいくら」. */
+function feeNow(r: ApiReservation, nowMs: number): { pct: number; yen: number | null } | null {
+  const start = toInstantOrNull(r.startsAt);
+  if (start === null) return null;
+  const pct = pctAt(r.policy, start.epochMilliseconds, nowMs);
+  if (pct === null) return null;
+  return { pct, yen: r.amount === null ? null : Math.round(r.amount * pct / 100) };
+}
+
 export function presentReservation(r: ApiReservation, nowMs: number): ModelReservation {
   const deadline = freeDeadlineMs(r.policy, r.startsAt);
   return {
@@ -104,6 +119,7 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     policyText: describePolicy(r.policy),
     freeUntil: deadline === null ? null : jstOfMs(deadline),
     nextCharge: nextCharge(r.policy, r.startsAt),
+    feeNow: feeNow(r, nowMs),
     finished: isFinished(r, nowMs),
     ...(r.shared !== undefined ? { shared: r.shared } : {}),
   };
@@ -133,6 +149,16 @@ export interface ModelList {
   total: number;
   count: number;
   truncated: boolean;
+  /**
+   * Rows left out because they are over or cancelled — why `total` can exceed
+   * `count` with no filter given. `includeFinished` / `status` bring them back.
+   */
+  hidden: { finished: number; cancelled: number };
+  /**
+   * Shown rows whose policy is unknown. They sort last by deadline, yet they are
+   * the ones nobody is watching — the count keeps them from being overlooked.
+   */
+  policyUnknown: number;
   reservations: ModelReservation[];
 }
 
@@ -150,10 +176,21 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
   const toMs = toRaw === null ? null : f.to!.includes("T") ? toRaw : endOfJstDay(toRaw);
   const q = f.q === undefined ? null : foldName(f.q);
   const out: ModelReservation[] = [];
+  const hidden = { finished: 0, cancelled: 0 };
   for (const r of rows) {
-    if (f.status !== undefined ? !f.status.includes(r.status) : r.status === "cancelled") continue;
+    if (f.status !== undefined) {
+      if (!f.status.includes(r.status)) continue;
+    } else if (r.status === "cancelled") {
+      hidden.cancelled++;
+      continue;
+    }
     const v = presentReservation(r, nowMs);
-    if (v.finished && !f.includeFinished && f.status === undefined) continue;
+    // Over is over whatever status was asked for: a status filter used to bring
+    // September's rows back into a December list (found 2026-11-11).
+    if (v.finished && !f.includeFinished) {
+      hidden.finished++;
+      continue;
+    }
     const startMs = toInstantOrNull(r.startsAt)?.epochMilliseconds ?? null;
     if (fromMs !== null && (startMs === null || startMs < fromMs)) continue;
     if (toMs !== null && (startMs === null || startMs > toMs)) continue;
@@ -181,6 +218,8 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
     total: rows.length,
     count: limited.length,
     truncated: limited.length < out.length,
+    hidden,
+    policyUnknown: limited.filter((v) => v.policy === "unknown").length,
     reservations: limited,
   };
 }
@@ -199,6 +238,8 @@ export function findDuplicate(
   if (at === undefined) return null;
   const name = foldName(service);
   return rows.find((r) =>
+    // A reservation shared WITH this user belongs to someone else's ledger.
+    r.shared === undefined &&
     r.status !== "cancelled" && foldName(r.service) === name &&
     toInstantOrNull(r.startsAt)?.epochMilliseconds === at
   ) ?? null;

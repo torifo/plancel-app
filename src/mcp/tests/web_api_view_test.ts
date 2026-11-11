@@ -106,3 +106,52 @@ Deno.test("view: a duplicate is the same place at the same instant, still live",
   assertEquals(findDuplicate(rows, "鮨 さいとう", "2026-12-20T19:30:00+09:00"), null);
   assertEquals(findDuplicate([rows[1]!], "鮨さいとう", "2026-12-20T19:00:00+09:00"), null);
 });
+
+// ---- found by driving the December family scenario through the tools (2026-11-11) ----
+
+Deno.test("view: feeNow is what cancelling right now would cost", () => {
+  // 12/20 19:00 JST, staged, ¥30,000. On 10/13 it is still free.
+  assertEquals(presentReservation(row(), NOW).feeNow, { pct: 0, yen: 0 });
+  // 12/15 (5 days before): past the 7-day free window, inside the 30% band.
+  const later = Date.parse("2026-12-15T03:00:00Z");
+  assertEquals(presentReservation(row(), later).feeNow, { pct: 30, yen: 9000 });
+  // No amount: the rate is known, the yen figure is not.
+  assertEquals(presentReservation(row({ amount: null }), later).feeNow, { pct: 30, yen: null });
+  // Unknown policy: nothing to say.
+  assertEquals(presentReservation(row({ policy: "unknown" }), NOW).feeNow, null);
+});
+
+Deno.test("view: a status filter does not bring finished rows back, and the list says what it hid", () => {
+  const rows = [
+    row({ id: "A" }),
+    row({ id: "C", startsAt: "2026-10-01T10:00:00.000Z" }), // finished
+    row({ id: "D", startsAt: "2026-11-15T10:00:00.000Z", status: "cancelled" }),
+    row({ id: "E", startsAt: "2026-11-20T10:00:00.000Z", policy: "unknown" }),
+  ];
+  const out = presentList(
+    rows,
+    listFilterSchema.parse({ status: ["candidate", "confirmed"] }),
+    NOW,
+  );
+  assertEquals(out.reservations.map((r) => r.id), ["E", "A"]);
+  // 「total 4 なのに 2 件」の理由が応答から読める。
+  const def = presentList(rows, listFilterSchema.parse({}), NOW);
+  assertEquals(def.hidden, { finished: 1, cancelled: 1 });
+  // 規定不明は期限順で末尾に回るので、件数を別に出して埋もれさせない。
+  assertEquals(def.policyUnknown, 1);
+  const all = presentList(
+    rows,
+    listFilterSchema.parse({ includeFinished: true, status: ["candidate", "cancelled"] }),
+    NOW,
+  );
+  assertEquals(all.reservations.length, 4);
+  assertEquals(all.hidden, { finished: 0, cancelled: 0 });
+});
+
+Deno.test("view: someone else's shared reservation is not my duplicate", () => {
+  const shared = row({ id: "S" }) as WebReservation & {
+    shared: { ownerDisplayName: string; role: string };
+  };
+  shared.shared = { ownerDisplayName: "母", role: "viewer" };
+  assertEquals(findDuplicate([shared], "鮨さいとう", "2026-12-20T19:00:00+09:00"), null);
+});

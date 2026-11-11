@@ -743,3 +743,31 @@ Deno.test("web api: confirm with replace swaps the plan's confirmed reservation 
     assertEquals([st(a.id), st(b.id), st(c.id)], ["to_cancel", "to_cancel", "confirmed"]);
   });
 });
+
+Deno.test("web api: replace confirms the reservation the first choice turned to_cancel, in one step", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const { a, b } = await planTrio(kv, ids);
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/confirm`, "t"), ids);
+    // 「やっぱり B にする」: B is to_cancel now. Without replace the refusal says how.
+    const refused = await handleWebApi(kv, reqOf("POST", `${BASE}/${b.id}/confirm`, "t"), ids);
+    assertEquals(refused.status, 409);
+    assertStringIncludes((await refused.json()).hint, "replace: true");
+    // With replace it is one call, not restore + confirm.
+    const res = await (await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${b.id}/confirm`, "t", { replace: true }),
+      ids,
+    )).json();
+    assertEquals(res.reservation.status, "confirmed");
+    assertEquals(res.affected, [{ id: a.id, service: "A", status: "to_cancel" }]);
+    // A cancelled reservation still has to be restored first.
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${a.id}/cancel`, "t"), ids);
+    const cancelled = await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${a.id}/confirm`, "t", { replace: true }),
+      ids,
+    );
+    assertEquals(cancelled.status, 409);
+  });
+});
