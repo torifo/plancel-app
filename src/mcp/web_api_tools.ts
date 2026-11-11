@@ -298,7 +298,9 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     description:
       "台帳の予約一覧。既定ではキャンセル済みと終わった予約を除く（除いた件数は hidden に出る）。count が" +
       "この応答の件数で、total は絞り込み（status / from / to / q）をかける前の台帳の全件数。開始が早い順に最大 50 件。日時は +09:00 表記。freeUntil が無料キャンセル期限" +
-      "（null なら規定不明などで見張れない。その件数が policyUnknown）、feeNow がいまキャンセルした場合の料率と金額",
+      "（null なら規定不明などで見張れない。その件数が policyUnknown）、nextCharge.from が料金のかかり始める時刻、" +
+      "feeNow がいまキャンセルした場合の料率と金額。feeSchedule は料率表を日付にしたもの（until までは pct%）で、" +
+      "ユーザーに料金を説明するときは policyText の言い回しでなく feeSchedule の日付を使う",
     inputSchema: listFilterSchema.passthrough(),
   }, async (args: unknown) => {
     const filter = listFilterSchema.safeParse(args ?? {});
@@ -397,7 +399,8 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
   server.registerTool(
     "update_reservation",
     {
-      description: "予約の内容（日時・金額・場所・プラン等）を編集する",
+      description:
+        "予約の内容（日時・金額・場所・プラン・規定）を編集する。確定済みの予約の変更は家族のカレンダーにも反映される",
       inputSchema: patchInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {

@@ -43,7 +43,7 @@ Deno.test("view: a reservation carries its deadline and policy in words, not int
   assertEquals(v.startsAt, "2026-12-20T19:00:00+09:00");
   // staged: free until the end of the day 7 days before (12/13), then 30%.
   assertEquals(v.freeUntil, "2026-12-13T23:59:59+09:00");
-  assertEquals(v.nextCharge, { at: "2026-12-13T23:59:59+09:00", pct: 30 });
+  assertEquals(v.nextCharge, { from: "2026-12-14T00:00:00+09:00", pct: 30 });
   assertEquals(v.policyText, "7日前まで無料 → 3日前まで30% → 前日まで50% → 当日100%");
   assertEquals(v.finished, false);
   assertEquals("updated_by" in v, false);
@@ -162,4 +162,40 @@ Deno.test("view: a row stored before endsAt existed still answers endsAt: null",
   const v = presentReservation(legacy as WebReservation, NOW);
   assertEquals("endsAt" in v && v.endsAt, null);
   assertEquals(JSON.parse(JSON.stringify(v)).endsAt, null);
+});
+
+// ---- found by the test-account rehearsal (2026-11-11) ----
+
+Deno.test("view: the fee schedule gives dates, so a gap in the wording cannot mislead", () => {
+  // 「2日前まで無料、それ以降は全額」 for 12/12 14:00. policyText reads
+  // 「2日前まで無料 → 当日100%」, but the day before is already 100%.
+  const v = presentReservation(
+    row({
+      startsAt: "2026-12-12T05:00:00.000Z",
+      policy: { stages: [{ h: 48, pct: 0 }, { h: 0, pct: 100 }] },
+    }),
+    NOW,
+  );
+  assertEquals(v.feeSchedule, [
+    { until: "2026-12-10T23:59:59+09:00", pct: 0 },
+    { until: "2026-12-12T14:00:00+09:00", pct: 100 },
+  ]);
+  // When the fee STARTS — the instant after the free deadline, not the deadline.
+  assertEquals(v.freeUntil, "2026-12-10T23:59:59+09:00");
+  assertEquals(v.nextCharge, { from: "2026-12-11T00:00:00+09:00", pct: 100 });
+  assertEquals(presentReservation(row({ policy: "unknown" }), NOW).feeSchedule, null);
+});
+
+Deno.test("view: policyUnknown counts rows still to be watched, not cancelled ones", () => {
+  const rows = [
+    row({ id: "A", policy: "unknown", status: "cancelled" }),
+    row({ id: "B", policy: "unknown", status: "to_cancel" }),
+  ];
+  const out = presentList(
+    rows,
+    listFilterSchema.parse({ status: ["cancelled", "to_cancel"] }),
+    NOW,
+  );
+  assertEquals(out.count, 2);
+  assertEquals(out.policyUnknown, 1);
 });

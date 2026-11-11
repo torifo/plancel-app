@@ -52,8 +52,19 @@ export interface ModelReservation {
   policyText: string;
   /** Free-cancellation deadline (+09:00), or null when there is none to watch. */
   freeUntil: string | null;
-  /** When the first cancellation fee starts, and at what rate. */
-  nextCharge: { at: string; pct: number } | null;
+  /**
+   * When the first cancellation fee STARTS (the instant after `freeUntil`), and
+   * at what rate. It used to carry the deadline itself under the name `at`, and
+   * a model asked 「いつからかかる」 answered a day early (rehearsal, 2026-11-11).
+   */
+  nextCharge: { from: string; pct: number } | null;
+  /**
+   * The whole fee table as dates: through `until` (inclusive) cancelling costs
+   * `pct`%. The last band ends at the start. `policyText` is the app's short
+   * wording and names only each band's far edge — 「2日前まで無料 → 当日100%」
+   * is 100% from the day before — so dates are what a model should quote.
+   */
+  feeSchedule: { until: string; pct: number }[] | null;
   /**
    * What cancelling right now would cost: the rate in force and, when the
    * amount is known, the yen figure. Null when the policy is unknown.
@@ -83,7 +94,7 @@ export function jst(value: string): string {
  * of the stage after it. Null when nothing is free to lose (unknown, always
  * free, or paid from the outset).
  */
-function nextCharge(policy: WebPolicy, startsAt: string): { at: string; pct: number } | null {
+function nextCharge(policy: WebPolicy, startsAt: string): { from: string; pct: number } | null {
   const stages = stagesOf(policy);
   const start = toInstantOrNull(startsAt);
   if (stages === null || start === null) return null;
@@ -91,8 +102,23 @@ function nextCharge(policy: WebPolicy, startsAt: string): { at: string; pct: num
   if (lastFree < 0) return null;
   const first = stages[lastFree + 1];
   if (first === undefined) return null;
-  const at = boundaryMs(start.epochMilliseconds, stages[lastFree]!.h);
-  return { at: jstOfMs(at), pct: first.pct };
+  // The boundary is the last free millisecond of its day; the fee starts on the next.
+  const from = boundaryMs(start.epochMilliseconds, stages[lastFree]!.h) + 1;
+  return { from: jstOfMs(from), pct: first.pct };
+}
+
+/** Each band of the policy as "through this instant, this rate". */
+function feeSchedule(
+  policy: WebPolicy,
+  startsAt: string,
+): { until: string; pct: number }[] | null {
+  const stages = stagesOf(policy);
+  const start = toInstantOrNull(startsAt);
+  if (stages === null || start === null) return null;
+  return stages.map((s) => ({
+    until: jstOfMs(boundaryMs(start.epochMilliseconds, s.h)),
+    pct: s.pct,
+  }));
 }
 
 /** The fee if cancelled at `nowMs` — the question 「いまキャンセルしたらいくら」. */
@@ -121,6 +147,7 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     policyText: describePolicy(r.policy),
     freeUntil: deadline === null ? null : jstOfMs(deadline),
     nextCharge: nextCharge(r.policy, r.startsAt),
+    feeSchedule: feeSchedule(r.policy, r.startsAt),
     feeNow: feeNow(r, nowMs),
     finished: isFinished(r, nowMs),
     ...(r.shared !== undefined ? { shared: r.shared } : {}),
@@ -221,7 +248,7 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
     count: limited.length,
     truncated: limited.length < out.length,
     hidden,
-    policyUnknown: limited.filter((v) => v.policy === "unknown").length,
+    policyUnknown: limited.filter((v) => v.policy === "unknown" && v.status !== "cancelled").length,
     reservations: limited,
   };
 }
