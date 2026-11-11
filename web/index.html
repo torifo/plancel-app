@@ -4104,6 +4104,17 @@
         if (e.target === o && o.id !== "busyOverlay") closeAll();
       }
     );
+    // Escape は × ボタンと同じ。閉じる処理はこれまで × と背景クリックにしか無く、
+    // キーボードでは閉じられなかった（2026-11-11 に実機で確認）。× を持たない
+    // 画面（読み取り中・ログイン）が開いている間は何もしない — 閉じてよい画面では
+    // ない。日本語入力の変換を取り消す Escape（isComposing / 229）も見送る:
+    // 変換をやめたいだけの人から、書きかけのフォームごと奪わない。
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || e.isComposing || e.keyCode === 229) return;
+      const open = [...document.querySelectorAll(".overlay.on")];
+      if (open.length === 0 || open.some((o) => !o.querySelector("[data-close]"))) return;
+      closeAll();
+    });
     q("#addBtn").onclick = () => openAdd();
     q("#importBtn").onclick = openImport;
     // 使い方はページビュー（#helpPage）。開いている modal は閉じてから切り替える。
