@@ -4099,20 +4099,25 @@
       stopLineCountdown();
     }
     document.querySelectorAll("[data-close]").forEach((b) => b.onclick = closeAll);
+    // 閉じてよいのは × を持つ画面だけ。「読み取り中…」とログインには × が無い —
+    // 閉じる先が無い画面だから。背景クリックは以前 busyOverlay だけを名指しで
+    // 除いていて、ログイン画面は背景を押すと消え、未ログインの空の台帳だけが
+    // 残った（2026-11-11 に再現。戻るには再読み込みしかない）。名指しをやめて
+    // 「× があるか」で決める。背景クリックと Escape で同じ条件を使う。
+    const dismissible = (o) => o.querySelector("[data-close]") !== null;
     document.querySelectorAll(".overlay").forEach((o) =>
       o.onclick = (e) => {
-        if (e.target === o && o.id !== "busyOverlay") closeAll();
+        if (e.target === o && dismissible(o)) closeAll();
       }
     );
     // Escape は × ボタンと同じ。閉じる処理はこれまで × と背景クリックにしか無く、
-    // キーボードでは閉じられなかった（2026-11-11 に実機で確認）。× を持たない
-    // 画面（読み取り中・ログイン）が開いている間は何もしない — 閉じてよい画面では
-    // ない。日本語入力の変換を取り消す Escape（isComposing / 229）も見送る:
-    // 変換をやめたいだけの人から、書きかけのフォームごと奪わない。
+    // キーボードでは閉じられなかった（2026-11-11 に実機で確認）。日本語入力の
+    // 変換を取り消す Escape（isComposing / 229）は見送る: 変換をやめたいだけの人
+    // から、書きかけのフォームごと奪わない。
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape" || e.isComposing || e.keyCode === 229) return;
       const open = [...document.querySelectorAll(".overlay.on")];
-      if (open.length === 0 || open.some((o) => !o.querySelector("[data-close]"))) return;
+      if (open.length === 0 || !open.every(dismissible)) return;
       closeAll();
     });
     q("#addBtn").onclick = () => openAdd();
