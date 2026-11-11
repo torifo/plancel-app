@@ -155,3 +155,11 @@ Deno.test("view: someone else's shared reservation is not my duplicate", () => {
   shared.shared = { ownerDisplayName: "母", role: "viewer" };
   assertEquals(findDuplicate([shared], "鮨さいとう", "2026-12-20T19:00:00+09:00"), null);
 });
+
+Deno.test("view: a row stored before endsAt existed still answers endsAt: null", () => {
+  const legacy = row() as Partial<WebReservation>;
+  delete legacy.endsAt;
+  const v = presentReservation(legacy as WebReservation, NOW);
+  assertEquals("endsAt" in v && v.endsAt, null);
+  assertEquals(JSON.parse(JSON.stringify(v)).endsAt, null);
+});

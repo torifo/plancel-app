@@ -112,7 +112,9 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     plan: r.plan,
     status: r.status,
     startsAt: jst(r.startsAt),
-    endsAt: r.endsAt === null ? null : jst(r.endsAt),
+    // `== null`: a row mirrored before the field existed has no `endsAt` at all,
+    // and `undefined` would drop the key from the JSON the model reads.
+    endsAt: r.endsAt == null ? null : jst(r.endsAt),
     amount: r.amount,
     location: r.location,
     policy: r.policy,
