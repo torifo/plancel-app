@@ -1928,6 +1928,88 @@
         gap: 6px;
       }
     }
+    /* ═══ ボタンの決まり（docs/design-system.md）═══
+       大きさは標準と小の2つだけ、高さはどちらも 46px（押せる大きさの下限 44px に
+       余裕を持たせる）、太さ 600、角丸は1種類。2026-11-11 に全 79 個を測ると文字
+       6種・高さ 7種（28〜56px）・太さ 3種・角丸 4種が混ざり、取り込みボタン以外は
+       すべて 44px を下回っていた。個々の規則を書き換えず、ここ1か所で上書きする
+       （このブロックはスタイルの最後に置く。上の規則に大きさを足さない）。
+       文字は --fs を掛ける（文字サイズ切替に追従）。高さは下限なので、特大でも
+       文字が切れずに伸びる。 */
+    /* 高さ・角丸・太さだけを変数にする。文字の大きさは変数にしない: --fs は :root
+       ではなく body で決まるので、:root で calc(… * var(--fs)) を作ると無効な値に
+       なり、ボタンが親の文字サイズを継いでしまう（2026-11-11 に実測で発覚）。 */
+    :root {
+      --btn-h: 46px;
+      --btn-r: 999px;
+      --btn-fw: 600;
+    }
+    /* 標準: 主・副・選べる札 */
+    .btn-primary,
+    .btn-a,
+    .btn-ghost,
+    .pol-mode,
+    .fs-opt {
+      min-height: var(--btn-h);
+      font-size: calc(16px * var(--fs));
+      font-weight: var(--btn-fw);
+      border-radius: var(--btn-r);
+      padding: 0 16px;
+    }
+    /* 小: 一覧の行の操作・見出しの小さなボタン・絞り込み */
+    .btn-small,
+    .btn-ghost.mini,
+    .btn-ghost.pol-add,
+    .rowbtn,
+    .rowbtn.dashed,
+    .pol-x,
+    .theme-toggle,
+    .fs-toggle {
+      min-height: var(--btn-h);
+      min-width: var(--btn-h);
+      font-size: calc(14px * var(--fs));
+      font-weight: var(--btn-fw);
+      border-radius: var(--btn-r);
+      padding: 0 12px;
+    }
+    /* 選ばれた札・主の行ボタンも太さは同じ（色と面で区別する） */
+    .pol-mode.on,
+    .fs-opt[aria-pressed="true"],
+    .rowbtn.confirm,
+    .rowbtn.act {
+      font-weight: var(--btn-fw);
+    }
+    /* アイコンだけ: 46px の正方形 */
+    .avatar,
+    .x,
+    .iconbtn {
+      width: max(var(--btn-h), calc(32px * var(--fs)));
+      height: max(var(--btn-h), calc(32px * var(--fs)));
+      border-radius: var(--btn-r);
+      font-weight: var(--btn-fw);
+      padding: 0;
+      align-items: center;
+      justify-content: center;
+    }
+    /* カードの文字リンクの操作（招待・編集・削除）。見た目は文字のまま、押せる
+       範囲だけ 44px に広げる。測ると 18×25px で、「編集」の隣が「削除」だった。 */
+    .resv .tools {
+      margin-left: -6px;
+    }
+    .resv .tools a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      min-width: 44px;
+      justify-content: center;
+      padding: 0 6px;
+      font-size: calc(14px * var(--fs));
+    }
+    /* 下のナビは 48px 以上 */
+    .bn-item {
+      min-height: 48px;
+      justify-content: center;
+    }
     </style>
   </head>
   <body>
