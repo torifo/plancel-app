@@ -28,6 +28,11 @@ function row(over: Partial<WebReservation> = {}): WebReservation {
     notes: null,
     timeTentative: false,
     trip: null,
+    booked: true,
+    kind: null,
+    from: null,
+    to: null,
+    bookedBy: null,
     policy: "staged",
     status: "candidate",
     created_at: "2026-10-01T00:00:00.000Z",
@@ -253,4 +258,77 @@ Deno.test("view: an end given as a date comes back as a date, and still holds th
   assertEquals(presentReservation(stay, Date.parse("2026-12-20T20:00:00+09:00")).finished, false);
   // …and is once that day has ended.
   assertEquals(presentReservation(stay, Date.parse("2026-12-21T00:30:00+09:00")).finished, true);
+});
+
+Deno.test("view: an unbooked reservation has nothing to cancel, and a chosen one still needs booking", () => {
+  const idea = presentReservation(row({ booked: false }), NOW);
+  assertEquals([idea.booked, idea.needsBooking], [false, false]);
+  assertEquals([idea.freeUntil, idea.nextCharge, idea.feeNow], [null, null, { pct: 0, yen: 0 }]);
+  const chosen = presentReservation(row({ booked: false, status: "confirmed" }), NOW);
+  assertEquals(chosen.needsBooking, true);
+  const held = presentReservation(row(), NOW);
+  assertEquals([held.booked, held.needsBooking], [true, false]);
+  // Unknown policy on something not booked is not "unwatched": there is nothing to watch.
+  const list = presentList(
+    [row({ id: "A", booked: false, policy: "unknown" }), row({ id: "B", policy: "unknown" })],
+    listFilterSchema.parse({}),
+    NOW,
+  );
+  assertEquals(list.policyUnknown, 1);
+});
+
+Deno.test("view: a trip is summed up, and each row says what is still to be checked", () => {
+  const rows = [
+    row({
+      id: "INN",
+      trip: "別府旅行",
+      kind: "stay",
+      status: "confirmed",
+      amount: 48000,
+      endsAt: null,
+    }),
+    row({
+      id: "T1",
+      trip: "別府旅行",
+      kind: "train",
+      from: "博多",
+      to: "別府",
+      booked: false,
+      policy: "unknown",
+      amount: 22000,
+      timeTentative: true,
+      startsAt: "2026-12-19T00:00:00.000Z",
+    }),
+    row({
+      id: "L1",
+      trip: "別府旅行",
+      plan: "昼",
+      amount: 6000,
+      startsAt: "2026-12-19T03:00:00.000Z",
+    }),
+    row({
+      id: "L2",
+      trip: "別府旅行",
+      plan: "昼",
+      amount: 8000,
+      startsAt: "2026-12-19T03:00:00.000Z",
+    }),
+    row({ id: "X", amount: null, policy: "unknown" }),
+  ];
+  const out = presentList(rows, listFilterSchema.parse({}), NOW);
+  const by = Object.fromEntries(out.reservations.map((r) => [r.id, r]));
+  assertEquals([by.T1!.kind, by.T1!.from, by.T1!.to], ["train", "博多", "別府"]);
+  assertEquals(by.T1!.needsCheck, ["まだ予約していない", "時刻が仮"]);
+  assertEquals(by.INN!.needsCheck, ["終了日（チェックアウト日）が未入力"]);
+  assertEquals(by.X!.needsCheck, ["キャンセル規定が不明", "金額が未入力"]);
+  assertEquals(by.L1!.needsCheck, []);
+  // Confirmed money, and the most the undecided rest could add (one per plan).
+  assertEquals(out.trips, [{
+    trip: "別府旅行",
+    count: 4,
+    from: "2026-12-19",
+    to: "2026-12-20",
+    confirmedYen: 48000,
+    expectedYen: 48000 + 22000 + 8000,
+  }]);
 });

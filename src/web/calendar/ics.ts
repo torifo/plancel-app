@@ -35,8 +35,13 @@ export function descriptionLines(
   return [
     r.trip !== null ? `旅行: ${escape(r.trip)}` : null,
     r.plan !== null ? `プラン: ${r.plan}` : null,
+    r.from !== null || r.to !== null
+      ? `区間: ${escape(r.from ?? "？")} → ${escape(r.to ?? "？")}`
+      : null,
+    r.bookedBy !== null ? `予約した人: ${escape(r.bookedBy)}` : null,
     // The calendar shows the time as a fact; say so when it is a guess.
     r.timeTentative ? "時刻は仮（確認前）" : null,
+    r.booked === false ? "まだ予約していません" : null,
     r.amount !== null ? `金額: ¥${r.amount.toLocaleString("ja-JP")}` : null,
     // Never the raw policy: a custom stage table would print as JSON.
     `キャンセル規定: ${describePolicy(r.policy)}`,

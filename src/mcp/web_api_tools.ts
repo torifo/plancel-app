@@ -31,6 +31,7 @@ import {
   presentResponse,
 } from "./web_api_view.ts";
 import { webPolicyInputSchema } from "../web/policy.ts";
+import { webKindSchema } from "../web/store.ts";
 import { templatePolicyInputSchema } from "../web/policy-template.ts";
 import { memberRoleSchema } from "../web/sharing.ts";
 
@@ -100,22 +101,45 @@ const TIME_TENTATIVE_DESC =
   "これを true にする。まったく未定なら startsAt を日付だけにする（画面では「時刻未定」と出る）。" +
   "時刻が確定したら update_reservation で false に戻す";
 
+const BOOKED_DESC =
+  "予約がもう取れているか（既定 true）。まだ手配していない案・検討中のものは false にする" +
+  "（例: 切符をまだ買っていない特急）。false の予約にはキャンセル期限も料金も無く、プランで選ばれなかったときは" +
+  "要キャンセルにならずそのまま外れる。予約を取ったら update_reservation で true にする";
+
+const KIND_DESC =
+  '種類（任意）: "stay"(宿) / "meal"(食事) / "flight"(飛行機) / "train"(電車・特急) / "bus"(バス) / ' +
+  '"car"(レンタカー・カーシェア) / "activity"(体験・チケット) / "other"。宿に限らず、キャンセル期限のある' +
+  "予約は何でも登録できる";
+const SERVICE_DESC =
+  "お店・宿・サービス名。交通は便名・列車名を入れる（例「JAL 661便」「特急ソニック 15号」「空港バス 別府行き」" +
+  "「タイムズカー 大分空港店」）。同じ日の行きと帰りは名前で分ける";
+const FROM_DESC = "出発地（交通）／借りる場所（車）。例「羽田」「博多駅」。任意";
+const TO_DESC = "到着地（交通）／返す場所（車）。到着時刻が分かれば endsAt に入れる。任意";
+const BOOKED_BY_DESC =
+  "実際に予約を取った人（例「母」）。誰に確認やキャンセルを頼めばよいかが分かる。任意";
+
 const createInput = z.object({
-  service: z.string().min(1).describe("お店・宿・サービス名"),
+  service: z.string().min(1).describe(SERVICE_DESC),
+  kind: webKindSchema.nullable().default(null).describe(KIND_DESC),
   startsAt: readableInstantSchema.describe(STARTS_AT_DESC),
   endsAt: readableInstantSchema.nullable().default(null).describe(ENDS_AT_DESC),
+  from: z.string().max(100).nullable().default(null).describe(FROM_DESC),
+  to: z.string().max(100).nullable().default(null).describe(TO_DESC),
+  bookedBy: z.string().max(40).nullable().default(null).describe(BOOKED_BY_DESC),
   plan: z.string().nullable().default(null).describe(
     "プラン名。同じ予定の候補（どちらにするか迷っている店・宿）を束ねる名前で、同じプラン名の中で確定できるのは1件。" +
       "候補が1つだけの予約は省略してよい。全部使う予約をまとめたいときは plan でなく trip を使う",
   ),
   trip: z.string().max(60).nullable().default(null).describe(TRIP_DESC),
+  booked: z.boolean().default(true).describe(BOOKED_DESC),
   timeTentative: z.boolean().default(false).describe(TIME_TENTATIVE_DESC),
   notes: z.string().max(2000).nullable().default(null).describe(NOTES_DESC),
   amount: z.number().int().min(0).nullable().default(null).describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().default(null).describe("場所（店名・住所、任意）"),
   policy: webPolicyInputSchema.default("unknown").describe(POLICY_DESC),
   confirmed: z.boolean().default(false).describe(
-    "true で確定済みとして登録（もう予約が取れているもの）。まだ取っていない・迷っているものは false のまま（候補）",
+    "true で確定（これに決めている）として登録。迷っているものは false のまま（候補）。" +
+      "決めたかどうかと、予約が取れているか（booked）は別に指定する",
   ),
 });
 
@@ -137,11 +161,16 @@ const templateInput = facilityInput.extend({
 
 const patchInput = z.object({
   id: z.string().min(1).describe("予約ID"),
-  service: z.string().min(1).optional().describe("お店・宿・サービス名"),
+  service: z.string().min(1).optional().describe(SERVICE_DESC),
+  kind: webKindSchema.nullable().optional().describe(KIND_DESC),
+  from: z.string().max(100).nullable().optional().describe(FROM_DESC),
+  to: z.string().max(100).nullable().optional().describe(TO_DESC),
+  bookedBy: z.string().max(40).nullable().optional().describe(BOOKED_BY_DESC),
   startsAt: readableInstantSchema.optional().describe(STARTS_AT_DESC),
   endsAt: readableInstantSchema.nullable().optional().describe(ENDS_AT_DESC + "。null で消す"),
   plan: z.string().nullable().optional().describe("プラン名（null で外す）"),
   trip: z.string().max(60).nullable().optional().describe(TRIP_DESC + "。null で外す"),
+  booked: z.boolean().optional().describe(BOOKED_DESC),
   timeTentative: z.boolean().optional().describe(TIME_TENTATIVE_DESC),
   notes: z.string().max(2000).nullable().optional().describe(
     NOTES_DESC + "。上書きになるので、足すときは既存のメモに続けて書く。null で消す",
@@ -324,7 +353,9 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       "この応答の件数で、total は絞り込み（status / from / to / q）をかける前の台帳の全件数。開始が早い順に最大 50 件。日時は +09:00 表記。freeUntil が無料キャンセル期限" +
       "（null は期限が無いということ: 規定不明で見張れない＝その件数が policyUnknown、または「いつでも無料」「最初から有料」。policyText で見分ける）、nextCharge.from が料金のかかり始める時刻、" +
       "feeNow がいまキャンセルした場合の料率と金額。feeSchedule は料率表を日付にしたもの（until までは pct%＝yen 円）で、" +
-      "ユーザーに料金を説明するときは policyText の言い回しでなく feeSchedule の日付を使う",
+      "ユーザーに料金を説明するときは policyText の言い回しでなく feeSchedule の日付を使う。" +
+      "needsCheck は各予約でまだ決まっていない・確かめていないこと、trips は旅行ごとの日程と費用" +
+      "（confirmedYen＝確定の合計、expectedYen＝未確定を含む見込みの最大）",
     inputSchema: listFilterSchema.passthrough(),
   }, async (args: unknown) => {
     const filter = listFilterSchema.safeParse(args ?? {});
@@ -392,7 +423,9 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "confirm_reservation",
     {
       description:
-        "候補を確定する。同プランの他候補は自動で要キャンセル（to_cancel）になり、応答の affected に出る。" +
+        "候補を確定する（「これに決めた」。予約がまだなら needsBooking が true で返るので、予約を取るよう伝える）。" +
+        "同プランの他候補は、予約済みなら自動で要キャンセル（to_cancel）に、未予約ならそのまま外れ（cancelled）、" +
+        "応答の affected に出る。" +
         "要キャンセル＝お店に取り消しの連絡が必要な状態なので、ユーザーに連絡を促し、連絡が済んだと聞いたら " +
         "cancel_reservation でキャンセル済みにする（勝手にキャンセル済みにしない）。" +
         "同プランに確定済みがあると invalid_transition になる。確定を差し替えるなら replace: true" +

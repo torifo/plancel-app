@@ -2157,6 +2157,64 @@
       font-size: calc(12.5px * var(--fs));
       color: var(--ink-2);
     }
+    .kind {
+      display: inline-block;
+      margin-right: 6px;
+      font-size: calc(11.5px * var(--fs));
+      font-weight: 600;
+      color: var(--ink-2);
+      background: var(--card2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 calc(6px * var(--fs));
+      vertical-align: 1px;
+    }
+    .route {
+      color: var(--ink-2);
+    }
+    .trip-plan {
+      list-style: none;
+      margin: 0 0 12px;
+      padding: 10px 14px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    .trip-plan li {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 2px 10px;
+      align-items: baseline;
+      padding: 6px 0;
+      border-top: 1px solid var(--line);
+      font-size: calc(14px * var(--fs));
+    }
+    .trip-plan li:first-child {
+      border-top: none;
+    }
+    .trip-plan .when,
+    .trip-plan .st {
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+    .trip-plan .what {
+      overflow-wrap: anywhere;
+    }
+    .trip-plan li.to_cancel .what {
+      text-decoration: line-through;
+      color: var(--ink-2);
+    }
+    @media (max-width: 520px) {
+      /* 狭い幅では「日時 | 状態」を1行目、名前を2行目に回す */
+      .trip-plan li {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+      .trip-plan .what {
+        grid-column: 1 / -1;
+        grid-row: 2;
+      }
+    }
     .resv .note {
       font-size: calc(12.5px * var(--fs));
       color: var(--ink-2);
@@ -2725,6 +2783,8 @@
           <label><input type="radio" name="kind" value="candidate" checked> 候補（プランに束ねる）</label>
           <label><input type="radio" name="kind" value="confirmed"> 確定済みの予約</label>
         </div>
+        <label class="check-row"><input type="checkbox" id="f_unbooked"> まだ予約していない（検討中の案）</label>
+        <div class="hint" style="margin:0">予約を取る前の案です。キャンセル期限は見張らず、選ばなかったときも連絡は要りません。</div>
         <label>プラン名（例: 8月の宿）</label>
         <input id="f_plan" list="planList" placeholder="既存プラン名 or 新しいプラン名">
         <datalist id="planList"></datalist>
@@ -2735,6 +2795,24 @@
         <div class="hint" style="margin:4px 0 0">同じ旅行で全部使う予約（宿・行き帰りの便・食事）をまとめます。プランと違い、どれもキャンセルにはなりません。</div>
         <label>お店・宿・サービス名 <span class="req">*</span></label>
         <input id="f_service" placeholder="例: 湖畔の湯宿 蛍">
+        <div class="two">
+          <div><label>種類（任意）</label><select id="f_kind">
+            <option value="">指定なし</option>
+            <option value="stay">宿</option>
+            <option value="meal">食事</option>
+            <option value="flight">飛行機</option>
+            <option value="train">電車・特急</option>
+            <option value="bus">バス</option>
+            <option value="car">レンタカー・カーシェア</option>
+            <option value="activity">体験・チケット</option>
+            <option value="other">その他</option>
+          </select></div>
+          <div><label>予約した人（任意）</label><input id="f_bookedBy" list="bookedByList" maxlength="40" placeholder="例: 母"><datalist id="bookedByList"></datalist></div>
+        </div>
+        <div class="two" id="routeRow" style="display:none">
+          <div><label id="fromLabel">出発地</label><input id="f_from" maxlength="100" placeholder="例: 羽田"></div>
+          <div><label id="toLabel">到着地</label><input id="f_to" maxlength="100" placeholder="例: 大分"></div>
+        </div>
         <label>場所（任意）</label>
         <input id="f_location" placeholder="店名・住所など。入れると地図リンクになります">
         <div class="hint" style="margin:4px 0 0">Googleマップの共有リンク（https://maps.app.goo.gl/… など）を貼ると、その1点をそのまま開けます。地名だけのときは店名と組み合わせて検索します。</div>
@@ -3411,6 +3489,7 @@
     const isFinished = (r, now) => now > finishedAt(r);
     function freeDeadline(r) {
       const st = stagesOf(r);
+      if (unbooked(r)) return null; // 未予約: 見張る期限が無い
       if (!st || !st.some((s) => s.pct > 0)) return null; // 不明 / いつでも無料
       // 無料期限 = 最後の pct==0 ステージの境界（前日まで無料=前日の終わり）。
       // 2026-07-25 修正: 従来の「最初の有料ステージの h」は1段ズレていた。
@@ -3420,9 +3499,35 @@
       if (Number.isNaN(start)) return null; // 開始が読めない（サーバの freeDeadlineMs も null）
       return boundaryMs(start, lastFree.h);
     }
+    // まだ予約していない案（r.booked === false）には、取り消すものが無い。期限も
+    // 最大キャンセル料も数えない（2026-11-12）。
+    const unbooked = (r) => r.booked === false;
+    // 予約の種類。宿に限らず、飛行機・特急・バス・車も同じ台帳で扱う（2026-11-12）。
+    const KIND_LABEL2 = {
+      stay: "宿",
+      meal: "食事",
+      flight: "飛行機",
+      train: "電車",
+      bus: "バス",
+      car: "車",
+      activity: "体験",
+      other: "その他",
+    };
+    const TRANSPORT = new Set(["flight", "train", "bus", "car"]);
+    const kindTag = (r) =>
+      r.kind && KIND_LABEL2[r.kind] ? `<span class="kind">${KIND_LABEL2[r.kind]}</span>` : "";
+    const routeText = (r) =>
+      (r.from || r.to) ? `${esc(r.from || "？")} → ${esc(r.to || "？")}` : "";
+    function syncRouteRow() {
+      const k = q("#f_kind").value;
+      const on = TRANSPORT.has(k) || !!q("#f_from").value || !!q("#f_to").value;
+      q("#routeRow").style.display = on ? "" : "none";
+      q("#fromLabel").textContent = k === "car" ? "借りる場所" : "出発地";
+      q("#toLabel").textContent = k === "car" ? "返す場所" : "到着地";
+    }
     function maxLoss(r) {
       const st = stagesOf(r);
-      if (!r.amount || !st) return 0;
+      if (!r.amount || !st || unbooked(r)) return 0;
       return Math.round(r.amount * Math.max(...st.map((s) => s.pct)) / 100);
     }
     // 「5日前」「前日」「当日」「36時間前」— 人が言う形の境界
@@ -3524,6 +3629,8 @@
       q("#tripList").innerHTML = [...new Set(data.map((r) => r.trip).filter(Boolean))].map((t) =>
         `<option value="${esc(t)}">`
       ).join("");
+      q("#bookedByList").innerHTML = [...new Set(data.map((r) => r.bookedBy).filter(Boolean))]
+        .map((t) => `<option value="${esc(t)}">`).join("");
 
       const list = q("#list");
       if (active.length === 0 && finished.length === 0 && cancelled.length === 0) {
@@ -3610,12 +3717,59 @@
           const b = fmtDate(Math.max(...ends, ...starts));
           span = a === b ? a : `${a}〜${b}`;
         }
+        // 費用: 確定の合計と、未確定を含む見込みの最大（単独の候補は全部、未確定の
+        // プランは一番高い候補だけ。要キャンセルは数えない）。
+        const confirmedYen = all.filter((r) => r.status === "confirmed")
+          .reduce((n, r) => n + (r.amount || 0), 0);
+        const settled = new Set(
+          all.filter((r) => r.status === "confirmed" && r.plan).map((r) => r.plan),
+        );
+        const dearest = {};
+        let soloYen = 0;
+        for (const r of all) {
+          if (r.status !== "candidate") continue;
+          if (!r.plan) soloYen += r.amount || 0;
+          else if (!settled.has(r.plan)) dearest[r.plan] = Math.max(dearest[r.plan] || 0, r.amount || 0);
+        }
+        const expectedYen = confirmedYen + soloYen +
+          Object.values(dearest).reduce((a, b) => a + b, 0);
+        const money = `確定 ${yen(confirmedYen)}` +
+          (expectedYen > confirmedYen ? ` · 見込み ${yen(expectedYen)}` : "");
+        // 行程: 旅行の中身を時刻順に1行ずつ。宿から駅、駅から空港のつながりを
+        // カードを開かずに追えるようにする。
+        const HM = (ms) => {
+          const d = new Date(ms);
+          return (d.getHours() || d.getMinutes())
+            ? ` ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+            : "";
+        };
+        const ST = { candidate: "候補", confirmed: "確定", to_cancel: "要キャンセル" };
+        // 時刻未定（0:00 のまま仮）の予約は、その日の最後に並べる。0:00 として並べると
+        // 朝一番の飛行機より前に来てしまう。
+        const planKey = (r) => {
+          const ms = startMs(r);
+          return (r.timeTentative && !HM(ms)) ? ms + DAY - 1 : ms;
+        };
+        const lines = [...all].filter((r) => !Number.isNaN(startMs(r)))
+          .sort((a, b) => planKey(a) - planKey(b)).map((r) => {
+            const route = routeText(r);
+            const marks = [
+              ST[r.status],
+              unbooked(r) ? "未予約" : "",
+              r.timeTentative ? (HM(startMs(r)) ? "時刻は仮" : "時刻未定") : "",
+            ].filter(Boolean).join(" · ");
+            return `<li class="${r.status}"><span class="when">${fmtDate(startMs(r))}${
+              HM(startMs(r))
+            }</span><span class="what">${kindTag(r)}${esc(r.service)}${
+              route ? ` <span class="route">${route}</span>` : ""
+            }</span><span class="st">${marks}</span></li>`;
+          }).join("");
         blocks.push(
           `<section class="trip"><div class="trip-head"><span class="trip-label">旅行</span><span class="trip-title">${
             esc(t)
-          }</span><span class="trip-note">${span ? span + " · " : ""}${all.length}件</span></div>${
-            members.map(cardHtml).join("")
-          }</section>`,
+          }</span><span class="trip-note">${span ? span + " · " : ""}${all.length}件 · ${money}</span></div>${
+            lines ? `<ol class="trip-plan">${lines}</ol>` : ""
+          }${members.map(cardHtml).join("")}</section>`,
         );
       }
       list.innerHTML = blocks.join("");
@@ -3654,6 +3808,9 @@
       );
       document.querySelectorAll("[data-confirm]").forEach((b) =>
         b.onclick = () => askConfirm(b.dataset.confirm)
+      );
+      document.querySelectorAll("[data-booked]").forEach((b) =>
+        b.onclick = () => act("PATCH", `/api/reservations/${b.dataset.booked}`, { booked: true })
       );
       document.querySelectorAll("[data-cancel]").forEach((b) =>
         b.onclick = () => act("POST", `/api/reservations/${b.dataset.cancel}/cancel`)
@@ -3732,7 +3889,9 @@
       return `<div class="resv cancelled-row">
         <div><div class="name">${esc(r.service)}</div><div class="sub">${fmtDate(startMs(r))}${
         r.amount ? " · " + yen(r.amount) : ""
-      }</div><span class="pill cancelled">キャンセル済み</span>${shareTag}</div>
+      }</div><span class="pill cancelled">${
+        r.booked === false ? "見送り" : "キャンセル済み"
+      }</span>${shareTag}</div>
         <div class="sub" style="align-self:center">${
 [r.trip ? "旅行: " + esc(r.trip) : "", r.plan ? "プラン: " + esc(r.plan) : ""].filter(Boolean)
           .join(" · ")
@@ -3853,11 +4012,20 @@
         );
       }
       for (const r of active) {
-        if (r.shared || !unknownPolicy(r) || r.status === "to_cancel") continue;
+        if (r.shared || !unknownPolicy(r) || r.status === "to_cancel" || unbooked(r)) continue;
         items.push(
           `<div class="rail-item soft"><div class="lb muted">いつでも</div><div class="tt"><b>${
             esc(r.service)
           } の規定を入れる</b></div><div class="ds">入れると期限を見張れます</div><div class="btns"><button class="rowbtn" data-edit="${r.id}">規定を入れる</button></div></div>`,
+        );
+      }
+      // 決めたのに、まだ予約を取っていないもの。決めただけでは席も部屋も無い。
+      for (const r of active) {
+        if (r.shared || r.status !== "confirmed" || !unbooked(r)) continue;
+        items.push(
+          `<div class="rail-item"><div class="lb">早めに</div><div class="tt"><b>${
+            esc(r.service)
+          } を予約する</b></div><div class="ds">決めましたが、まだ予約していません</div><div class="btns"><button class="rowbtn act" data-booked="${r.id}">予約した</button></div></div>`,
         );
       }
       // 見出しの件数は「いま手を打つもの」＝キャンセル待ちと期限が目前の候補。
@@ -3976,6 +4144,8 @@
       // 「終了」と書くと、あったものを逃したように読めてしまう（LINE 側は「無料期間なし」）。
       const mid = badStart
         ? "日時を直すと期限を見張れます"
+        : unbooked(r)
+        ? "予約を取ると期限を見張ります"
         : unknownPolicy(r)
         ? "規定が不明だと見張れません"
         : (alwaysFree(r)
@@ -3999,7 +4169,10 @@
       const sub = `${badStart ? BAD_START : fmtDate(start) + timeS}${badStart ? "" : tent} · ${
         r.amount ? yen(r.amount) : "金額未定"
       }`;
-      const locLink = locationHtml(r) +
+      const route = routeText(r);
+      const locLink = (route ? `<div class="sub route">${route}</div>` : "") +
+        (r.bookedBy ? `<div class="sub">予約した人: ${esc(r.bookedBy)}</div>` : "") +
+        locationHtml(r) +
         (r.notes ? `<div class="note">${esc(r.notes)}</div>` : "");
       const off = r.status === "to_cancel" ? " off" : "";
       const cut = r.status === "to_cancel" ? ` <span class="cut">✂ 要キャンセル</span>` : "";
@@ -4018,9 +4191,13 @@
       }
       // 自分の予約: 主操作は右端のボタン、副操作（招待・編集・削除）は名前下のリンク。
       let mainBtn = "";
+      // 「予約した」: 未予約の印を外す。共有された予約では出さない（持ち主の操作）。
+      const bookBtn = unbooked(r) && !r.shared
+        ? `<button class="rowbtn" data-booked="${r.id}">予約した</button>`
+        : "";
       if (r.status === "candidate") {
-        mainBtn = `<button class="rowbtn confirm" data-confirm="${r.id}">これで確定</button>`;
-        if (unknownPolicy(r)) {
+        mainBtn = `<button class="rowbtn confirm" data-confirm="${r.id}">これで確定</button>` + bookBtn;
+        if (unknownPolicy(r) && !unbooked(r)) {
           mainBtn += `<button class="rowbtn dashed" data-edit="${r.id}">規定 不明 → 入れる</button>`;
         }
       } else if (r.status === "to_cancel") {
@@ -4030,7 +4207,9 @@
         mainBtn = `<button class="rowbtn act" data-cancel="${r.id}">✓ キャンセルした</button>` +
           `<button class="rowbtn" data-restore="${r.id}">↩ 候補に戻す</button>`;
       } else {
-        mainBtn = `<span class="okmark">✓ 確定済み</span>`;
+        mainBtn = unbooked(r)
+          ? `<span class="okmark">✓ これに決定</span>` + bookBtn
+          : `<span class="okmark">✓ 確定済み</span>`;
       }
       const inviteLink = viewingDemo ? "" : `<a data-invite="${r.id}">招待</a> · `;
       const cancelLink = r.status === "confirmed"
@@ -4038,7 +4217,9 @@
         : "";
       const tools = `<div class="tools">${inviteLink}<a data-edit="${r.id}">編集</a> · <a data-del="${r.id}">削除</a>${cancelLink}</div>`;
       return `<div class="resv${off}">
-        <div><div class="name"><b>${esc(r.service)}</b>${cut}</div><div class="sub">${sub}</div>${locLink}${tools}</div>
+        <div><div class="name">${kindTag(r)}<b>${esc(r.service)}</b>${
+        unbooked(r) ? `<span class="tent">未予約</span>` : ""
+      }${cut}</div><div class="sub">${sub}</div>${locLink}${tools}</div>
         <div>${track}${cap}</div>
         <div class="ract">${mainBtn}</div></div>`;
     }
@@ -4444,6 +4625,12 @@
       q("#f_trip").value = (r && r.trip) ? r.trip : "";
       q("#f_notes").value = (r && r.notes) ? r.notes : "";
       q("#f_tentative").checked = !!(r && r.timeTentative);
+      q("#f_unbooked").checked = !!(r && r.booked === false);
+      q("#f_kind").value = (r && r.kind) ? r.kind : "";
+      q("#f_bookedBy").value = (r && r.bookedBy) ? r.bookedBy : "";
+      q("#f_from").value = (r && r.from) ? r.from : "";
+      q("#f_to").value = (r && r.to) ? r.to : "";
+      syncRouteRow();
       // 読めない開始は空欄で開く。保存時の「予約日は必須」で選び直してもらう。
       const startAt = (r && r.startsAt) ? startMs(r) : Date.now() + 7 * DAY;
       const d = Number.isNaN(startAt) ? null : new Date(startAt);
@@ -4520,6 +4707,7 @@
       if (open.length === 0 || !open.every(dismissible)) return;
       closeAll();
     });
+    q("#f_kind").onchange = syncRouteRow;
     q("#addBtn").onclick = () => openAdd();
     q("#importBtn").onclick = openImport;
     // 使い方はページビュー（#helpPage）。開いている modal は閉じてから切り替える。
@@ -4593,6 +4781,13 @@
       const trip = q("#f_trip").value.trim() || null;
       const notes = q("#f_notes").value.trim() || null;
       const timeTentative = q("#f_tentative").checked;
+      const booked = !q("#f_unbooked").checked;
+      const kind = q("#f_kind").value || null;
+      const bookedBy = q("#f_bookedBy").value.trim() || null;
+      // 区間は交通・車のときだけ出している欄。隠れているときの残り値は送らない。
+      const routeOn = q("#routeRow").style.display !== "none";
+      const from = routeOn ? (q("#f_from").value.trim() || null) : null;
+      const to = routeOn ? (q("#f_to").value.trim() || null) : null;
       const policy = readPolicy();
       const saveTpl = q("#tplSave").checked && !q("#tplSave").disabled;
       try {
@@ -4610,6 +4805,11 @@
             trip,
             notes,
             timeTentative,
+            booked,
+            kind,
+            from,
+            to,
+            bookedBy,
             policy,
           });
           if (wasCancelled) await api("POST", `/api/reservations/${editingId}/restore`);
@@ -4627,6 +4827,11 @@
             trip,
             notes,
             timeTentative,
+            booked,
+            kind,
+            from,
+            to,
+            bookedBy,
             policy,
             confirmed,
           });

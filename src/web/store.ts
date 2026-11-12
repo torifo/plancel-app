@@ -27,6 +27,18 @@ export { type WebPolicy, webPolicySchema } from "./policy.ts";
 export const webStatusSchema = z.enum(["candidate", "confirmed", "to_cancel", "cancelled"]);
 export type WebStatus = z.infer<typeof webStatusSchema>;
 
+export const webKindSchema = z.enum([
+  "stay",
+  "meal",
+  "flight",
+  "train",
+  "bus",
+  "car",
+  "activity",
+  "other",
+]);
+export type WebKind = z.infer<typeof webKindSchema>;
+
 export const webReservationSchema = z.object({
   id: z.string().min(1),
   plan: z.string().nullable(),
@@ -64,6 +76,25 @@ export const webReservationSchema = z.object({
    * settled or cancelled through it.
    */
   trip: z.string().nullable().default(null),
+  /**
+   * Whether a reservation actually exists at the place. A candidate may be one
+   * the family is holding, or only an idea not yet arranged (a train not yet
+   * bought). The difference decides what losing means: a held one that is not
+   * chosen must be cancelled with a call (to_cancel); an idea is simply out.
+   * Old rows are all "booked" — that is what a candidate always meant.
+   */
+  booked: z.boolean().default(true),
+  /**
+   * What it is. A trip holds more than the inn — the flight, the train, the
+   * rental car are reservations with deadlines too (owner 2026-11-12:
+   * 「あくまで予約管理だから宿だけに絞っては使いにくい」). Null = not said.
+   */
+  kind: webKindSchema.nullable().default(null),
+  /** Where it leaves from and arrives (transport), or is picked up and returned (a car). */
+  from: z.string().nullable().default(null),
+  to: z.string().nullable().default(null),
+  /** Who made the booking in the real world — the person to ask, or to ask to cancel. */
+  bookedBy: z.string().nullable().default(null),
   policy: webPolicySchema,
   status: webStatusSchema,
   created_at: z.string(),
@@ -95,6 +126,8 @@ const textSchema = (max: number) =>
   z.string().trim().max(max).transform((v) => (v === "" ? null : v)).nullable();
 const notesSchema = textSchema(2000);
 const tripSchema = textSchema(60);
+const placeSchema = textSchema(100);
+const personSchema = textSchema(40);
 
 /** Fields a client may set on create; server owns id/status/timestamps. */
 export const webCreateSchema = z.object({
@@ -109,6 +142,11 @@ export const webCreateSchema = z.object({
   notes: notesSchema.default(null),
   timeTentative: z.boolean().default(false),
   trip: tripSchema.default(null),
+  booked: z.boolean().default(true),
+  kind: webKindSchema.nullable().default(null),
+  from: placeSchema.default(null),
+  to: placeSchema.default(null),
+  bookedBy: personSchema.default(null),
   policy: webPolicySchema.default("unknown"),
   confirmed: z.boolean().default(false),
 });
@@ -124,6 +162,11 @@ export const webPatchSchema = z.object({
   notes: notesSchema.optional(),
   timeTentative: z.boolean().optional(),
   trip: tripSchema.optional(),
+  booked: z.boolean().optional(),
+  kind: webKindSchema.nullable().optional(),
+  from: placeSchema.optional(),
+  to: placeSchema.optional(),
+  bookedBy: personSchema.optional(),
   policy: webPolicySchema.optional(),
 });
 
@@ -172,6 +215,16 @@ export class WebTransitionError extends Error {
         ? "この予約はすでに確定しています。"
         : "確定できるのは候補（candidate）だけです。restore_reservation で候補に戻してから確定してください。");
   }
+}
+
+/**
+ * What becomes of a reservation that was not the one chosen. One the family is
+ * holding has to be cancelled at the place, so it waits as to_cancel; one that
+ * was never booked needs no call and is simply cancelled (the screen calls it
+ * 見送り).
+ */
+function lostStatus(r: { booked?: boolean }): "to_cancel" | "cancelled" {
+  return r.booked === false ? "cancelled" : "to_cancel";
 }
 
 /** A reservation a settlement changed alongside the one that was acted on. */
@@ -245,8 +298,17 @@ async function put(kv: Deno.Kv, token: string, r: WebReservation): Promise<void>
  */
 type ParsedCreate = z.infer<typeof webCreateSchema>;
 export type WebCreateInput =
-  & Omit<ParsedCreate, "notes" | "timeTentative" | "trip">
-  & Partial<Pick<ParsedCreate, "notes" | "timeTentative" | "trip">>;
+  & Omit<ParsedCreate, OptionalCreateField>
+  & Partial<Pick<ParsedCreate, OptionalCreateField>>;
+type OptionalCreateField =
+  | "notes"
+  | "timeTentative"
+  | "trip"
+  | "booked"
+  | "kind"
+  | "from"
+  | "to"
+  | "bookedBy";
 
 export async function createReservation(
   kv: Deno.Kv,
@@ -290,6 +352,11 @@ export async function createReservationWithEffects(
     notes: input.notes ?? null,
     timeTentative: input.timeTentative ?? false,
     trip: input.trip ?? null,
+    booked: input.booked ?? true,
+    kind: input.kind ?? null,
+    from: input.from ?? null,
+    to: input.to ?? null,
+    bookedBy: input.bookedBy ?? null,
     policy,
     // Confirm through confirmReservation below so create-with-confirmed uses
     // exactly the same transition validation and atomic plan settlement.
@@ -351,6 +418,11 @@ export async function patchReservation(
     ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
     ...(patch.timeTentative !== undefined ? { timeTentative: patch.timeTentative } : {}),
     ...(patch.trip !== undefined ? { trip: patch.trip } : {}),
+    ...(patch.booked !== undefined ? { booked: patch.booked } : {}),
+    ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
+    ...(patch.from !== undefined ? { from: patch.from } : {}),
+    ...(patch.to !== undefined ? { to: patch.to } : {}),
+    ...(patch.bookedBy !== undefined ? { bookedBy: patch.bookedBy } : {}),
     ...(patch.policy !== undefined ? { policy: patch.policy } : {}),
     updated_at: ids.nowIso(),
     updated_by: actor,
@@ -472,7 +544,7 @@ export async function confirmReservationWithEffects(
       for (const sibling of siblings) {
         tx = tx.check(sibling).set(key(token, sibling.value.id), {
           ...sibling.value,
-          status: "to_cancel",
+          status: lostStatus(sibling.value),
           updated_at: now,
           updated_by: actor,
         });
@@ -487,7 +559,7 @@ export async function confirmReservationWithEffects(
         affected: siblings.map((e) => ({
           id: e.value.id,
           service: e.value.service,
-          status: "to_cancel" as const,
+          status: lostStatus(e.value),
         })),
       };
     }

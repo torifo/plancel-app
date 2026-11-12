@@ -856,3 +856,114 @@ Deno.test("web api: notes, trip and timeTentative are stored, edited, and defaul
     assertEquals([old.notes, old.trip, old.timeTentative], [null, null, false]);
   });
 });
+
+// ---- booked or not (2026-11-12) ----
+
+Deno.test("web api: an alternative that was never booked is dropped, not left to cancel", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const mk = async (service: string, booked?: boolean) =>
+      (await (await handleWebApi(
+        kv,
+        reqOf("POST", BASE, "t", {
+          plan: "宿",
+          service,
+          startsAt: "2026-12-20T15:00:00+09:00",
+          policy: "free24",
+          ...(booked === undefined ? {} : { booked }),
+        }),
+        ids,
+      )).json()).reservation;
+    const held = await mk("押さえた宿"); // default: booked
+    const idea = await mk("まだ取っていない宿", false);
+    const pick = await mk("決めた宿", false);
+    assertEquals([held.booked, idea.booked], [true, false]);
+
+    const res = await (await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${pick.id}/confirm`, "t"),
+      ids,
+    )).json();
+    // The held one needs a call; the idea needs nothing and is simply out.
+    const by = Object.fromEntries(
+      (res.affected as { id: string; status: string }[]).map((a) => [a.id, a.status]),
+    );
+    assertEquals(by, { [held.id]: "to_cancel", [idea.id]: "cancelled" });
+    // Chosen but not yet booked: confirmed, and still says so.
+    assertEquals([res.reservation.status, res.reservation.booked], ["confirmed", false]);
+
+    // 「予約した」: the flag is an ordinary edit.
+    const booked = await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${pick.id}`, "t", { booked: true }),
+      ids,
+    )).json();
+    assertEquals(booked.reservation.booked, true);
+
+    // Replacing a winner that was never booked drops it the same way.
+    await handleWebApi(kv, reqOf("POST", `${BASE}/${held.id}/restore`, "t"), ids);
+    await handleWebApi(kv, reqOf("PATCH", `${BASE}/${pick.id}`, "t", { booked: false }), ids);
+    const swap = await (await handleWebApi(
+      kv,
+      reqOf("POST", `${BASE}/${held.id}/confirm`, "t", { replace: true }),
+      ids,
+    )).json();
+    assertEquals(swap.affected, [{ id: pick.id, service: "決めた宿", status: "cancelled" }]);
+  });
+});
+
+// ---- any kind of reservation in a trip (2026-11-12) ----
+
+Deno.test("web api: kind, route and who booked it are stored and edited", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const flight = await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        service: "JAL 661便",
+        kind: "flight",
+        from: " 羽田 ",
+        to: "大分",
+        bookedBy: "母",
+        startsAt: "2026-12-19T08:05:00+09:00",
+        endsAt: "2026-12-19T09:45:00+09:00",
+        trip: "別府旅行",
+      }),
+      ids,
+    )).json();
+    const r = flight.reservation;
+    assertEquals([r.kind, r.from, r.to, r.bookedBy], ["flight", "羽田", "大分", "母"]);
+
+    const plain = await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", { service: "鮨", startsAt: "2026-12-05T18:00:00+09:00" }),
+      ids,
+    )).json();
+    assertEquals(
+      [
+        plain.reservation.kind,
+        plain.reservation.from,
+        plain.reservation.to,
+        plain.reservation.bookedBy,
+      ],
+      [null, null, null, null],
+    );
+    const edited = await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${plain.reservation.id}`, "t", { kind: "meal", bookedBy: "" }),
+      ids,
+    )).json();
+    assertEquals([edited.reservation.kind, edited.reservation.bookedBy], ["meal", null]);
+
+    const bad = await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        service: "x",
+        startsAt: "2026-12-05T18:00:00+09:00",
+        kind: "spaceship",
+      }),
+      ids,
+    );
+    assertEquals(bad.status, 400);
+  });
+});

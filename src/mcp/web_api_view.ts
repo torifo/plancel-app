@@ -21,7 +21,7 @@ import {
   stagesOf,
   type WebPolicy,
 } from "../web/policy.ts";
-import { type WebStatus, webStatusSchema } from "../web/store.ts";
+import { type WebKind, type WebStatus, webStatusSchema } from "../web/store.ts";
 
 /** The row shape this module reads — the API's reservation, loosely. */
 export interface ApiReservation {
@@ -35,6 +35,11 @@ export interface ApiReservation {
   notes?: string | null;
   timeTentative?: boolean;
   trip?: string | null;
+  booked?: boolean;
+  kind?: WebKind | null;
+  from?: string | null;
+  to?: string | null;
+  bookedBy?: string | null;
   policy: WebPolicy;
   status: WebStatus;
   shared?: { ownerDisplayName: string; role: string };
@@ -56,6 +61,19 @@ export interface ModelReservation {
   timeTentative: boolean;
   /** Free-text note: what the fixed fields cannot hold. */
   notes: string | null;
+  /** False for an idea not yet arranged: nothing exists to cancel. */
+  booked: boolean;
+  /** Chosen (confirmed) but not booked yet — the thing left to do is to book it. */
+  needsBooking: boolean;
+  /** What it is: stay / meal / flight / train / bus / car / activity / other, or null. */
+  kind: WebKind | null;
+  /** Where it leaves from and arrives (transport), or is picked up and returned. */
+  from: string | null;
+  to: string | null;
+  /** Who made the booking — the person to ask about it. */
+  bookedBy: string | null;
+  /** What is still unsettled about this reservation, in words to relay. Empty when nothing is. */
+  needsCheck: string[];
   policy: WebPolicy;
   /** The policy in words, as the app screen shows it (「7日前まで無料 → …」). */
   policyText: string;
@@ -150,8 +168,82 @@ function feeNow(r: ApiReservation, nowMs: number): { pct: number; yen: number | 
   return { pct, yen: r.amount === null ? null : Math.round(r.amount * pct / 100) };
 }
 
+/**
+ * What is still open about a reservation — the list a model reads back when
+ * asked 「まだ決まっていないことは？」. Nothing here is an error; each line is
+ * something the family has not found out or done yet.
+ */
+function needsCheck(r: ApiReservation, booked: boolean): string[] {
+  if (r.status === "cancelled") return [];
+  const out: string[] = [];
+  if (!booked) out.push("まだ予約していない");
+  if (r.timeTentative === true) out.push("時刻が仮");
+  // An unbooked idea has no policy to learn yet.
+  if (booked && r.policy === "unknown") out.push("キャンセル規定が不明");
+  if (r.amount === null) out.push("金額が未入力");
+  if (r.kind === "stay" && r.endsAt == null) out.push("終了日（チェックアウト日）が未入力");
+  return out;
+}
+
+export interface TripSummary {
+  trip: string;
+  count: number;
+  /** First and last day of the trip's reservations (JST dates). */
+  from: string | null;
+  to: string | null;
+  /** Money in confirmed reservations. */
+  confirmedYen: number;
+  /**
+   * Confirmed, plus the most the undecided rest could add: every candidate on
+   * its own, and of each undecided plan only its dearest alternative.
+   */
+  expectedYen: number;
+}
+
+/** Sums up each trip among `rows` (cancelled and to-be-cancelled rows left out). */
+export function summarizeTrips(rows: ApiReservation[]): TripSummary[] {
+  const byTrip = new Map<string, ApiReservation[]>();
+  for (const r of rows) {
+    if (r.trip == null || r.status === "cancelled" || r.status === "to_cancel") continue;
+    const key = foldName(r.trip);
+    byTrip.set(key, [...(byTrip.get(key) ?? []), r]);
+  }
+  return [...byTrip.values()].map((rs) => {
+    const days = rs.flatMap((r) => [r.startsAt, r.endsAt]).map((v) =>
+      v == null ? null : toInstantOrNull(v)?.epochMilliseconds ?? null
+    ).filter((ms): ms is number => ms !== null);
+    const day = (ms: number) => jstOfMs(ms).slice(0, 10);
+    const confirmedYen = rs.filter((r) => r.status === "confirmed").reduce(
+      (sum, r) => sum + (r.amount ?? 0),
+      0,
+    );
+    const open = rs.filter((r) => r.status === "candidate");
+    const settledPlans = new Set(
+      rs.filter((r) => r.status === "confirmed" && r.plan !== null).map((r) => r.plan),
+    );
+    const dearest = new Map<string, number>();
+    let solo = 0;
+    for (const r of open) {
+      if (r.plan === null) solo += r.amount ?? 0;
+      else if (!settledPlans.has(r.plan)) {
+        dearest.set(r.plan, Math.max(dearest.get(r.plan) ?? 0, r.amount ?? 0));
+      }
+    }
+    return {
+      trip: rs[0]!.trip!,
+      count: rs.length,
+      from: days.length ? day(Math.min(...days)) : null,
+      to: days.length ? day(Math.max(...days)) : null,
+      confirmedYen,
+      expectedYen: confirmedYen + solo + [...dearest.values()].reduce((a, b) => a + b, 0),
+    };
+  });
+}
+
 export function presentReservation(r: ApiReservation, nowMs: number): ModelReservation {
-  const deadline = freeDeadlineMs(r.policy, r.startsAt);
+  const booked = r.booked !== false;
+  // Nothing is held, so nothing can be lost by cancelling: no deadline, no fee.
+  const deadline = booked ? freeDeadlineMs(r.policy, r.startsAt) : null;
   return {
     id: r.id,
     service: r.service,
@@ -166,12 +258,19 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     trip: r.trip ?? null,
     timeTentative: r.timeTentative ?? false,
     notes: r.notes ?? null,
+    booked,
+    needsBooking: !booked && r.status === "confirmed",
+    kind: r.kind ?? null,
+    from: r.from ?? null,
+    to: r.to ?? null,
+    bookedBy: r.bookedBy ?? null,
+    needsCheck: needsCheck(r, booked),
     policy: r.policy,
     policyText: describePolicy(r.policy),
     freeUntil: deadline === null ? null : jstOfMs(deadline),
-    nextCharge: nextCharge(r.policy, r.startsAt),
+    nextCharge: booked ? nextCharge(r.policy, r.startsAt) : null,
     feeSchedule: feeSchedule(r),
-    feeNow: feeNow(r, nowMs),
+    feeNow: booked ? feeNow(r, nowMs) : { pct: 0, yen: 0 },
     finished: isFinished(r, nowMs),
     ...(r.shared !== undefined ? { shared: r.shared } : {}),
   };
@@ -212,6 +311,8 @@ export interface ModelList {
    * the ones nobody is watching — the count keeps them from being overlooked.
    */
   policyUnknown: number;
+  /** One line per trip among the shown rows: dates, count, money. Absent when none has a trip. */
+  trips?: TripSummary[];
   reservations: ModelReservation[];
 }
 
@@ -230,6 +331,7 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
   const q = f.q === undefined ? null : foldName(f.q);
   const trip = f.trip === undefined ? null : foldName(f.trip);
   const out: ModelReservation[] = [];
+  const shownRows: ApiReservation[] = [];
   const hidden = { finished: 0, cancelled: 0 };
   for (const r of rows) {
     if (f.status !== undefined) {
@@ -250,14 +352,22 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
     if (toMs !== null && (startMs === null || startMs > toMs)) continue;
     if (
       q !== null &&
-      ![r.service, r.plan ?? "", r.trip ?? "", r.location ?? "", r.notes ?? ""].some((s) =>
-        foldName(s).includes(q)
-      )
+      ![
+        r.service,
+        r.plan ?? "",
+        r.trip ?? "",
+        r.location ?? "",
+        r.notes ?? "",
+        r.from ?? "",
+        r.to ?? "",
+        r.bookedBy ?? "",
+      ].some((s) => foldName(s).includes(q))
     ) {
       continue;
     }
     if (trip !== null && foldName(r.trip ?? "") !== trip) continue;
     out.push(v);
+    shownRows.push(r);
   }
   const startKey = (v: ModelReservation) =>
     toInstantOrNull(v.startsAt)?.epochMilliseconds ?? Number.MAX_SAFE_INTEGER;
@@ -271,12 +381,15 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
       : startKey(a) - startKey(b) || a.id.localeCompare(b.id)
   );
   const limited = out.slice(0, f.limit);
+  const trips = summarizeTrips(shownRows);
   return {
     total: rows.length,
     count: limited.length,
     truncated: limited.length < out.length,
     hidden,
-    policyUnknown: limited.filter((v) => v.policy === "unknown" && v.status !== "cancelled").length,
+    policyUnknown:
+      limited.filter((v) => v.policy === "unknown" && v.status !== "cancelled" && v.booked).length,
+    ...(trips.length > 0 ? { trips } : {}),
     reservations: limited,
   };
 }

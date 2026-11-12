@@ -87,6 +87,11 @@ async function putResv(
     notes: null,
     timeTentative: false,
     trip: null,
+    booked: true,
+    kind: null,
+    from: null,
+    to: null,
+    bookedBy: null,
     policy,
     status,
     created_at: iso(NOW),
@@ -565,5 +570,17 @@ Deno.test("the email quota bucket is the Asia/Tokyo date, not the UTC date", asy
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent, at)), 1);
     assertEquals((await quotaAt(kv, "2026-08-02")).value, 1);
     assertEquals((await quotaAt(kv, "2026-08-01")).value, null);
+  });
+});
+
+Deno.test("a reservation that was never booked has no deadline to warn about", async () => {
+  await withKv(async (kv) => {
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", makeAuthIds());
+    await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
+    const cur = (await kv.get<WebReservation>(["web", u.ledgerId, "resv", "R1"])).value;
+    await kv.set(["web", u.ledgerId, "resv", "R1"], { ...cur, booked: false });
+    const sent: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 0);
+    assertEquals(sent.length, 0);
   });
 });

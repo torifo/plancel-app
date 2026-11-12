@@ -200,6 +200,8 @@ async function collectDue(deps: NotifyDeps, user: WebUser): Promise<Collected> {
   const unreadable: string[] = [];
   for (const resv of await listReservations(deps.kv, user.ledgerId)) {
     if (!ACTIVE_STATUSES.has(resv.status)) continue;
+    // Not booked yet: there is no reservation to cancel, so no deadline to miss.
+    if (resv.booked === false) continue;
     if (toInstantOrNull(resv.startsAt) === null) {
       unreadable.push(resv.id);
       continue;
