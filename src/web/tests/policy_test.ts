@@ -137,14 +137,14 @@ Deno.test("policy: describePolicy is human Japanese, never JSON", () => {
   assertEquals(describePolicy("none"), "いつでも無料");
   assertEquals(describePolicy("free24"), "前日まで無料 → 当日100%");
   assertEquals(describePolicy("staged"), "7日前まで無料 → 3日前まで30% → 前日まで50% → 当日100%");
-  assertEquals(describePolicy(FIVE_DAY), "5日前まで無料 → 3日前まで30% → 当日100%");
+  assertEquals(describePolicy(FIVE_DAY), "5日前まで無料 → 3日前まで30% → 以降100%");
   assertEquals(
     describePolicy({ stages: [{ h: 36, pct: 0 }, { h: 0, pct: 50 }] }),
-    "36時間前まで無料 → 当日50%",
+    "36時間前まで無料 → 以降50%",
   );
   assertEquals(
     describePolicy({ stages: [{ h: 48, pct: 20 }, { h: 0, pct: 80 }] }),
-    "2日前まで20% → 当日80%",
+    "2日前まで20% → 以降80%",
   );
 });
 
@@ -168,7 +168,7 @@ Deno.test("fromCoreStages: a 「N日前から◯%」 policy keeps its free windo
   // nothing at all.
   const fromBoundary = fromCoreStages(core([[192, 0], [0, 20]]));
   assertEquals(fromBoundary, { stages: [{ h: 192, pct: 0 }, { h: 0, pct: 20 }] });
-  assertEquals(describePolicy(fromBoundary), "8日前まで無料 → 当日20%");
+  assertEquals(describePolicy(fromBoundary), "8日前まで無料 → 以降20%");
   assertEquals(freeDeadlineMs(fromBoundary, START), eod("2026-08-12"));
 
   // Staged version of the same phrasing: 「3日前から20%、前日50%、当日80%」.
@@ -195,7 +195,7 @@ Deno.test("fromCoreStages: the source text's free boundary wins over the model's
   assertEquals(fromCoreStages(core([[192, 0], [0, 20]]), 192), single);
   assertEquals(
     describePolicy(fromCoreStages(core([[168, 0], [0, 20]]), 192)),
-    "8日前まで無料 → 当日20%",
+    "8日前まで無料 → 以降20%",
   );
 
   // No free stage at all (what the pre-2026-07-30 prompt produced): the window

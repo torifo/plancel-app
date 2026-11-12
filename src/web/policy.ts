@@ -211,7 +211,19 @@ function boundaryLabel(h: number): string {
 }
 
 /**
- * Human Japanese label — 「5日前まで無料 → 3日前まで30% → 当日100%」, the way
+ * How the last stage (h = 0, running up to the start) is named. It begins the
+ * day after the stage before it ends, so it is 「当日」 only when that stage ran
+ * through the day before. After 「2日前まで無料」 the last stage already covers
+ * the day before, and calling it 「当日100%」 read as "the day before is free" —
+ * to a person on the screen and to a model relaying it (rehearsal, 2026-11-12).
+ * Then it is 「以降」.
+ */
+function lastStageLabel(prev: WebPolicyStage | undefined): string {
+  return prev === undefined || prev.h <= 24 ? "当日" : "以降";
+}
+
+/**
+ * Human Japanese label — 「5日前まで無料 → 3日前まで30% → 以降100%」, the way
  * cancellation tables are actually written (a stage's `h` is the INNER edge of
  * its band, i.e. core `until_offset_hours`). Everything user-facing goes
  * through this (ICS / Google Calendar descriptions, the form preview): a raw
@@ -224,10 +236,14 @@ export function describePolicy(policy: WebPolicy): string {
   const parts: string[] = [];
   const lastFree = [...stages].reverse().find((s) => s.pct === 0);
   if (lastFree !== undefined) parts.push(`${boundaryLabel(lastFree.h)}まで無料`);
-  for (const s of stages) {
-    if (s.pct === 0) continue;
-    parts.push(s.h === 0 ? `当日${s.pct}%` : `${boundaryLabel(s.h)}まで${s.pct}%`);
-  }
+  stages.forEach((s, i) => {
+    if (s.pct === 0) return;
+    parts.push(
+      s.h === 0
+        ? `${lastStageLabel(stages[i - 1])}${s.pct}%`
+        : `${boundaryLabel(s.h)}まで${s.pct}%`,
+    );
+  });
   return parts.join(" → ");
 }
 

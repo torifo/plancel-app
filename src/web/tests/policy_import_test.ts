@@ -67,7 +67,7 @@ Deno.test("corpus: 「7日前から20%」 is recorded as 8日前まで無料", a
   assertEquals(impliedFreeBoundaryHours(fixture.raw_input), 192);
 
   const policy = fromCoreStages(fixture.expected.output?.cancellation_policy, 192);
-  assertEquals(describePolicy(policy), "8日前まで無料 → 当日20%");
+  assertEquals(describePolicy(policy), "8日前まで無料 → 以降20%");
   assertEquals(freeDeadlineMs(policy, START), eod("2026-08-12")); // 8日前の終わり
 });
 

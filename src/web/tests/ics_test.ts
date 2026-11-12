@@ -59,12 +59,12 @@ Deno.test("calendar descriptions carry the human policy label, never the raw val
   });
   assertStringIncludes(
     buildIcs([custom]),
-    "キャンセル規定: 5日前まで無料 → 3日前まで30% → 当日100%",
+    "キャンセル規定: 5日前まで無料 → 3日前まで30% → 以降100%",
   );
   assertEquals(buildIcs([custom]).includes("stages"), false);
   assertStringIncludes(
     String((eventBody(custom) as { description: string }).description),
-    "キャンセル規定: 5日前まで無料 → 3日前まで30% → 当日100%",
+    "キャンセル規定: 5日前まで無料 → 3日前まで30% → 以降100%",
   );
   assertStringIncludes(buildIcs([resv({ policy: "unknown", status: "confirmed" })]), "規定: 不明");
 });

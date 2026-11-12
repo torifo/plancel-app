@@ -3555,10 +3555,14 @@
       const parts = [];
       const lastFree = [...st].reverse().find((s) => s.pct === 0);
       if (lastFree) parts.push(`${boundaryLabel(lastFree.h)}まで無料`);
-      for (const s of st) {
-        if (s.pct === 0) continue;
-        parts.push(s.h === 0 ? `当日${s.pct}%` : `${boundaryLabel(s.h)}まで${s.pct}%`);
-      }
+      // 最後の段階（h=0）は、前の段階が前日までのときだけ「当日」。それより前で
+      // 切れているなら前日もこの料率なので「以降」（src/web/policy.ts と同じ決まり）。
+      st.forEach((s, i) => {
+        if (s.pct === 0) return;
+        const prev = st[i - 1];
+        const last = (!prev || prev.h <= 24) ? "当日" : "以降";
+        parts.push(s.h === 0 ? `${last}${s.pct}%` : `${boundaryLabel(s.h)}まで${s.pct}%`);
+      });
       return parts.join(" → ");
     }
 

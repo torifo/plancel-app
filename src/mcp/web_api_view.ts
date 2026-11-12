@@ -88,8 +88,8 @@ export interface ModelReservation {
   /**
    * The whole fee table as dates: through `until` (inclusive) cancelling costs
    * `pct`%. The last band ends at the start. `policyText` is the app's short
-   * wording and names only each band's far edge — 「2日前まで無料 → 当日100%」
-   * is 100% from the day before — so dates are what a model should quote.
+   * wording (「2日前まで無料 → 以降100%」) and speaks in days-before; the
+   * dates are what a model should quote to a person.
    */
   feeSchedule: { until: string; pct: number; yen: number | null }[] | null;
   /**

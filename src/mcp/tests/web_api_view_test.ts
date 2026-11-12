@@ -176,8 +176,8 @@ Deno.test("view: a row stored before endsAt existed still answers endsAt: null",
 // ---- found by the test-account rehearsal (2026-11-11) ----
 
 Deno.test("view: the fee schedule gives dates, so a gap in the wording cannot mislead", () => {
-  // 「2日前まで無料、それ以降は全額」 for 12/12 14:00. policyText reads
-  // 「2日前まで無料 → 当日100%」, but the day before is already 100%.
+  // 「2日前まで無料、それ以降は全額」 for 12/12 14:00: the day before is already
+  // 100%. The wording says 以降 for that, and the schedule gives the dates.
   const v = presentReservation(
     row({
       startsAt: "2026-12-12T05:00:00.000Z",
@@ -185,6 +185,7 @@ Deno.test("view: the fee schedule gives dates, so a gap in the wording cannot mi
     }),
     NOW,
   );
+  assertEquals(v.policyText, "2日前まで無料 → 以降100%");
   assertEquals(v.feeSchedule, [
     { until: "2026-12-10T23:59:59+09:00", pct: 0, yen: 0 },
     { until: "2026-12-12T14:00:00+09:00", pct: 100, yen: 30000 },
