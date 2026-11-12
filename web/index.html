@@ -3127,9 +3127,9 @@
           <div class="sec">
             <div class="sec-h">2. 束ねる→1つ確定→残りを期限内にキャンセル</div>
             <ol class="help-steps">
-              <li><b>束ねる</b>：予約を追加するとき、同じ「プラン名」（例：8月の宿）を付けると候補がひとまとまりになります。プラン名を付けなくても、同じ夜の宿・同じ時間帯の便・同じ期間の駐車場は自動で「どれか1つ」の囲みにまとまります。</li>
+              <li><b>束ねる</b>：予約を追加するとき、同じ「候補グループ名」（例：8月の宿）を付けると候補がひとまとまりになります。名前を付けなくても、同じ夜の宿・同じ時間帯の便・同じ期間の駐車場は自動で「どれか1つ」の囲みにまとまります。</li>
               <li><b>確定する</b>：囲みの「比べる」で金額・期限・規定を並べて見て、「こちらに決める」を押します（1件を開いて「これで確定」でも同じです）。</li>
-              <li><b>落とす</b>：同じプランの残りが自動で「要キャンセル」になり、「今日やること」に並びます。宿や店に連絡したら「✓キャンセルした」を押して記録します。</li>
+              <li><b>落とす</b>：同じ候補グループの残りが自動で「要キャンセル」になり、「今日やること」に並びます。宿や店に連絡したら「✓キャンセルした」を押して記録します。</li>
             </ol>
             <p class="help-p">plancelが代わりに解約の連絡をすることはありません。連絡はご自身で、その結果をここに記録する、という分担です。</p>
           </div>
@@ -3191,8 +3191,8 @@
           <div class="sec">
             <div class="sec-h">7. 共有と編集の権限</div>
             <p class="help-p">予約行の「招待」から、メールアドレスかユーザーID（完全一致）で相手を追加します。相手の台帳にもその予約が並び、期限のお知らせもそれぞれのLINEやメールに届きます。</p>
-            <p class="help-p">招待するときに<b>「編集を許可する」</b>にチェックを入れると、相手も<b>プラン名・お店の名前・日時・金額・場所・キャンセル規定</b>を直せます。チェックしなければ閲覧のみです。あとから変えたくなったら、招待画面の一覧で「編集を許可」・「閲覧のみにする」を切り替えられます。</p>
-            <p class="help-p"><b>確定・キャンセル・削除・招待はオーナーだけ</b>です。確定はプラン全体を動かし、削除は元に戻せないので、細かい直しを任せた相手には開いていません。編集を許可された方も、この4つはできません。</p>
+            <p class="help-p">招待するときに<b>「編集を許可する」</b>にチェックを入れると、相手も<b>候補グループ名・お店の名前・日時・金額・場所・キャンセル規定</b>を直せます。チェックしなければ閲覧のみです。あとから変えたくなったら、招待画面の一覧で「編集を許可」・「閲覧のみにする」を切り替えられます。</p>
+            <p class="help-p"><b>確定・キャンセル・削除・招待はオーナーだけ</b>です。確定は候補グループ全体を動かし、削除は元に戻せないので、細かい直しを任せた相手には開いていません。編集を許可された方も、この4つはできません。</p>
             <p class="help-p">共有された予約は、開いて<b>「取り消しを提案」「確定を提案」</b>を押すと、オーナーに LINE（未連携ならメール）で届きます。比べる画面で「こちらに決める」を押したときも、相手の予約には自動で提案が付きます。オーナーは「今日やること」から受けるかどうかを選べます。</p>
             <p class="help-p">「どれか1つ」の囲みは、左のつまみで上下に並べ替えると<b>希望順</b>（上ほど希望が高い）になり、共有している人にも同じ順で見えます。並べ替えられるのは、囲みの予約を全部書き換えられるとき（自分の予約か、編集を許可された共有）です。</p>
           </div>
@@ -3325,15 +3325,15 @@
         <div class="fsec">
           <div class="fsec-title">状態・まとめ方・メモ</div>
           <div class="radio-row" id="kindRow">
-            <label><input type="radio" name="kind" value="candidate" checked> 候補（プランに束ねる）</label>
+            <label><input type="radio" name="kind" value="candidate" checked> 候補（どれか1つに決める）</label>
             <label><input type="radio" name="kind" value="confirmed"> 確定済みの予約</label>
           </div>
           <label class="check-row"><input type="checkbox" id="f_unbooked"> まだ予約していない（検討中の案）</label>
           <div class="hint" style="margin:0">予約を取る前の案です。キャンセル期限は見張らず、選ばなかったときも連絡は要りません。</div>
-          <label for="f_plan">プラン名（任意）</label>
+          <label for="f_plan">候補グループ名（任意）</label>
           <input id="f_plan" list="planList" placeholder="例: 8月の宿">
           <datalist id="planList"></datalist>
-          <div class="hint" style="margin:4px 0 0">「どれか1つに決める候補」の束。1つ確定すると残りは要キャンセルになります。</div>
+          <div class="hint" style="margin:4px 0 0">どれか1つに決める候補に、同じ名前を付けます。1つ確定すると残りは要キャンセルになります。宿の「夕朝食付きプラン」のような宿泊プランは、ここではなくメモへ。</div>
           <label for="f_trip">旅行名（任意）</label>
           <input id="f_trip" list="tripList" maxlength="60" placeholder="例: 12月の別府旅行">
           <datalist id="tripList"></datalist>
@@ -3733,13 +3733,13 @@
     function transitionText(message) {
       const m = String(message || "");
       if (m.includes("already has a confirmed reservation")) {
-        return "このプランでは、すでに別の予約が確定しています。付け替えるときは、先に確定済みの予約を「キャンセルした」で外してください。";
+        return "この候補グループでは、すでに別の予約が確定しています。付け替えるときは、先に確定済みの予約を「キャンセルした」で外してください。";
       }
       if (m.includes("changed while it was being confirmed")) {
         return "同時に別の操作が入ったため、確定できませんでした。台帳を読み込み直してから、もう一度お試しください。";
       }
       if (m.includes("move a confirmed reservation to another plan")) {
-        return "確定済みの予約は、あとから別のプランへ移せません。移すときは、先に「キャンセルした」で確定を外してください。";
+        return "確定済みの予約は、あとから別の候補グループへ移せません。移すときは、先に「キャンセルした」で確定を外してください。";
       }
       if (m.includes("from confirmed")) return "この予約は、すでに確定しています。";
       return "この予約は、いまの状態からは確定できません。先に候補へ戻してからお試しください。";
@@ -4200,7 +4200,7 @@
         .sort((x, y) => x - y)[0] || null;
     // 組の種類ごとの言い方。宿は「日程」、乗りものは「時間帯」と「便」。
     const OVERLAP_WORDS = {
-      plan: { when: "同じプラン", thing: "候補", count: "候補", call: "取り消しの連絡" },
+      plan: { when: "同じ候補グループ", thing: "候補", count: "候補", call: "取り消しの連絡" },
       stay: { when: "同じ日程", thing: "宿", count: "宿", call: "宿への連絡" },
       transport: { when: "同じ時間帯", thing: "便", count: "便", call: "取り消しの連絡" },
       parking: { when: "同じ期間", thing: "駐車場", count: "駐車場", call: "取り消しの連絡" },
@@ -4229,7 +4229,7 @@
           )
           : [];
         if (sib.length) {
-          lines.push(`同じプラン「${win.plan}」の他の ${sib.length}件も「要キャンセル」になります。`);
+          lines.push(`同じ候補グループ「${win.plan}」の他の ${sib.length}件も「要キャンセル」になります。`);
         }
       }
       for (const r of losers) {
@@ -4375,9 +4375,6 @@
             )
           ),
         ) +
-        (members.some((r) => r.plan)
-          ? line("プラン", members.map((r) => cell("", r.plan ? esc(r.plan) : "—")))
-          : "") +
         line("無料で取り消せる期限", members.map((r) => cell("", freeText(r)))) +
         line("いま取り消すと", members.map((r) => cell("", feeNowText(r)))) +
         line(
@@ -4677,7 +4674,7 @@
         }
         list.innerHTML = `<div class="empty"><h3>まだ予約がありません。どちらから始めますか？</h3>
           <div class="startgrid">
-            <div class="startcard" id="sc-scratch"><div class="t">まっさらから始める</div><div class="d">これから取る予約を1件ずつ登録。候補を複数入れて「プラン」に束ねると、1つ確定したとき残りが自動で要キャンセルになります。</div></div>
+            <div class="startcard" id="sc-scratch"><div class="t">まっさらから始める</div><div class="d">これから取る予約を1件ずつ登録。候補を複数入れて同じ候補グループ名を付けると、1つ確定したとき残りが自動で要キャンセルになります。</div></div>
             <div class="startcard" id="sc-import"><div class="t">すでに予約がある</div><div class="d">メール貼り付け・スクショ読み取り・カレンダー取り込み（.ics）で、手入力なしでまとめて登録できます。</div></div>
           </div></div>`;
         q("#sc-scratch").onclick = () => openAdd();
@@ -4857,7 +4854,7 @@
           const ok = confirm(
             r.suggestion.action === "cancel"
               ? `「${r.service}」を要キャンセルにします。宿や店への連絡はご自分でお願いします。よろしいですか？`
-              : `「${r.service}」で確定します。同じプランの他の候補は要キャンセルになります。よろしいですか？`,
+              : `「${r.service}」で確定します。同じ候補グループの他の候補は要キャンセルになります。よろしいですか？`,
           );
           if (ok) act("POST", `/api/reservations/${r.id}/suggest/accept`);
         }
@@ -4932,7 +4929,7 @@
         r.amount ? " · " + yen(r.amount) : ""
       }</div><span class="pill ${r.status}">${FINISHED_LABEL[r.status] || "終了"}</span>${shareTag}</div>
         <div class="sub" style="align-self:center">${
-[r.trip ? "旅行: " + esc(r.trip) : "", r.plan ? "プラン: " + esc(r.plan) : ""].filter(Boolean)
+[r.trip ? "旅行: " + esc(r.trip) : "", r.plan ? "候補グループ: " + esc(r.plan) : ""].filter(Boolean)
           .join(" · ")
       }</div>
         <div class="ract">${acts}</div></div>`;
@@ -4953,7 +4950,7 @@
         r.booked === false ? "見送り" : "キャンセル済み"
       }</span>${shareTag}</div>
         <div class="sub" style="align-self:center">${
-[r.trip ? "旅行: " + esc(r.trip) : "", r.plan ? "プラン: " + esc(r.plan) : ""].filter(Boolean)
+[r.trip ? "旅行: " + esc(r.trip) : "", r.plan ? "候補グループ: " + esc(r.plan) : ""].filter(Boolean)
           .join(" · ")
       }</div>
         <div class="ract">${acts}</div></div>`;
@@ -5301,7 +5298,7 @@
         !bad && !Number.isNaN(endMsV) && fmtDate(endMsV) !== fmtDate(start) ? `〜${fmtDate(endMsV)}` : "",
         routeText(r),
         r.amount ? yen(r.amount) : "金額未定",
-        !inAlt && r.plan ? `プラン: ${esc(r.plan)}` : "",
+        !inAlt && r.plan ? `候補グループ: ${esc(r.plan)}` : "",
         r.shared ? `共有: ${esc(r.shared.ownerDisplayName)}` : "",
       ].filter(Boolean).join(" · ");
       const st = r.status === "confirmed"
@@ -5494,8 +5491,8 @@
       const shown = others.slice(0, 3).map((x) => x.service).join("・");
       const rest = others.length > 3 ? `・ほか${others.length - 3}件` : "";
       const detail = others.length === 0
-        ? "同じプランに他の候補はありません。"
-        : `同じプラン「${r.plan}」の他の候補 ${others.length}件（${shown}${rest}）が「要キャンセル」になります。宿や店への連絡はご自分でお願いします。`;
+        ? "同じ候補グループに他の候補はありません。"
+        : `同じ候補グループ「${r.plan}」の他の候補 ${others.length}件（${shown}${rest}）が「要キャンセル」になります。宿や店への連絡はご自分でお願いします。`;
       if (!confirm(`「${r.service}」で確定します。\n${detail}\nよろしいですか？`)) return;
       act("POST", `/api/reservations/${id}/confirm`);
     }

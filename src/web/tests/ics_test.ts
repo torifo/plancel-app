@@ -49,7 +49,7 @@ Deno.test("buildIcs emits only confirmed reservations, UTC times, escaped text",
   assertStringIncludes(ics, "DTEND:20260801T110000Z");
   assertStringIncludes(ics, "UID:R1@plancel");
   assertStringIncludes(ics, "SUMMARY:escape\\;me\\, ok");
-  assertStringIncludes(ics, "プラン: 夏旅");
+  assertStringIncludes(ics, "候補グループ: 夏旅");
   assertEquals(ics.includes("宿B"), false);
 });
 

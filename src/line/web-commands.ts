@@ -617,7 +617,9 @@ export async function applyWebAction(
   }
   if (r === null) return text(STALE);
   deps.onMutate?.(owner, id);
-  const note = siblings > 0 ? ` — 同プランの残り${siblings}件を要キャンセルにしました。` : "";
+  const note = siblings > 0
+    ? ` — 同じ候補グループの残り${siblings}件を要キャンセルにしました。`
+    : "";
   return text(`確定しました: ${r.service}（${label}）${note}「確認」で一覧`);
 }
 

@@ -130,8 +130,10 @@ const createInput = z.object({
   to: z.string().max(100).nullable().default(null).describe(TO_DESC),
   bookedBy: z.string().max(40).nullable().default(null).describe(BOOKED_BY_DESC),
   plan: z.string().nullable().default(null).describe(
-    "プラン名。同じ予定の候補（どちらにするか迷っている店・宿）を束ねる名前で、同じプラン名の中で確定できるのは1件。" +
-      "候補が1つだけの予約は省略してよい。全部使う予約をまとめたいときは plan でなく trip を使う",
+    "プラン名（画面では「候補グループ」と呼ぶ）。同じ予定の候補（どちらにするか迷っている店・宿）を束ねる名前で、" +
+      "同じプラン名の中で確定できるのは1件、1件確定すると残りは要キャンセルになる。宿の「夕朝食付きプラン」のような" +
+      "宿泊プランのことではない（それは notes に書く。plan に入れると別々の宿が束ねられ、片方の確定でもう片方が" +
+      "要キャンセルになる）。候補が1つだけの予約は省略してよい。全部使う予約をまとめたいときは plan でなく trip を使う",
   ),
   trip: z.string().max(60).nullable().default(null).describe(TRIP_DESC),
   booked: z.boolean().default(true).describe(BOOKED_DESC),
@@ -171,7 +173,9 @@ const patchInput = z.object({
   bookedBy: z.string().max(40).nullable().optional().describe(BOOKED_BY_DESC),
   startsAt: readableInstantSchema.optional().describe(STARTS_AT_DESC),
   endsAt: readableInstantSchema.nullable().optional().describe(ENDS_AT_DESC + "。null で消す"),
-  plan: z.string().nullable().optional().describe("プラン名（null で外す）"),
+  plan: z.string().nullable().optional().describe(
+    "プラン名（画面では「候補グループ」。宿泊プランではない。null で外す）",
+  ),
   trip: z.string().max(60).nullable().optional().describe(TRIP_DESC + "。null で外す"),
   booked: z.boolean().optional().describe(BOOKED_DESC),
   timeTentative: z.boolean().optional().describe(TIME_TENTATIVE_DESC),

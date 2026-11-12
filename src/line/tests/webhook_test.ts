@@ -732,7 +732,7 @@ Deno.test("webhook: webact confirm -> siblings to_cancel + calendar sync request
     assertEquals(mutated, [a.id]);
     const text = replies[0]?.messages[0]?.text ?? "";
     assertStringIncludes(text, "確定しました: 宿A（@owner）");
-    assertStringIncludes(text, "同プランの残り2件を要キャンセルにしました。");
+    assertStringIncludes(text, "同じ候補グループの残り2件を要キャンセルにしました。");
   });
 });
 
@@ -773,7 +773,7 @@ Deno.test("webhook: webact confirm counts only the siblings it actually changed"
     }]);
 
     // 実際に要キャンセルになるのは1件。2件と言うと、していない書き換えを報告する。
-    assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "同プランの残り1件");
+    assertStringIncludes(replies[0]?.messages[0]?.text ?? "", "同じ候補グループの残り1件");
     assertEquals(
       (await getReservation(kv, owner.ledgerId, winner.id))?.status,
       "confirmed",

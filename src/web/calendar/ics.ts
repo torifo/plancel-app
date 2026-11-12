@@ -34,7 +34,7 @@ export function descriptionLines(
 ): string[] {
   return [
     r.trip !== null ? `旅行: ${escape(r.trip)}` : null,
-    r.plan !== null ? `プラン: ${r.plan}` : null,
+    r.plan !== null ? `候補グループ: ${r.plan}` : null,
     r.from !== null || r.to !== null
       ? `区間: ${escape(r.from ?? "？")} → ${escape(r.to ?? "？")}`
       : null,
