@@ -968,6 +968,29 @@ Deno.test("web api: kind, route and who booked it are stored and edited", async 
   });
 });
 
+Deno.test("web api: kind parking is accepted and stored with its entry and exit", async () => {
+  await withKv(async (kv) => {
+    const out = await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        service: "羽田空港 P2",
+        kind: "parking",
+        location: "羽田空港第2ターミナル",
+        startsAt: "2026-12-19T06:00:00+09:00",
+        endsAt: "2026-12-21T20:00:00+09:00",
+      }),
+      makeIds(),
+    )).json();
+    const r = out.reservation;
+    assertEquals([r.kind, r.location, r.startsAt, r.endsAt], [
+      "parking",
+      "羽田空港第2ターミナル",
+      "2026-12-18T21:00:00.000Z",
+      "2026-12-21T11:00:00.000Z",
+    ]);
+  });
+});
+
 Deno.test("web api: a start given as a bare date is a day with no time yet", async () => {
   await withKv(async (kv) => {
     const ids = makeIds();

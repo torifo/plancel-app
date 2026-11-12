@@ -437,3 +437,52 @@ Deno.test("view: the list lines up different stays held for the same night, with
     undefined,
   );
 });
+
+Deno.test("view: parking held for overlapping days is listed in overlaps as parking", () => {
+  const haneda = row({
+    id: "HND",
+    service: "羽田空港 P2",
+    kind: "parking",
+    startsAt: "2026-12-19T00:00:00.000Z",
+    endsAt: "2026-12-20T11:00:00.000Z",
+    amount: 9000,
+  });
+  const near = row({
+    id: "NEAR",
+    service: "近くの民間駐車場",
+    kind: "parking",
+    startsAt: "2026-12-20T01:00:00.000Z",
+    endsAt: "2026-12-21T11:00:00.000Z",
+    amount: 6000,
+  });
+  const out = presentList([haneda, near], listFilterSchema.parse({}), NOW);
+  assertEquals(out.overlaps?.map((o) => [o.kind, o.from, o.to, o.reservations.map((r) => r.id)]), [
+    ["parking", "2026-12-19", "2026-12-21", ["HND", "NEAR"]],
+  ]);
+});
+
+Deno.test("view: parking with no exit day says so in needsCheck", () => {
+  const out = presentList(
+    [
+      row({
+        id: "P",
+        kind: "parking",
+        startsAt: "2026-12-19T00:00:00.000Z",
+        endsAt: null,
+        amount: 9000,
+      }),
+      row({
+        id: "Q",
+        kind: "parking",
+        startsAt: "2026-12-19T00:00:00.000Z",
+        endsAt: "2026-12-20T11:00:00.000Z",
+        amount: 9000,
+      }),
+    ],
+    listFilterSchema.parse({}),
+    NOW,
+  );
+  const by = Object.fromEntries(out.reservations.map((r) => [r.id, r]));
+  assertEquals(by.P!.needsCheck.includes("出庫日が未入力"), true);
+  assertEquals(by.Q!.needsCheck.includes("出庫日が未入力"), false);
+});

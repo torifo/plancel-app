@@ -103,6 +103,47 @@ const CASES: Record<string, OverlapRow[]> = {
     }),
   ],
   "same name": [row({ id: "A", service: "ホテル　白菊" }), row({ id: "B", service: "ホテル白菊" })],
+  "parking overlapping on one day": [
+    row({
+      id: "A",
+      kind: "parking",
+      startsAt: "2026-12-18T23:00:00.000Z",
+      endsAt: "2026-12-20T11:00:00.000Z",
+    }),
+    row({
+      id: "B",
+      kind: "parking",
+      startsAt: "2026-12-19T22:00:00.000Z",
+      endsAt: "2026-12-21T12:00:00.000Z",
+    }),
+    row({ id: "C", kind: "stay" }),
+    row({ id: "D", kind: "flight", startsAt: "2026-12-19T01:00:00.000Z", endsAt: null }),
+  ],
+  "parking days apart, no exit, and one plan": [
+    row({ id: "A", kind: "parking", startsAt: "2026-12-18T23:00:00.000Z", endsAt: null }),
+    row({ id: "B", kind: "parking", startsAt: "2026-12-20T23:00:00.000Z", endsAt: null }),
+    row({
+      id: "C",
+      kind: "parking",
+      plan: "P",
+      startsAt: "2026-12-22T01:00:00.000Z",
+      endsAt: "2026-12-23T01:00:00.000Z",
+    }),
+    row({
+      id: "D",
+      kind: "parking",
+      plan: "P",
+      startsAt: "2026-12-22T02:00:00.000Z",
+      endsAt: "2026-12-23T02:00:00.000Z",
+    }),
+    row({
+      id: "E",
+      kind: "parking",
+      startsAt: "2026-12-26T01:00:00.000Z",
+      endsAt: "2026-12-25T01:00:00.000Z",
+    }),
+    row({ id: "F", kind: "parking", startsAt: "2026-12-26T02:00:00.000Z", endsAt: null }),
+  ],
 };
 
 Deno.test("mirror: the page names the same overlapping stays as the server", async () => {
@@ -118,4 +159,11 @@ Deno.test("mirror: the page names the same overlapping stays as the server", asy
     ["transport", ["A", "B"]],
   ]);
   assertEquals(findOverlaps(CASES["rides without an arrival time"]!)[0]?.ids, ["A", "B"]);
+  assertEquals(findOverlaps(CASES["parking overlapping on one day"]!), [
+    { kind: "parking", from: "2026-12-19", to: "2026-12-21", ids: ["A", "B"] },
+  ]);
+  assertEquals(
+    findOverlaps(CASES["parking days apart, no exit, and one plan"]!).map((g) => g.ids),
+    [["E", "F"]],
+  );
 });

@@ -29,11 +29,11 @@ export interface OverlapRow {
 }
 
 export interface OverlapGroup {
-  /** What clashes: inns for the same night, or rides for the same hours. */
-  kind: "stay" | "transport";
-  /** First night (stay) or day of the first departure (transport), as a JST date (YYYY-MM-DD). */
+  /** What clashes: inns for the same night, rides for the same hours, or parking for the same days. */
+  kind: "stay" | "transport" | "parking";
+  /** First night (stay), day of the first departure (transport) or first entry day (parking), as a JST date (YYYY-MM-DD). */
   from: string;
-  /** The morning the last stay ends, or the day the last ride arrives, as a JST date. */
+  /** The morning the last stay ends, the day the last ride arrives, or the last exit day (parking), as a JST date. */
   to: string;
   /** The reservations in it, earliest first (then by id). */
   ids: string[];
@@ -83,12 +83,29 @@ export function rideSpanOf(r: OverlapRow): [number, number] | null {
   return [start, end === undefined || end <= start || atMidnight(end) ? start + RIDE_MS : end];
 }
 
+/**
+ * The days a parking booking covers, as JST day numbers [entry, exit + 1) —
+ * both ends count, since the car is there on the day it goes in and on the day
+ * it comes out — or null when it is not parking. No exit (or one before the
+ * entry) is the entry day alone.
+ */
+export function parkingDaysOf(r: OverlapRow): [number, number] | null {
+  if (r.kind !== "parking") return null;
+  const start = toInstantOrNull(r.startsAt)?.epochMilliseconds;
+  if (start === undefined) return null;
+  const end = r.endsAt === null ? undefined : toInstantOrNull(r.endsAt)?.epochMilliseconds;
+  const first = dayOf(start);
+  const last = end === undefined ? first : Math.max(dayOf(end), first);
+  return [first, last + 1];
+}
+
 export function findOverlaps(rows: OverlapRow[]): OverlapGroup[] {
   const live = rows.filter((r) => r.status === "candidate" || r.status === "confirmed");
   const group = (
     kind: OverlapGroup["kind"],
     spanOf: (r: OverlapRow) => [number, number] | null,
     day: (n: number) => number,
+    inclusive = false,
   ): OverlapGroup[] => {
     const items = live.flatMap((r) => {
       const n = spanOf(r);
@@ -117,9 +134,14 @@ export function findOverlaps(rows: OverlapRow[]): OverlapGroup[] {
     return [...groups.values()].filter((g) => g.length > 1).map((g) => ({
       kind,
       from: dateOf(day(Math.min(...g.map((s) => s.a)))),
-      to: dateOf(day(Math.max(...g.map((s) => s.b)))),
+      to: dateOf(day(Math.max(...g.map((s) => s.b))) - (inclusive ? 1 : 0)),
       ids: g.map((s) => s.r.id),
     }));
   };
-  return [...group("stay", nightsOf, (n) => n), ...group("transport", rideSpanOf, dayOf)];
+  return [
+    ...group("stay", nightsOf, (n) => n),
+    ...group("transport", rideSpanOf, dayOf),
+    // The span's end is exclusive, but the exit day itself is the last day.
+    ...group("parking", parkingDaysOf, (n) => n, true),
+  ];
 }

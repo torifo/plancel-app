@@ -2278,6 +2278,11 @@
     .cmp-cell.foot .okmark {
       align-self: flex-start;
     }
+    /* 3件以上並ぶと列が 100px を切り、1行の「こちらに決める」がはみ出す。折り返して列に収める。 */
+    .cmp-cell.foot .rowbtn {
+      white-space: normal;
+      max-width: 100%;
+    }
     .cmp-cell.foot {
       display: flex;
       flex-direction: column;
@@ -2884,6 +2889,7 @@
             <option value="train">電車・特急</option>
             <option value="bus">バス</option>
             <option value="car">レンタカー・カーシェア</option>
+            <option value="parking">駐車場</option>
             <option value="activity">体験・チケット</option>
             <option value="other">その他</option>
           </select></div>
@@ -2897,13 +2903,13 @@
         <input id="f_location" placeholder="店名・住所など。入れると地図リンクになります">
         <div class="hint" style="margin:4px 0 0">Googleマップの共有リンク（https://maps.app.goo.gl/… など）を貼ると、その1点をそのまま開けます。地名だけのときは店名と組み合わせて検索します。</div>
         <div class="two">
-          <div><label>予約日 <span class="req">*</span></label><input id="f_date" type="date"></div>
+          <div><label><span id="dateLabel">予約日</span> <span class="req">*</span></label><input id="f_date" type="date"></div>
           <div><label>時刻</label><input id="f_time" type="time" value="18:00"></div>
         </div>
         <label class="check-row"><input type="checkbox" id="f_tentative"> 時刻は仮（あとで確かめる）</label>
-        <label>終了日（任意・連泊のとき）</label>
+        <label id="endDateLabel">終了日（任意・連泊のとき）</label>
         <input id="f_end_date" type="date">
-        <div class="hint" style="margin:4px 0 0">宿のチェックアウト日。入れると、その日が終わるまで台帳に残ります。空のままなら予約日で判定します。</div>
+        <div class="hint" id="endDateHint" style="margin:4px 0 0">宿のチェックアウト日。入れると、その日が終わるまで台帳に残ります。空のままなら予約日で判定します。</div>
         <label>金額（円）</label>
         <input id="f_amount" type="number" min="0" step="1" inputmode="numeric" placeholder="例: 18000">
         <label>メモ（任意）</label>
@@ -3661,8 +3667,19 @@
         const end = at(r.endsAt);
         return [start, Number.isNaN(end) || end <= start || atMidnight(end) ? start + RIDE_MS : end];
       };
+      // 駐車場: 入庫日から出庫日まで、両端を含む JST の日 [入庫日, 出庫日+1)。出庫が
+      // 無い・入庫より前なら入庫日の1日だけ。
+      const parkSpanOf = (r) => {
+        if (r.kind !== "parking") return null;
+        const start = at(r.startsAt);
+        if (Number.isNaN(start)) return null;
+        const end = at(r.endsAt);
+        const first = dayOf(start);
+        const last = Number.isNaN(end) ? first : Math.max(dayOf(end), first);
+        return [first, last + 1];
+      };
       const live = rows.filter((r) => r.status === "candidate" || r.status === "confirmed");
-      const group = (kind, spanOf, day) => {
+      const group = (kind, spanOf, day, inclusive = false) => {
         const items = [];
         for (const r of live) {
           const n = spanOf(r);
@@ -3690,11 +3707,15 @@
         return [...groups.values()].filter((g) => g.length > 1).map((g) => ({
           kind,
           from: dateOf(day(Math.min(...g.map((it) => it.a)))),
-          to: dateOf(day(Math.max(...g.map((it) => it.b)))),
+          to: dateOf(day(Math.max(...g.map((it) => it.b))) - (inclusive ? 1 : 0)),
           ids: g.map((it) => it.r.id),
         }));
       };
-      return [...group("stay", nightsOf, (n) => n), ...group("transport", rideSpanOf, dayOf)];
+      return [
+        ...group("stay", nightsOf, (n) => n),
+        ...group("transport", rideSpanOf, dayOf),
+        ...group("parking", parkSpanOf, (n) => n, true),
+      ];
     }
     // 予約ID → 同じ組の全員（自分を含む）。render() が毎回作り直す。
     let overlapOf = {};
@@ -3709,6 +3730,7 @@
     const OVERLAP_WORDS = {
       stay: { when: "同じ日程", thing: "宿", count: "宿", call: "宿への連絡" },
       transport: { when: "同じ時間帯", thing: "便", count: "便", call: "取り消しの連絡" },
+      parking: { when: "同じ期間", thing: "駐車場", count: "駐車場", call: "取り消しの連絡" },
     };
     // 「こちらに決める」で起きることを、押す前に言葉にする。確定と取り消しは持ち主だけ
     // （サーバの決まり）なので、共有された予約は変わらず、誰に頼むかを言う。changes が
@@ -3755,6 +3777,7 @@
       const members = g.members;
       const w = OVERLAP_WORDS[g.kind];
       const ride = g.kind === "transport";
+      const park = g.kind === "parking";
       q("#cmpTitle").textContent = `${w.when}の${w.thing}を比べる`;
       const now = Date.now();
       const cell = (cls, html) => `<div class="cmp-cell${cls ? " " + cls : ""}">${html}</div>`;
@@ -3773,7 +3796,10 @@
         if (Number.isNaN(end)) return `${fmtDate(ms)}${t}${tent}`;
         // 乗りものは到着の時刻まで（同じ日なら日付をくり返さない）。日付だけの終わりは日付だけ。
         const e = new Date(end);
-        const et = ride && (e.getHours() || e.getMinutes())
+        // フォームには出庫の時刻欄が無く、出庫日だけ入れると 23:59 で保存される。
+        // 入れていない時刻を出さないよう、駐車場の 23:59 は日付だけとして扱う。
+        const formEnd = park && e.getHours() === 23 && e.getMinutes() === 59;
+        const et = (ride || park) && !formEnd && (e.getHours() || e.getMinutes())
           ? `${String(e.getHours()).padStart(2, "0")}:${String(e.getMinutes()).padStart(2, "0")}`
           : "";
         const sameDay = fmtDate(end) === fmtDate(ms);
@@ -3849,7 +3875,7 @@
         members.map((r) =>
           cell(
             "name",
-            `${ride ? kindTag(r) : ""}<b>${esc(r.service)}</b><span class="sub">${status(r)}${
+            `${ride || park ? kindTag(r) : ""}<b>${esc(r.service)}</b><span class="sub">${status(r)}${
               r.shared ? ` · 共有: ${esc(r.shared.ownerDisplayName)}` : ""
             }</span>`,
           )
@@ -3880,7 +3906,7 @@
           "キャンセル規定",
           members.map((r) => cell("", unbooked(r) ? "—" : esc(describePolicy(r.policy)))),
         ) +
-        line(ride ? "時刻" : "日程", members.map((r) => cell("", dayTime(r)))) +
+        line(ride ? "時刻" : park ? "期間" : "日程", members.map((r) => cell("", dayTime(r)))) +
         (ride && members.some((r) => routeText(r))
           ? line("区間", members.map((r) => cell("", routeText(r) || "—")))
           : "") +
@@ -3914,6 +3940,7 @@
       train: "電車",
       bus: "バス",
       car: "車",
+      parking: "駐車場",
       activity: "体験",
       other: "その他",
     };
@@ -3928,6 +3955,13 @@
       q("#routeRow").style.display = on ? "" : "none";
       q("#fromLabel").textContent = k === "car" ? "借りる場所" : "出発地";
       q("#toLabel").textContent = k === "car" ? "返す場所" : "到着地";
+      // 駐車場は入庫〜出庫の期間。宿の言い方（予約日・チェックアウト）のままにしない。
+      const pk = k === "parking";
+      q("#dateLabel").textContent = pk ? "入庫日" : "予約日";
+      q("#endDateLabel").textContent = pk ? "出庫日（任意）" : "終了日（任意・連泊のとき）";
+      q("#endDateHint").textContent = pk
+        ? "駐車場から出す日。入れると、その日が終わるまで台帳に残ります。空のままなら入庫日の1日だけで判定します。"
+        : "宿のチェックアウト日。入れると、その日が終わるまで台帳に残ります。空のままなら予約日で判定します。";
     }
     function maxLoss(r) {
       const st = stagesOf(r);
@@ -5214,8 +5248,12 @@
 
     q("#f_submit").onclick = async () => {
       const service = q("#f_service").value.trim(), date = q("#f_date").value;
+      // 案内の言い方はフォームのラベルと同じにする（駐車場は入庫日・出庫日）。
+      const [startWord, endWord] = q("#f_kind").value === "parking"
+        ? ["入庫日", "出庫日"]
+        : ["予約日", "終了日"];
       if (!service || !date) {
-        alert("お店・宿・サービス名と予約日は必須です。");
+        alert(`お店・宿・サービス名と${startWord}は必須です。`);
         return;
       }
       const startsAt = new Date(date + "T" + (q("#f_time").value || "18:00") + ":00").toISOString();
@@ -5225,7 +5263,7 @@
         // 判定に使うのは日だけなので、比べるのも日。合成した時刻で比べると、
         // 15:00 チェックイン・10:00 チェックアウトの宿を同じ日に縮めたときに、
         // この案内が言う「同じ日」自体が弾かれていた。
-        alert("終了日は予約日と同じ日か、それより後にしてください。");
+        alert(`${endWord}は${startWord}と同じ日か、それより後にしてください。`);
         return;
       }
       let endsAt = endDate

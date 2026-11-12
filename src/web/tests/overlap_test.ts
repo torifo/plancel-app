@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { findOverlaps, nightsOf, type OverlapRow, rideSpanOf } from "../overlap.ts";
+import { findOverlaps, nightsOf, type OverlapRow, parkingDaysOf, rideSpanOf } from "../overlap.ts";
 
 const row = (o: Partial<OverlapRow> & { id: string }): OverlapRow => ({
   service: o.id,
@@ -176,4 +176,85 @@ Deno.test("overlap: a ride with no arrival time is taken to last an hour", () =>
     ]),
     [],
   );
+});
+
+const park = (o: Partial<OverlapRow> & { id: string }): OverlapRow =>
+  row({
+    kind: "parking",
+    startsAt: "2026-12-19T08:00:00+09:00",
+    endsAt: "2026-12-20T20:00:00+09:00",
+    ...o,
+  });
+
+Deno.test("overlap: two parking bookings sharing a day are one group, ends counted", () => {
+  // 12/19-12/20 and 12/20-12/21 meet on the 20th; `to` is the last exit day itself.
+  assertEquals(
+    findOverlaps([
+      park({ id: "HND", service: "羽田空港 P2" }),
+      park({
+        id: "NEAR",
+        service: "近くの民間駐車場",
+        startsAt: "2026-12-20T07:00:00+09:00",
+        endsAt: "2026-12-21T21:00:00+09:00",
+      }),
+    ]),
+    [{ kind: "parking", from: "2026-12-19", to: "2026-12-21", ids: ["HND", "NEAR"] }],
+  );
+});
+
+Deno.test("overlap: parking on days apart is not a group", () => {
+  assertEquals(
+    findOverlaps([
+      park({ id: "A" }),
+      park({
+        id: "B",
+        startsAt: "2026-12-21T08:00:00+09:00",
+        endsAt: "2026-12-22T20:00:00+09:00",
+      }),
+    ]),
+    [],
+  );
+});
+
+Deno.test("overlap: parking is never grouped with an inn or a flight", () => {
+  assertEquals(
+    findOverlaps([
+      park({ id: "P" }),
+      row({ id: "INN", kind: "stay" }),
+      ride({
+        id: "FLY",
+        startsAt: "2026-12-19T08:00:00+09:00",
+        endsAt: "2026-12-19T09:45:00+09:00",
+      }),
+    ]),
+    [],
+  );
+});
+
+Deno.test("overlap: parking with no exit, or one before the entry, is the entry day alone", () => {
+  assertEquals(parkingDaysOf(park({ id: "A", endsAt: null })), [
+    Math.floor((Date.parse("2026-12-19T08:00:00+09:00") + 9 * 3_600_000) / 86_400_000),
+    Math.floor((Date.parse("2026-12-19T08:00:00+09:00") + 9 * 3_600_000) / 86_400_000) + 1,
+  ]);
+  const one = findOverlaps([
+    park({ id: "A", endsAt: null }),
+    park({ id: "B", endsAt: "2026-12-18T20:00:00+09:00" }),
+  ]);
+  assertEquals(one, [{ kind: "parking", from: "2026-12-19", to: "2026-12-19", ids: ["A", "B"] }]);
+  // The 20th is not covered by a no-exit booking on the 19th.
+  assertEquals(
+    findOverlaps([
+      park({ id: "A", endsAt: null }),
+      park({ id: "B", startsAt: "2026-12-20T08:00:00+09:00", endsAt: null }),
+    ]),
+    [],
+  );
+});
+
+Deno.test("overlap: parking of one plan, or the same name on the same day, is left out", () => {
+  const none = (a: Partial<OverlapRow>, b: Partial<OverlapRow>) =>
+    assertEquals(findOverlaps([park({ id: "A", ...a }), park({ id: "B", ...b })]), []);
+  none({ plan: "駐車場" }, { plan: "駐車場" });
+  none({ service: "羽田 P2" }, { service: "羽田　p2" });
+  none({}, { status: "to_cancel" });
 });

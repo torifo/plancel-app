@@ -111,7 +111,7 @@ const BOOKED_DESC =
 
 const KIND_DESC =
   '種類（任意）: "stay"(宿) / "meal"(食事) / "flight"(飛行機) / "train"(電車・特急) / "bus"(バス) / ' +
-  '"car"(レンタカー・カーシェア) / "activity"(体験・チケット) / "other"。宿に限らず、キャンセル期限のある' +
+  '"car"(レンタカー・カーシェア) / "parking"(駐車場。startsAt＝入庫、endsAt＝出庫) / "activity"(体験・チケット) / "other"。宿に限らず、キャンセル期限のある' +
   "予約は何でも登録できる";
 const SERVICE_DESC =
   "お店・宿・サービス名。交通は便名・列車名を入れる（例「JAL 661便」「特急ソニック 15号」「空港バス 別府行き」" +
@@ -360,7 +360,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       "possibleDuplicates は同じ店・同じ日の予約の組（自分のものと共有されたものを含む。同じ予約の二重登録かも" +
       "しれないので、ユーザーに確かめる。まとめるなら merge_reservations）。" +
       "overlaps は両方は使えない予約の組: kind が stay なら同じ夜に重なっている別々の宿、transport なら同じ時間帯に" +
-      "重なっている飛行機・電車・バス（自分のものと共有されたものを含む。どちらか1つにするはずなので、" +
+      "重なっている飛行機・電車・バス、parking なら同じ期間に重なっている駐車場（自分のものと共有されたものを含む。どちらか1つにするはずなので、" +
       "金額と freeUntil、reservations の同じ id にある feeSchedule を並べてユーザーに見せ、どちらにするか聞く。" +
       "owner は共有してくれた持ち主の名前で、null は自分の予約。decideBy は組の中でいちばん早い freeUntil で、" +
       "それまでに決めればどちらを外しても無料（残す方が決まっているなら、外す方の freeUntil が実際の期限）。" +
@@ -674,7 +674,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "choose_reservation",
     {
       description:
-        "同じ夜に重なっている宿や、同じ時間帯に重なっている飛行機・電車・バス（一覧の overlaps）のうち、どれにするかを" +
+        "同じ夜に重なっている宿や、同じ時間帯に重なっている飛行機・電車・バス、同じ期間に重なっている駐車場（一覧の overlaps）のうち、どれにするかを" +
         "決める。id の予約を確定し、overIds の予約を" +
         "「要キャンセル」（まだ予約していない案は見送り）にする。外す方が確定済みでもそのまま呼べる（replace の" +
         "指定は要らない）。変えられるのは自分の予約だけで、共有されている" +

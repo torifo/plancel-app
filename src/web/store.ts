@@ -34,6 +34,7 @@ export const webKindSchema = z.enum([
   "train",
   "bus",
   "car",
+  "parking",
   "activity",
   "other",
 ]);

@@ -200,6 +200,7 @@ function needsCheck(r: ApiReservation, booked: boolean): string[] {
   if (booked && r.policy === "unknown") out.push("キャンセル規定が不明");
   if (r.amount === null) out.push("金額が未入力");
   if (r.kind === "stay" && r.endsAt == null) out.push("終了日（チェックアウト日）が未入力");
+  if (r.kind === "parking" && r.endsAt == null) out.push("出庫日が未入力");
   return out;
 }
 
@@ -287,13 +288,13 @@ export function findPossibleDuplicates(rows: ApiReservation[]): PossibleDuplicat
 
 /**
  * Reservations that cannot both be used: different stays held for the same
- * night, or rides (flight / train / bus) held for the same hours. The family
- * will take one of them.
+ * night, rides (flight / train / bus) held for the same hours, or parking held
+ * for the same days. The family will take one of them.
  */
 export interface OverlapSummary {
-  /** `stay`: inns for the same night. `transport`: rides for the same hours. */
-  kind: "stay" | "transport";
-  /** Stay: first night and the morning it ends. Transport: the day(s) of the rides. JST dates. */
+  /** `stay`: inns for the same night. `transport`: rides for the same hours. `parking`: parking for the same days. */
+  kind: "stay" | "transport" | "parking";
+  /** Stay: first night and the morning it ends. Transport: the day(s) of the rides. Parking: first entry day and last exit day. JST dates. */
   from: string;
   to: string;
   /**
