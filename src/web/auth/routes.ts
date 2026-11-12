@@ -339,6 +339,10 @@ const profileSchema = z.object({
   displayName: z.string().min(1).max(50).nullable().optional(),
   uid: uidSchema.optional(),
   altEmail: z.string().email().optional(),
+  // 期限のお知らせ: 何日前に知らせるか（前日・3日前・7日前の組み合わせ）。
+  notifyLeadDays: z.array(z.union([z.literal(1), z.literal(3), z.literal(7)])).min(1).max(3)
+    .optional(),
+  notifyShared: z.boolean().optional(),
 });
 
 /** 10 tries / 15 min per bucket. */
@@ -564,6 +568,8 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
       altEmail: user.altEmail,
       hasPassword: user.passwordHash !== null,
       emailVerified: user.emailVerified,
+      notifyLeadDays: user.notifyLeadDays,
+      notifyShared: user.notifyShared,
       ...adminExtras,
     });
   }
@@ -642,6 +648,15 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
       if (!await setUid(deps.kv, user.id, parsed.data.uid, deps.ids)) {
         return json({ error: "uid_taken" }, 409);
       }
+    }
+    if (parsed.data.notifyLeadDays !== undefined || parsed.data.notifyShared !== undefined) {
+      const lead = parsed.data.notifyLeadDays;
+      const shared = parsed.data.notifyShared;
+      await updateUser(deps.kv, user.id, (u) => ({
+        ...u,
+        ...(lead !== undefined ? { notifyLeadDays: [...new Set(lead)].sort((a, b) => a - b) } : {}),
+        ...(shared !== undefined ? { notifyShared: shared } : {}),
+      }), deps.ids);
     }
     if (parsed.data.altEmail !== undefined) {
       if (!await setAltEmail(deps.kv, user.id, parsed.data.altEmail, deps.ids)) {

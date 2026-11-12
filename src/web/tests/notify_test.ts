@@ -1,7 +1,8 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
 import { type NotifyDeps, sweepDeadlineNotifications } from "../notify.ts";
 import { boundaryMs, freeDeadlineMs } from "../policy.ts";
-import { getOrCreateUserByEmail, linkLineUser } from "../users.ts";
+import { getOrCreateUserByEmail, linkLineUser, updateUser } from "../users.ts";
+import { addMember } from "../sharing.ts";
 import type { WebPolicy, WebReservation, WebStatus } from "../store.ts";
 import { makeAuthIds } from "./users_test.ts";
 
@@ -582,5 +583,71 @@ Deno.test("a reservation that was never booked has no deadline to warn about", a
     const sent: Sent[] = [];
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 0);
     assertEquals(sent.length, 0);
+  });
+});
+
+// ---- who is told, and how early (2026-11-12) ----
+
+Deno.test("an earlier reminder goes to those who asked for one, once per lead", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const early = await getOrCreateUserByEmail(kv, "early@b.jp", ids);
+    const plain = await getOrCreateUserByEmail(kv, "plain@b.jp", ids);
+    await updateUser(kv, early.id, (u) => ({ ...u, notifyLeadDays: [1, 3] }), ids);
+    // Deadline between 2 and 3 days out for both.
+    await putResv(kv, early.ledgerId, "E1", "free24", "candidate", NOW + 72 * H);
+    await putResv(kv, plain.ledgerId, "P1", "free24", "candidate", NOW + 72 * H);
+    const deadline = freeDeadlineMs("free24", iso(NOW + 72 * H))!;
+
+    const first: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, first)), 1);
+    assertEquals(first.map((s) => s.email), ["early@b.jp"]);
+    // Not again for the same lead.
+    const again: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, again)), 0);
+
+    // The day before: both hear — the early one a second time, for the 1-day lead.
+    const dayBefore: Sent[] = [];
+    await sweepDeadlineNotifications(makeDeps(kv, dayBefore, deadline - 12 * H));
+    assertEquals(dayBefore.map((s) => s.email).sort(), ["early@b.jp", "plain@b.jp"]);
+    const done: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, done, deadline - 11 * H)), 0);
+  });
+});
+
+Deno.test("a reservation first seen close to its deadline is announced once, not once per lead", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const u = await getOrCreateUserByEmail(kv, "a@b.jp", ids);
+    await updateUser(kv, u.id, (x) => ({ ...x, notifyLeadDays: [1, 3, 7] }), ids);
+    await putResv(kv, u.ledgerId, "R1", "free24", "candidate", NOW + 36 * H);
+    const sent: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 1);
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent, NOW + H)), 0);
+    assertEquals(sent.length, 1);
+  });
+});
+
+Deno.test("someone a reservation is shared with is told too, unless they turned it off", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const owner = await getOrCreateUserByEmail(kv, "mom@b.jp", ids);
+    await updateUser(kv, owner.id, (u) => ({ ...u, displayName: "母" }), ids);
+    const member = await getOrCreateUserByEmail(kv, "me@b.jp", ids);
+    const quiet = await getOrCreateUserByEmail(kv, "quiet@b.jp", ids);
+    await updateUser(kv, quiet.id, (u) => ({ ...u, notifyShared: false }), ids);
+    await putResv(kv, owner.ledgerId, "R1", "free24", "confirmed", NOW + 36 * H);
+    await addMember(kv, owner.id, "R1", member.id, ids);
+    await addMember(kv, owner.id, "R1", quiet.id, ids);
+
+    const sent: Sent[] = [];
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, sent)), 2);
+    assertEquals(sent.map((s) => s.email).sort(), ["me@b.jp", "mom@b.jp"]);
+    const mine = sent.find((s) => s.email === "me@b.jp")!;
+    // Whose it is, so the reader knows whom to ask.
+    assertEquals(mine.text.includes("共有: 母"), true);
+    assertEquals(sent.find((s) => s.email === "mom@b.jp")!.text.includes("共有:"), false);
+    // Once each.
+    assertEquals(await sweepDeadlineNotifications(makeDeps(kv, [], NOW + H)), 0);
   });
 });

@@ -57,6 +57,14 @@ export const webUserSchema = z.object({
    */
   lineUserId: z.string().nullable().default(null),
   /**
+   * How many days before a free-cancellation deadline to be told (2026-11-12).
+   * `[1]` — the day before — is what everyone had; 3 and 7 are opt-in. Each
+   * lead is announced once per reservation.
+   */
+  notifyLeadDays: z.array(z.number().int().min(1).max(30)).max(5).default([1]),
+  /** Also be told about reservations other people share with this account. */
+  notifyShared: z.boolean().default(true),
+  /**
    * The user's outstanding one-time LINE link code, i.e. the key stored at
    * `["line_link_code", code]`. Held on the record for the same reason
    * `apiToken` is: KV cannot look a key up by its value, so re-issuing has to
@@ -192,6 +200,8 @@ export async function getOrCreateUserByEmail(
     displayName: null,
     uid: null,
     lineUserId: null,
+    notifyLeadDays: [1],
+    notifyShared: true,
     lineLinkCode: null,
     altEmail: null,
     passwordHash: opts.passwordHash ?? null,

@@ -807,3 +807,47 @@ Deno.test("API tokens: a legacy single token is folded into the list once and ke
     assertEquals(await findUserByApiToken(kv, "legacy-secret"), null);
   });
 });
+
+Deno.test("profile: notification lead days and the shared switch are saved and reported", async () => {
+  const kv = await Deno.openKv(":memory:");
+  try {
+    const ids = makeAuthIds();
+    const deps = {
+      kv,
+      ids,
+      fetchFn: fetch,
+      google: null,
+      sendMagicLink: null,
+      kek: undefined,
+    } as Parameters<typeof handleAuthApi>[1];
+    const post = (path: string, body: unknown, cookie = "") =>
+      handleAuthApi(
+        new Request(`https://app.test${path}`, {
+          method: "POST",
+          headers: cookie ? { cookie } : {},
+          body: JSON.stringify(body),
+        }),
+        deps,
+      );
+    const reg = await post("/auth/register", { email: "n@b.jp", password: "hunter2secret" });
+    const cookie = (reg.headers.get("set-cookie") ?? "").split(";")[0]!;
+    const me = async () =>
+      await (await handleAuthApi(
+        new Request("https://app.test/auth/me", { headers: { cookie } }),
+        deps,
+      )).json();
+    assertEquals([(await me()).notifyLeadDays, (await me()).notifyShared], [[1], true]);
+    const saved = await post(
+      "/auth/profile",
+      { notifyLeadDays: [7, 1, 7], notifyShared: false },
+      cookie,
+    );
+    assertEquals(saved.status, 200);
+    assertEquals([(await me()).notifyLeadDays, (await me()).notifyShared], [[1, 7], false]);
+    // Only the offered leads, and at least one.
+    assertEquals((await post("/auth/profile", { notifyLeadDays: [2] }, cookie)).status, 400);
+    assertEquals((await post("/auth/profile", { notifyLeadDays: [] }, cookie)).status, 400);
+  } finally {
+    kv.close();
+  }
+});

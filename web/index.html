@@ -2534,6 +2534,16 @@
           </div>
 
           <div class="sec">
+            <div class="sec-h">期限のお知らせ</div>
+            <div class="hint" style="margin:0 0 6px">無料でキャンセルできる期限が近づいたら、LINE（連携しているとき）かメールでお知らせします。何日前に知らせるかを選べます。</div>
+            <label class="check-row"><input type="checkbox" id="n_lead1"> 前日</label>
+            <label class="check-row"><input type="checkbox" id="n_lead3"> 3日前</label>
+            <label class="check-row"><input type="checkbox" id="n_lead7"> 7日前</label>
+            <label class="check-row"><input type="checkbox" id="n_shared"> 共有された予約の期限も受け取る</label>
+            <div class="modal-foot"><button class="btn-ghost" id="notifySave">お知らせの設定を保存</button></div>
+          </div>
+
+          <div class="sec">
             <div class="sec-h">ログイン方法</div>
             <label>別のログイン用メールアドレス（iCloud など・任意）</label>
             <input id="p_alt" type="email" placeholder="you@icloud.com">
@@ -5559,6 +5569,9 @@
       // 管理者だけ「届いた報告」。開くたびに読み直すのではなく、押されたら読む。
       q("#adminReportsSec").style.display = ME.admin ? "" : "none";
       q("#adminReportsList").innerHTML = "";
+      const leads = Array.isArray(ME.notifyLeadDays) ? ME.notifyLeadDays : [1];
+      for (const d of [1, 3, 7]) q("#n_lead" + d).checked = leads.includes(d);
+      q("#n_shared").checked = ME.notifyShared !== false;
       setView("profile");
     };
     // 表示名・ユーザーID・別ログイン用メールの3つを1回で保存する（ボタンはプロフィール
@@ -5596,6 +5609,31 @@
           : (err === "email_taken"
             ? "そのメールアドレスは別のアカウントで使われています。"
             : "保存できませんでした。入力形式を確認してください（IDは半角英小文字のみ6〜20文字）。")));
+    };
+    // 期限のお知らせ: 何日前に知らせるか・共有された予約も受け取るか（2026-11-12）。
+    q("#notifySave").onclick = async () => {
+      const notifyLeadDays = [1, 3, 7].filter((d) => q("#n_lead" + d).checked);
+      if (notifyLeadDays.length === 0) {
+        alert("お知らせする日を1つ以上選んでください。");
+        return;
+      }
+      let res;
+      try {
+        res = await fetch("/auth/profile", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ notifyLeadDays, notifyShared: q("#n_shared").checked }),
+        });
+      } catch (e) {
+        alert(LINE_OFFLINE);
+        return;
+      }
+      if (!res.ok) {
+        alert("保存できませんでした。もう一度お試しください。");
+        return;
+      }
+      ME = await (await fetch("/auth/me")).json();
+      alert("保存しました。");
     };
     q("#passwordSave").onclick = async () => {
       const pw = q("#p_pw").value;

@@ -31,6 +31,7 @@
 import { logger } from "../lib/log.ts";
 import { toInstantOrNull } from "./instant.ts";
 import { freeDeadlineMs, maxLossYen } from "./policy.ts";
+import { listSharedReservations } from "./sharing.ts";
 import { listReservations, type WebReservation, type WebStatus } from "./store.ts";
 import { type WebUser, webUserSchema } from "./users.ts";
 
@@ -121,6 +122,10 @@ const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 interface Due {
   resv: WebReservation;
   deadlineMs: number;
+  /** The lead times (days) this announcement covers; all are marked once it is sent. */
+  leads: number[];
+  /** Set when the reservation is someone else's, shared with this user: the owner's name. */
+  sharedFrom: string | null;
 }
 
 // Wording is shared vocabulary, not prose: 「無料キャンセル期限」 for the date and
@@ -141,7 +146,9 @@ function dueLine(d: Due): string {
   const loss = d.resv.amount === null
     ? "金額未登録"
     : `期限後の最大キャンセル料 ${yen(maxLossYen(d.resv.policy, d.resv.amount))}`;
-  return `・${d.resv.service} / 開始 ${
+  // Whose it is, when it is not the reader's own: that is who to ask or remind.
+  const shared = d.sharedFrom !== null ? `（共有: ${d.sharedFrom}）` : "";
+  return `・${d.resv.service}${shared} / 開始 ${
     start === null ? "日時不明" : fmtJst(start.epochMilliseconds)
   } / ◆無料キャンセル期限 ${fmtJst(d.deadlineMs)} / ${loss}`;
 }
@@ -154,13 +161,36 @@ function buildBody(due: readonly Due[], baseUrl: string): string {
   return [head, "", ...due.map(dueLine), "", `plancel で確認: ${baseUrl}`].join("\n");
 }
 
-/** True when `deadlineMs` is in the future and within the next 24 hours. */
-function withinBoundary(deadlineMs: number, nowMs: number): boolean {
-  return deadlineMs > nowMs && deadlineMs <= nowMs + DAY_MS;
+/**
+ * The marker for one lead time. The 1-day lead keeps the key it has always had
+ * (`boundary24`), so nobody is told again about what they were already told.
+ */
+function markerKey(userId: string, resvId: string, leadDays = 1): Deno.KvKey {
+  return [NOTIFIED, userId, resvId, leadDays === 1 ? BOUNDARY : `lead${leadDays}d`];
 }
 
-function markerKey(userId: string, resvId: string): Deno.KvKey {
-  return [NOTIFIED, userId, resvId, BOUNDARY];
+/**
+ * Which of the user's lead times a deadline has entered and not yet been
+ * announced for — empty when there is nothing to say now.
+ *
+ * Every lead whose window the deadline is inside counts as covered by one
+ * message: a reservation first seen ten hours before its deadline is inside the
+ * 7-day, 3-day and 1-day windows at once, and gets one notice, not three.
+ */
+async function leadsToAnnounce(
+  kv: Deno.Kv,
+  user: WebUser,
+  resvId: string,
+  deadlineMs: number,
+  nowMs: number,
+): Promise<number[]> {
+  if (deadlineMs <= nowMs) return [];
+  const entered = user.notifyLeadDays.filter((d) => deadlineMs <= nowMs + d * DAY_MS);
+  if (entered.length === 0) return [];
+  // Announce only when the most urgent entered lead has not been announced yet.
+  const nearest = Math.min(...entered);
+  if ((await kv.get(markerKey(user.id, resvId, nearest))).value !== null) return [];
+  return entered;
 }
 
 async function listUsers(kv: Deno.Kv): Promise<WebUser[]> {
@@ -208,9 +238,23 @@ async function collectDue(deps: NotifyDeps, user: WebUser): Promise<Collected> {
     }
     const deadlineMs = freeDeadlineMs(resv.policy, resv.startsAt);
     if (deadlineMs === null) continue;
-    if (!withinBoundary(deadlineMs, deps.nowMs)) continue;
-    if ((await deps.kv.get(markerKey(user.id, resv.id))).value !== null) continue; // notified
-    due.push({ resv, deadlineMs });
+    const leads = await leadsToAnnounce(deps.kv, user, resv.id, deadlineMs, deps.nowMs);
+    if (leads.length === 0) continue;
+    due.push({ resv, deadlineMs, leads, sharedFrom: null });
+  }
+  // Reservations other people shared with this user (owner 2026-11-12: the one
+  // who booked it and the family should both hear). Opt-out per account.
+  if (user.notifyShared) {
+    for (const s of await listSharedReservations(deps.kv, user.id)) {
+      const resv = s.reservation;
+      if (!ACTIVE_STATUSES.has(resv.status) || resv.booked === false) continue;
+      if (toInstantOrNull(resv.startsAt) === null) continue; // the owner's sweep logs it
+      const deadlineMs = freeDeadlineMs(resv.policy, resv.startsAt);
+      if (deadlineMs === null) continue;
+      const leads = await leadsToAnnounce(deps.kv, user, resv.id, deadlineMs, deps.nowMs);
+      if (leads.length === 0) continue;
+      due.push({ resv, deadlineMs, leads, sharedFrom: s.ownerDisplayName });
+    }
   }
   // Soonest deadline first so the bundle reads as a to-do list; the id
   // tiebreak keeps identical deadlines in a fixed order.
@@ -294,9 +338,11 @@ export async function sweepDeadlineNotifications(deps: NotifyDeps): Promise<numb
         await deps.kv.set([EMAIL_QUOTA, date], emailsToday, { expireIn: EMAIL_QUOTA_TTL_MS });
       }
       for (const d of due) {
-        await deps.kv.set(markerKey(user.id, d.resv.id), { at: deps.nowMs }, {
-          expireIn: NOTIFIED_TTL_MS,
-        });
+        for (const lead of d.leads) {
+          await deps.kv.set(markerKey(user.id, d.resv.id, lead), { at: deps.nowMs }, {
+            expireIn: NOTIFIED_TTL_MS,
+          });
+        }
       }
       sent++;
     } catch (err) {
