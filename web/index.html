@@ -1959,6 +1959,11 @@
       border-color: var(--lamp);
       color: var(--lamp-ink);
     }
+    .chip-btn[aria-pressed="true"] {
+      border-color: var(--lamp);
+      background: var(--lamp-soft);
+      color: var(--lamp-ink);
+    }
     .cal-card {
       max-width: 620px;
       margin-bottom: 12px;
@@ -5742,6 +5747,10 @@
       q("#calendarPage").style.display = cal ? "" : "none";
       q("#bnLedger").classList.toggle("active", !profile && !help && !cal);
       q("#bnProfile").classList.toggle("active", profile);
+      const chip = q("#todayChip");
+      chip.setAttribute("aria-pressed", cal ? "true" : "false");
+      chip.setAttribute("aria-label", cal ? "カレンダーを閉じる" : "カレンダーを開く");
+      chip.title = cal ? "カレンダーを閉じる" : "カレンダーを開く";
       if (cal) renderCalendar();
       scrollTo({ top: 0 });
     }
@@ -5855,7 +5864,13 @@
       q("#calDay").innerHTML = `<div class="cal-day-title">${fmtDate(selDate.getTime())}</div>` +
         (items || `<div class="hint" style="margin:0">この日の予約や期限はありません。</div>`);
     }
+    // 同じボタンで開いて、同じボタンで閉じる（オーナー 2026-11-12「もう一回押したら
+    // 閉じるようにするべき」）。開いている間はボタンを選択中の見た目にする。
     q("#todayChip").onclick = () => {
+      if (q("#calendarPage").style.display !== "none") {
+        setView("ledger");
+        return;
+      }
       calMonth = null; // 開くたびに今月・今日から
       setView("calendar");
     };
