@@ -2066,12 +2066,52 @@
       padding: 0 6px;
       font-size: calc(14px * var(--fs));
     }
-    /* 見出しは1行。アイコンを 46px にしたぶん、ログイン中だけ出るベル（連携）が
-       入ると 375px で2段に折れた（2026-11-11、テストアカウントのリハーサルで
-       発覚。dev ユーザーではベルが出ないので測り漏らした）。スマホ幅では下のナビに
-       同じ「連携」があるので、360px 以下でしていたのと同じく見出し側を隠す。 */
-    @media (max-width: 520px) {
-      #calBtn {
+    /* 見出しのアイコンボタンは1つの見た目。測ると4つに3種類が並んでいた:
+       明暗と文字サイズは影つきの白丸、ベルは地も枠もなし、人は別の地色で影なし
+       （2026-11-12）。隣の日付の札と同じ「地は --card・1px の枠・影なし」にそろえ、
+       触れたときと選ばれているときだけ色を変える。大きさは 46px の丸のまま。 */
+    .top-right .theme-toggle,
+    .top-right .fs-toggle,
+    .top-right .iconbtn,
+    .top-right .avatar {
+      min-width: var(--btn-h);
+      min-height: var(--btn-h);
+      border-radius: var(--btn-r);
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: none;
+      color: var(--ink);
+    }
+    .top-right .theme-toggle,
+    .top-right .iconbtn,
+    .top-right .avatar {
+      width: var(--btn-h);
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .top-right .theme-toggle:hover,
+    .top-right .fs-toggle:hover,
+    .top-right .iconbtn:hover,
+    .top-right .avatar:hover {
+      border-color: var(--lamp);
+      color: var(--lamp-ink);
+    }
+    .top-right .fs-toggle.on {
+      border-color: var(--lamp);
+      background: var(--lamp-soft);
+      color: var(--lamp-ink);
+    }
+    /* 連携（ベル）とマイページ（人）の入口は、1つの画面に1か所だけ。下のナビが
+       出ている幅（860px 以下）では下のナビにあるので、見出し側の2つは隠す。
+       それより広い幅では下のナビが出ないので、見出しに残る。以前は 521〜860px で
+       両方が上下に並び、スマホでは人だけが二重だった（オーナー 2026-11-12
+       「下バーにいらないんじゃない？」。親指が届くのは下なので、消すのは上にした）。
+       見出しはこの幅でロゴ・日付・明暗・文字サイズだけになり、1行に余裕で収まる。 */
+    @media (max-width: 860px) {
+      #calBtn,
+      #profileBtn {
         display: none;
       }
     }
