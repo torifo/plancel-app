@@ -91,6 +91,7 @@ import {
   type ReportsDeps,
 } from "../web/reports.ts";
 import { sweepCanary } from "../web/canary-watch.ts";
+import { releaseCanaryGate } from "../web/release-canary.ts";
 import { handleAdminDateAudit, isAdminDateAuditPath } from "../web/date-audit.ts";
 import { hexEncode } from "../lib/encoding.ts";
 import { denoEnvReader, selectNotifier } from "./notifier.ts";
@@ -104,6 +105,10 @@ if (import.meta.main) {
 
   const store = await KvStore.open();
   const clock = new SystemClock();
+  // A release canary (src/web/release-canary.ts) runs on a copy of production's
+  // data and must reach nobody: while its marker is in this database, nothing
+  // below sends anything out.
+  const isReleaseCanary = releaseCanaryGate(store.kv, () => clock.now().epochMilliseconds);
   const ctx = { store, clock, ids: { newUlid: () => ulid() } };
 
   // Notifier for the cron (registered below, after syncDeps exists).
@@ -182,6 +187,10 @@ if (import.meta.main) {
   const emailFrom = env.get("PLANCEL_EMAIL_FROM");
   const sendMagicLink = resendKey !== undefined && emailFrom !== undefined
     ? async (email: string, url: string) => {
+      if (await isReleaseCanary()) {
+        log.info("release canary: login mail not sent");
+        return;
+      }
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -251,6 +260,14 @@ if (import.meta.main) {
     google: googleApp,
     kek,
   };
+  // Calendar sync after a write — never from a release canary, whose copied
+  // tokens would otherwise edit real people's Google calendars.
+  const syncOnWrite = (userId: string, resvId: string) => {
+    isReleaseCanary().then((canary) => {
+      if (canary) return;
+      return requestSync(syncDeps, userId, resvId);
+    }).catch((err) => log.error("requestSync failed", { err: String(err) }));
+  };
 
   // Web-ledger deadline notifications (owner 2026-07-25). Delivery: Resend
   // when configured (same shape as sendMagicLink), else a console log line.
@@ -304,9 +321,7 @@ if (import.meta.main) {
       nowMs: () => clock.now().epochMilliseconds,
       onMutate: (user, resvId) => {
         if (user.google === null) return;
-        requestSync(syncDeps, user.id, resvId).catch((err) =>
-          log.error("requestSync failed", { err: String(err) })
-        );
+        syncOnWrite(user.id, resvId);
       },
     };
   }
@@ -329,6 +344,7 @@ if (import.meta.main) {
     ...(webNotifyLine !== null && adminEmails.size > 0
       ? {
         notify: async (report) => {
+          if (await isReleaseCanary()) return 0;
           const text = [
             `⚠ plancel: ${report.code ?? "fault"}`,
             report.path !== null ? `場所: ${report.path}` : null,
@@ -359,6 +375,12 @@ if (import.meta.main) {
   // retries any calendar syncs the inline pass left dirty.
   // Each job runs on its own (runSteps): a throw is logged and the next job still runs.
   Deno.cron(CRON_NAME, CRON_SCHEDULE, async () => {
+    // Every job below reaches people or outside services (notices, calendar
+    // sweeps, provider checks); a release canary runs none of them.
+    if (await isReleaseCanary()) {
+      log.info("release canary: cron skipped");
+      return;
+    }
     await runSteps([
       { name: "core tick", run: () => runTick({ store, clock, notifier }) },
       {
@@ -453,9 +475,7 @@ if (import.meta.main) {
     dailyCap: Number.isFinite(mailCapEnv) && mailCapEnv > 0 ? mailCapEnv : MAIL_DAILY_CAP_DEFAULT,
     onMutate: (user, resvId) => {
       if (user.google === null) return;
-      requestSync(syncDeps, user.id, resvId).catch((err) =>
-        log.error("requestSync failed", { err: String(err) })
-      );
+      syncOnWrite(user.id, resvId);
     },
   };
   log.info("email intake configured", {
@@ -524,9 +544,7 @@ if (import.meta.main) {
           const target = ledgerOwner ??
             (user !== null && who.ledger === user.ledgerId ? user : null);
           if (target === null || target.google === null) return;
-          requestSync(syncDeps, target.id, resvId).catch((err) =>
-            log.error("requestSync failed", { err: String(err) })
-          );
+          syncOnWrite(target.id, resvId);
         },
       });
     }

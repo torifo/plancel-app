@@ -21,6 +21,8 @@
     "line": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv src/line/main.ts",
     "deploy:serve": "deno run --allow-env --allow-read --allow-write --allow-net --unstable-temporal --unstable-kv --unstable-cron src/deploy/main.ts",
     "kv:spike": "deno run --allow-env --allow-net --unstable-kv src/cli/kv_spike.ts",
+    "canary:copy": "deno run --allow-env --allow-net=api.deno.com --unstable-temporal --unstable-kv scripts/canary_copy.ts",
+    "canary:smoke": "deno run --allow-env --allow-net=api.deno.com --allow-read --unstable-temporal --unstable-kv scripts/canary_smoke.ts",
     "verify": "deno task fmt:check && deno task check && deno lint && deno task test && deno task replay"
   },
   "compilerOptions": {

@@ -495,3 +495,38 @@ LINE の返信からサイトへ誘導するときは、必ず用途ごとのフ
   `vps_main.ts` = systemd timer run-once）。
 - ローカルcore台帳のKVは追記型イベントログが真実の源で、導出値は`verify-projection`で照合できる。
   本番の台帳はユーザー別のWebストアとして管理され、coreイベントログとは別モデルである。
+
+
+## canary（本番と同じデータで、公開一歩手前に確かめる。2026-11-13）
+
+必ず通る関門ではない。`main` に push すれば今どおり本番に出る（急ぎの修正はこちら）。確かめたい
+リリースだけ、先に `canary` ブランチに push する。
+
+1. `git push origin HEAD:canary` — Deno Deploy がブランチ `canary` を
+   https://plancel-app--canary.torifo.deno.net に出す（データベースはブランチ専用の `601012--canary`）。
+2. GitHub Actions `canary.yml` が `deno task verify` → **本番のデータを canary のデータベースに写す**
+   （`deno task canary:copy`。本番は読むだけ）→ **写したデータの上で新しいコードを一通り動かす**
+   （`deno task canary:smoke`。全員の一覧・MCP の表示・通知の見回り2つ。失敗があれば赤）。
+3. canary の URL をスマホで開いて実データで見る。良ければ `git push origin canary:main` で本番へ。
+
+canary は誰にも何も送らない。写すときに canary のデータベースへ印（`["meta","release_canary"]`）を
+先に置き、印がある間は定期の見回り（通知・カレンダー・AI の点検）を丸ごと止め、書き込み時の
+Google カレンダー同期・ログインメール・障害の LINE 通知も止める（`src/web/release-canary.ts`）。
+本番のデータベースに印があれば写すのを断る（ID の取り違え）。
+
+準備（初回だけ）:
+
+- Deno Deploy の組織設定で organization access token を作り、GitHub の secret
+  `DENO_KV_ACCESS_TOKEN` に入れる（このトークンは組織の全データベースを読み書きできる）。
+- `canary` ブランチを一度 push してデータベース `601012--canary` を作らせ、コンソールの
+  torifo-kv のページにある Database ID を、GitHub の variables `PLANCEL_PROD_DB_ID`
+  （`601012-production`）と `PLANCEL_CANARY_DB_ID`（`601012--canary`）に入れる。
+  入っていないうちは、写す・動かすの2段は飛ばし、コードだけが canary に出る。
+- canary で Google ログインを使うなら、Google Cloud の OAuth クライアントに
+  `https://plancel-app--canary.torifo.deno.net` のコールバック URL を足す。
+  使わないなら、パスワードのログインか、MCP の閲覧専用リンクで見る。
+
+注意: 環境変数はどれも「All」のため、ブランチの公開先にも LINE・メール・Google の鍵が入っている。
+定期の見回りも `main`・`production`・`gc-hackathon` の各ブランチで動いている（2026-11-13 にコンソールで
+確認）。それぞれ別のデータベースなので本番の利用者には届かないが、canary 以外は印が無いので、
+そのデータベースに利用者がいれば送る。

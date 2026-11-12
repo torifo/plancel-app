@@ -1,0 +1,50 @@
+# The release canary (2026-11-13) — an extra road, not a gate.
+#
+# A push to `canary` deploys that branch to its own timeline and database
+# (https://plancel-app--canary.torifo.deno.net). This workflow then copies
+# production's data into that database and runs the pushed code over it, so a
+# release can be looked at on real records before it goes out. Production is
+# untouched: the copy only reads it, and a canary sends nothing to anyone
+# (src/web/release-canary.ts). To release what was checked, push the same
+# commit to `main` (`git push origin canary:main`); a fix that cannot wait
+# goes to `main` directly, as before.
+#
+# Needs: secret DENO_KV_ACCESS_TOKEN (an organization access token), and
+# variables PLANCEL_PROD_DB_ID / PLANCEL_CANARY_DB_ID (database ids from the
+# console's torifo-kv page). Without them the copy and smoke steps are skipped.
+name: canary
+
+on:
+  push:
+    branches: [canary]
+  workflow_dispatch:
+
+concurrency:
+  group: canary
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    # Job-level, so the steps' `if:` can see whether they are configured
+    # (a secret cannot be read in `if:` directly).
+    env:
+      DENO_KV_ACCESS_TOKEN: ${{ secrets.DENO_KV_ACCESS_TOKEN }}
+      PLANCEL_PROD_DB_ID: ${{ vars.PLANCEL_PROD_DB_ID }}
+      PLANCEL_CANARY_DB_ID: ${{ vars.PLANCEL_CANARY_DB_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.x
+      - name: verify
+        run: deno task verify
+      - name: copy production data into the canary database
+        if: env.DENO_KV_ACCESS_TOKEN != '' && env.PLANCEL_PROD_DB_ID != '' && env.PLANCEL_CANARY_DB_ID != ''
+        run: deno task canary:copy
+      - name: run the pushed code over the copy
+        if: env.DENO_KV_ACCESS_TOKEN != '' && env.PLANCEL_CANARY_DB_ID != ''
+        run: deno task canary:smoke

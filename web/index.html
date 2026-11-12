@@ -2889,6 +2889,9 @@
     </div>
 
     <div class="wrap">
+      <div class="viewbar" id="canaryBar" style="display:none" role="status">
+        <span>canary（本番データの写し）です。ここでの操作は本番に影響せず、通知やカレンダー同期も止めています。</span>
+      </div>
       <div class="viewbar" id="viewOnlyBar" style="display:none" role="status">
         <span id="viewOnlyText">閲覧専用で表示中。変更はできません。</span>
         <button class="rowbtn" id="viewOnlyEnd">終了</button>
@@ -7674,6 +7677,8 @@
       view_link: "この閲覧用リンクは使用済みか、期限が切れています。もう一度リンクを出してください。",
     };
     async function boot() {
+      // canary の公開先（ブランチ canary）では、本番の写しだと最初に言う。
+      if (String(location.hostname || "").includes("--canary.")) q("#canaryBar").style.display = "";
       const err = new URLSearchParams(location.search).get("auth_error");
       if (err) {
         history.replaceState(null, "", "/");
