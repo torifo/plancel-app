@@ -110,7 +110,7 @@ const BOOKED_DESC =
   '予約が要らないもの（予約不要のバスなど）は、乗る・使うと決めた時点で booked: true・policy: "none" にする';
 
 const KIND_DESC =
-  '種類（任意）: "stay"(宿) / "meal"(食事) / "flight"(飛行機) / "train"(電車・特急) / "bus"(バス) / ' +
+  '種類（任意）: "stay"(宿) / "meal"(食事) / "flight"(飛行機) / "train"(新幹線・電車・特急) / "bus"(バス) / ' +
   '"car"(レンタカー・カーシェア) / "parking"(駐車場。startsAt＝入庫、endsAt＝出庫) / "activity"(体験・チケット) / "other"。宿に限らず、キャンセル期限のある' +
   "予約は何でも登録できる";
 const SERVICE_DESC =
