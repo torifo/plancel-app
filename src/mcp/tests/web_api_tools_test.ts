@@ -65,6 +65,7 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
       "save_policy_template",
       "set_member_role",
       "share_reservation",
+      "suggest_to_owner",
       "unpair_plancel",
       "unshare_reservation",
       "update_reservation",
@@ -661,5 +662,30 @@ Deno.test("web-api MCP: choose_reservation takes one stay over the others throug
     assertStringIncludes(d, "needsOwner");
     const list = tools.find((t: { name: string }) => t.name === "list_reservations")!.description!;
     assertStringIncludes(list, "overlaps");
+  });
+});
+
+Deno.test("web-api MCP: suggest_to_owner proposes to the owner, or withdraws", async () => {
+  const { calls, fetchFn } = scriptedApi(() => ({ status: 200, json: { ok: true } }));
+  await withClient(fetchFn, async (client) => {
+    await client.callTool({ name: "suggest_to_owner", arguments: { id: "R7", action: "cancel" } });
+    await client.callTool({
+      name: "suggest_to_owner",
+      arguments: { id: "R7", action: "withdraw" },
+    });
+    assertEquals(calls.map((c) => [c.method, c.url, c.body]), [
+      ["POST", "https://plancel.test/api/reservations/R7/suggest", { action: "cancel" }],
+      ["DELETE", "https://plancel.test/api/reservations/R7/suggest", undefined],
+    ]);
+    const bad = await client.callTool({
+      name: "suggest_to_owner",
+      arguments: { id: "R7", action: "maybe" },
+    });
+    assertEquals(bad.isError, true);
+    const { tools } = await client.listTools();
+    const d = tools.find((t: { name: string }) => t.name === "suggest_to_owner")!.description!;
+    assertStringIncludes(d, "持ち主");
+    const u = tools.find((t: { name: string }) => t.name === "update_reservation")!;
+    assertStringIncludes(JSON.stringify(u.inputSchema), "希望順");
   });
 });

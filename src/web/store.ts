@@ -96,6 +96,28 @@ export const webReservationSchema = z.object({
   to: z.string().nullable().default(null),
   /** Who made the booking in the real world — the person to ask, or to ask to cancel. */
   bookedBy: z.string().nullable().default(null),
+  /**
+   * Place in the family's order of preference among alternatives (1 = most
+   * wanted), set by dragging inside a 「どれか1つ」 box (owner 2026-11-13:
+   * 「ドラッグして移動して上が希望度高いみたいに共通して見れるように」). Kept on
+   * the reservation itself so everyone it is shared with sees the same order.
+   * Null = not ranked; such rows follow the ranked ones by time.
+   */
+  rank: z.number().int().min(1).max(99).nullable().default(null),
+  /**
+   * A member's proposal to the owner — cancel it, or confirm it (owner
+   * 2026-11-13: how to recommend cancelling a booking someone invited you to).
+   * Settling stays the owner's: a proposal changes nothing by itself, it is
+   * shown and sent to the owner, and any change of status clears it.
+   */
+  suggestion: z.object({
+    action: z.enum(["cancel", "confirm"]),
+    byUserId: z.string(),
+    byName: z.string(),
+    at: z.string(),
+    /** When the owner was told (the cron sweep), or null while not yet. */
+    notifiedAt: z.string().nullable().default(null),
+  }).nullable().default(null),
   policy: webPolicySchema,
   status: webStatusSchema,
   created_at: z.string(),
@@ -108,6 +130,7 @@ export const webReservationSchema = z.object({
   updated_by: z.string().nullable().default(null),
 });
 export type WebReservation = z.infer<typeof webReservationSchema>;
+export type WebSuggestion = NonNullable<WebReservation["suggestion"]>;
 
 /**
  * Who a write is attributed to (`updated_by`): the acting userId, or null for
@@ -168,6 +191,7 @@ export const webPatchSchema = z.object({
   from: placeSchema.optional(),
   to: placeSchema.optional(),
   bookedBy: personSchema.optional(),
+  rank: z.number().int().min(1).max(99).nullable().optional(),
   policy: webPolicySchema.optional(),
 });
 
@@ -358,6 +382,8 @@ export async function createReservationWithEffects(
     from: input.from ?? null,
     to: input.to ?? null,
     bookedBy: input.bookedBy ?? null,
+    rank: null,
+    suggestion: null,
     policy,
     // Confirm through confirmReservation below so create-with-confirmed uses
     // exactly the same transition validation and atomic plan settlement.
@@ -425,6 +451,7 @@ export async function patchReservation(
     ...(patch.to !== undefined ? { to: patch.to } : {}),
     ...(patch.bookedBy !== undefined ? { bookedBy: patch.bookedBy } : {}),
     ...(patch.policy !== undefined ? { policy: patch.policy } : {}),
+    ...(patch.rank !== undefined ? { rank: patch.rank } : {}),
     updated_at: ids.nowIso(),
     updated_by: actor,
   };
@@ -497,6 +524,7 @@ export async function confirmReservationWithEffects(
     const next: WebReservation = {
       ...cur,
       status: "confirmed",
+      suggestion: null,
       updated_at: now,
       updated_by: actor,
     };
@@ -546,6 +574,7 @@ export async function confirmReservationWithEffects(
         tx = tx.check(sibling).set(key(token, sibling.value.id), {
           ...sibling.value,
           status: lostStatus(sibling.value),
+          suggestion: null,
           updated_at: now,
           updated_by: actor,
         });
@@ -593,6 +622,7 @@ export async function restoreReservation(
   const next: WebReservation = {
     ...cur,
     status: "candidate",
+    suggestion: null,
     updated_at: ids.nowIso(),
     updated_by: actor,
   };
@@ -612,6 +642,7 @@ export async function cancelReservation(
   const next: WebReservation = {
     ...cur,
     status: "cancelled",
+    suggestion: null,
     updated_at: ids.nowIso(),
     updated_by: actor,
   };
@@ -646,7 +677,13 @@ export async function markLost(
       if (isFinished(cur, nowMs)) break;
       const status = lostStatus(cur);
       const done = await kv.atomic().check(entry)
-        .set(key(token, id), { ...cur, status, updated_at: now, updated_by: actor })
+        .set(key(token, id), {
+          ...cur,
+          status,
+          suggestion: null,
+          updated_at: now,
+          updated_by: actor,
+        })
         .commit();
       if (done.ok) {
         affected.push({ id, service: cur.service, status });
@@ -655,6 +692,28 @@ export async function markLost(
     }
   }
   return affected;
+}
+
+/**
+ * Sets or clears the member's proposal on a reservation in `ledger` (the
+ * owner's). Nothing else changes — not the status, not who wrote it last:
+ * a proposal is a note to the owner, not an edit.
+ */
+export async function setSuggestion(
+  kv: Deno.Kv,
+  ledger: string,
+  id: string,
+  suggestion: WebSuggestion | null,
+): Promise<WebReservation | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const entry = await kv.get<WebReservation>(key(ledger, id));
+    const parsed = webReservationSchema.safeParse(entry.value);
+    if (!parsed.success) return null;
+    const next: WebReservation = { ...parsed.data, suggestion };
+    const done = await kv.atomic().check(entry).set(key(ledger, id), next).commit();
+    if (done.ok) return next;
+  }
+  return null;
 }
 
 export interface MergeOutcome {

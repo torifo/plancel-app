@@ -1,9 +1,13 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { type NotifyDeps, sweepDeadlineNotifications } from "../notify.ts";
+import {
+  type NotifyDeps,
+  sweepDeadlineNotifications,
+  sweepSuggestionNotifications,
+} from "../notify.ts";
 import { boundaryMs, freeDeadlineMs } from "../policy.ts";
 import { getOrCreateUserByEmail, linkLineUser, updateUser } from "../users.ts";
 import { addMember } from "../sharing.ts";
-import type { WebPolicy, WebReservation, WebStatus } from "../store.ts";
+import { setSuggestion, type WebPolicy, type WebReservation, type WebStatus } from "../store.ts";
 import { makeAuthIds } from "./users_test.ts";
 
 const H = 3_600_000;
@@ -93,6 +97,8 @@ async function putResv(
     from: null,
     to: null,
     bookedBy: null,
+    rank: null,
+    suggestion: null,
     policy,
     status,
     created_at: iso(NOW),
@@ -650,4 +656,48 @@ Deno.test("someone a reservation is shared with is told too, unless they turned 
     // Once each.
     assertEquals(await sweepDeadlineNotifications(makeDeps(kv, [], NOW + H)), 0);
   });
+});
+
+Deno.test("proposals: the owner is told once, by LINE when linked, and the next sweep is quiet", async () => {
+  const kv = await Deno.openKv(":memory:");
+  try {
+    const ids = makeAuthIds();
+    const mom = await getOrCreateUserByEmail(kv, "mom@x.jp", ids);
+    await putResv(kv, mom.ledgerId, "R1", "free24", "candidate", NOW + 30 * 24 * H);
+    await putResv(kv, mom.ledgerId, "R2", "free24", "cancelled", NOW + 30 * 24 * H);
+    for (const id of ["R1", "R2"]) {
+      await setSuggestion(kv, mom.ledgerId, id, {
+        action: "cancel",
+        byUserId: "ME",
+        byName: "@toriforiumu",
+        at: iso(NOW),
+        notifiedAt: null,
+      });
+    }
+    const sent: Sent[] = [];
+    assertEquals(await sweepSuggestionNotifications(makeDeps(kv, sent)), 1);
+    // Only the live one is told; a cancelled one has nothing left to decide.
+    assertEquals(sent.length, 1);
+    assertEquals(sent[0]!.email, "mom@x.jp");
+    assertEquals(sent[0]!.text.includes("@toriforiumu さんが「svc-R1」"), true);
+    assertEquals(sent[0]!.text.includes("svc-R2"), false);
+    assertEquals(await sweepSuggestionNotifications(makeDeps(kv, sent)), 0);
+    assertEquals(sent.length, 1);
+
+    // Linked to LINE: pushed there instead of mailed.
+    await linkLineUser(kv, mom.id, "U-mom", ids);
+    await setSuggestion(kv, mom.ledgerId, "R1", {
+      action: "confirm",
+      byUserId: "ME",
+      byName: "@toriforiumu",
+      at: iso(NOW),
+      notifiedAt: null,
+    });
+    const pushed: { to: string; text: string }[] = [];
+    assertEquals(await sweepSuggestionNotifications(withLine(makeDeps(kv, sent), pushed)), 1);
+    assertEquals([pushed.length, pushed[0]?.to, sent.length], [1, "U-mom", 1]);
+    assertEquals(pushed[0]!.text.includes("確定を提案"), true);
+  } finally {
+    kv.close();
+  }
 });

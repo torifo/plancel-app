@@ -32,7 +32,7 @@ import { logger } from "../lib/log.ts";
 import { toInstantOrNull } from "./instant.ts";
 import { freeDeadlineMs, maxLossYen } from "./policy.ts";
 import { listSharedReservations } from "./sharing.ts";
-import { listReservations, type WebReservation, type WebStatus } from "./store.ts";
+import { listReservations, setSuggestion, type WebReservation, type WebStatus } from "./store.ts";
 import { type WebUser, webUserSchema } from "./users.ts";
 
 const USER = "webuser";
@@ -358,6 +358,92 @@ export async function sweepDeadlineNotifications(deps: NotifyDeps): Promise<numb
       count: unreadable.length,
       reservations: unreadable.slice(0, MAX_LOGGED_UNREADABLE),
     });
+  }
+  return sent;
+}
+
+/** Formats an instant as `MM/DD(曜)` in JST, or null when it is unreadable. */
+function shortDay(value: string): string | null {
+  const at = toInstantOrNull(value);
+  if (at === null) return null;
+  const z = at.toZonedDateTimeISO(TOKYO_OFFSET);
+  return `${z.month}/${z.day}(${"日月火水木金土"[z.dayOfWeek % 7]})`;
+}
+
+/**
+ * Tells each owner about proposals members left on their reservations
+ * (owner 2026-11-13: how to recommend cancelling a booking someone invited you
+ * to). One bundled message per owner per sweep, by the same route as the
+ * deadline notice — the owner's LINE when linked, e-mail otherwise, and e-mail
+ * counts against the same daily cap. A proposal is told once: `notifiedAt` is
+ * stamped on it after the send, so a failed send is retried by the next sweep.
+ *
+ * Returns the number of MESSAGES delivered (one per owner).
+ */
+export async function sweepSuggestionNotifications(deps: NotifyDeps): Promise<number> {
+  const log = logger(
+    "web.notify",
+    deps.logWrite !== undefined ? { write: deps.logWrite } : {},
+  );
+  const cap = deps.emailDailyCap ?? EMAIL_DAILY_CAP_DEFAULT;
+  const date = tokyoDate(deps.nowMs);
+  let emailsToday = await readEmailCount(deps.kv, date);
+  let sent = 0;
+  const nowIso = Temporal.Instant.fromEpochMilliseconds(deps.nowMs).toString();
+  for (const user of await listUsers(deps.kv)) {
+    try {
+      const pending = (await listReservations(deps.kv, user.ledgerId)).filter((r) =>
+        r.suggestion !== null && r.suggestion.notifiedAt === null &&
+        (r.status === "candidate" || r.status === "confirmed")
+      );
+      if (pending.length === 0) continue;
+      const line = deps.line;
+      const lineUserId = user.lineUserId;
+      const viaLine = line !== undefined && lineUserId !== null;
+      if (!viaLine && emailsToday >= cap) {
+        log.warn("daily email cap reached; deferring proposals", { userId: user.id, date, cap });
+        continue;
+      }
+      const lines = pending.map((r) => {
+        const s = r.suggestion!;
+        const day = shortDay(r.startsAt);
+        const what = s.action === "cancel" ? "取り消し" : "確定";
+        return `・${s.byName} さんが「${r.service}」${
+          day ? `（${day}）` : ""
+        }の${what}を提案しています`;
+      });
+      const body = [
+        "plancel: 共有している予約に提案が届いています",
+        ...lines,
+        "",
+        "受けるかどうかは、台帳の「今日やること」から選べます。",
+        deps.baseUrl,
+      ].join("\n");
+      try {
+        if (line !== undefined && lineUserId !== null) await line.push(lineUserId, body);
+        else await deps.send(user.email, "plancel: 予約への提案が届いています", body);
+      } catch (err) {
+        log.warn("proposal notification send failed; will retry", {
+          userId: user.id,
+          resvIds: pending.map((r) => r.id),
+          err: String(err),
+        });
+        continue;
+      }
+      if (!viaLine) {
+        emailsToday++;
+        await deps.kv.set([EMAIL_QUOTA, date], emailsToday, { expireIn: EMAIL_QUOTA_TTL_MS });
+      }
+      for (const r of pending) {
+        await setSuggestion(deps.kv, user.ledgerId, r.id, { ...r.suggestion!, notifiedAt: nowIso });
+      }
+      sent++;
+    } catch (err) {
+      log.warn("proposal sweep skipped a user after an error", {
+        userId: user.id,
+        err: String(err),
+      });
+    }
   }
   return sent;
 }

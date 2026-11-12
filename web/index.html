@@ -2453,6 +2453,83 @@
     .alt .item {
       box-shadow: none;
     }
+    .alt-row {
+      display: flex;
+      align-items: stretch;
+      gap: 2px;
+      margin-bottom: 8px;
+    }
+    .alt-row .item {
+      flex: 1 1 auto;
+      min-width: 0;
+      margin-bottom: 0;
+    }
+    /* 並べ替えられる囲みで、つまみの無い行（要キャンセルなど）も端をそろえる */
+    .alt-row.sortable:not(.live)::before {
+      content: "";
+      flex: 0 0 var(--btn-h);
+    }
+    .i-grip {
+      flex: 0 0 auto;
+      /* 開いて縦に伸びても、つまみは閉じた行（名前のある所）の横に置いたまま。 */
+      align-self: flex-start;
+      margin-top: calc(10px * var(--fs) + 8px);
+      color: var(--soft);
+      cursor: grab;
+      touch-action: none;
+    }
+    .i-grip svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+    .i-grip:focus-visible {
+      outline: 2px solid var(--lamp);
+      outline-offset: -2px;
+    }
+    .alt-row.dragging {
+      position: relative;
+      z-index: 5;
+    }
+    .alt-row.dragging .item {
+      border-color: var(--lamp);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+    }
+    .alt-row.dragging .i-grip {
+      cursor: grabbing;
+      color: var(--lamp-ink);
+    }
+    .i-rank {
+      font-size: calc(11.5px * var(--fs));
+      font-weight: 700;
+      line-height: 1.6;
+      color: var(--lamp-ink);
+      background: var(--lamp-soft);
+      border: 1px solid var(--lamp);
+      border-radius: 999px;
+      padding: 0 calc(8px * var(--fs));
+      white-space: nowrap;
+    }
+    .i-flag.strong {
+      border-style: solid;
+      background: var(--lamp-soft);
+    }
+    .sug-box {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 10px;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px dashed var(--lamp);
+      border-radius: 10px;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+      line-height: 1.6;
+    }
+    .sug-box span {
+      flex: 1 1 180px;
+    }
     .kind {
       display: inline-block;
       margin-right: 6px;
@@ -3113,6 +3190,8 @@
             <p class="help-p">予約行の「招待」から、メールアドレスかユーザーID（完全一致）で相手を追加します。相手の台帳にもその予約が並び、期限のお知らせもそれぞれのLINEやメールに届きます。</p>
             <p class="help-p">招待するときに<b>「編集を許可する」</b>にチェックを入れると、相手も<b>プラン名・お店の名前・日時・金額・場所・キャンセル規定</b>を直せます。チェックしなければ閲覧のみです。あとから変えたくなったら、招待画面の一覧で「編集を許可」・「閲覧のみにする」を切り替えられます。</p>
             <p class="help-p"><b>確定・キャンセル・削除・招待はオーナーだけ</b>です。確定はプラン全体を動かし、削除は元に戻せないので、細かい直しを任せた相手には開いていません。編集を許可された方も、この4つはできません。</p>
+            <p class="help-p">共有された予約は、開いて<b>「取り消しを提案」「確定を提案」</b>を押すと、オーナーに LINE（未連携ならメール）で届きます。比べる画面で「こちらに決める」を押したときも、相手の予約には自動で提案が付きます。オーナーは「今日やること」から受けるかどうかを選べます。</p>
+            <p class="help-p">「どれか1つ」の囲みは、左のつまみで上下に並べ替えると<b>希望順</b>（上ほど希望が高い）になり、共有している人にも同じ順で見えます。並べ替えられるのは、囲みの予約を全部書き換えられるとき（自分の予約か、編集を許可された共有）です。</p>
           </div>
 
           <div class="sec">
@@ -4088,11 +4167,25 @@
         if (rs.length >= 2) addAlt("plan", rs, name);
       }
       for (const r of rows) if (!taken.has(r.id)) units.push({ type: "single", rows: [r] });
+      const isLive = (r) => r.status === "candidate" || r.status === "confirmed";
       for (const u of units) {
         u.rows.sort((x, y) => sortKey(x) - sortKey(y));
         u.start = Math.min(...u.rows.map(sortKey));
         u.trip = (u.rows.find((r) => r.trip) || {}).trip || null;
-        u.live = u.rows.filter((r) => r.status === "candidate" || r.status === "confirmed");
+        if (u.type === "alt") {
+          // 囲みの中は希望順（上ほど希望が高い）。順の付いていないものは時刻順で後ろ、
+          // 要キャンセルになったものはいちばん下。
+          const rk = (r) => (r.rank == null ? 1000 : r.rank);
+          u.rows.sort((x, y) =>
+            (isLive(y) - isLive(x)) || (rk(x) - rk(y)) || (sortKey(x) - sortKey(y))
+          );
+        }
+        u.live = u.rows.filter(isLive);
+        // 並べ替えられるのは、囲みの生きている予約を全部書き換えられるときだけ
+        // （自分の予約か、編集を許可された共有）。順は予約そのものに書くので、
+        // 共有している人にも同じ順で見える。
+        u.sortable = u.type === "alt" && u.live.length >= 2 && !viewingDemo &&
+          !(ME && ME.viewOnly) && u.live.every((r) => !r.shared || r.shared.role === "editor");
       }
       units.sort((x, y) => x.start - y.start);
     }
@@ -4117,7 +4210,8 @@
       let changes = 0;
       if (win.shared) {
         if (win.status !== "confirmed") {
-          lines.push(`「${win.service}」は ${win.shared.ownerDisplayName} さんの予約です。確定は ${win.shared.ownerDisplayName} さんにお願いしてください。`);
+          changes++;
+          lines.push(`「${win.service}」の確定を ${win.shared.ownerDisplayName} さんに提案します（${win.shared.ownerDisplayName} さんに届きます）。`);
         }
       } else if (win.status === "confirmed") {
         lines.push(`「${win.service}」は確定済みのままです。`);
@@ -4137,7 +4231,8 @@
       }
       for (const r of losers) {
         if (r.shared) {
-          lines.push(`「${r.service}」は ${r.shared.ownerDisplayName} さんの予約なので、この台帳では変わりません。取り消しは ${r.shared.ownerDisplayName} さんにお願いしてください。`);
+          changes++;
+          lines.push(`「${r.service}」の取り消しを ${r.shared.ownerDisplayName} さんに提案します（${r.shared.ownerDisplayName} さんに届きます。予約はまだ変わりません）。`);
         } else if (unbooked(r)) {
           changes++;
           lines.push(`「${r.service}」は見送りになります。`);
@@ -4602,11 +4697,21 @@
             u.rows.some((r) => r.status === "to_cancel" && !r.shared) ? "取り消しの連絡が残っています" : "",
           ].filter(Boolean).join(" · ");
         const btn = open ? `<button class="rowbtn" data-compare="${u.key}">比べる</button>` : "";
+        const hint = u.sortable ? `<span class="alt-note">上ほど希望が高い · つまみで並べ替え</span>` : "";
+        const rows = u.rows.map((r) => {
+          const live = u.live.includes(r);
+          const grip = u.sortable && live
+            ? `<button class="iconbtn i-grip" data-grip="${r.id}" aria-label="${
+              esc(r.service)
+            } の希望順を動かす（上下の矢印キーでも動かせます）"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></button>`
+            : "";
+          return `<div class="alt-row${live ? " live" : ""}${u.sortable ? " sortable" : ""}" data-id="${r.id}">${grip}${
+            itemHtml(r, true)
+          }</div>`;
+        }).join("");
         return `<div class="alt${open ? "" : " settled"}"><div class="alt-head"><div class="alt-text"><span class="alt-title">${
           esc(u.title)
-        }</span><span class="alt-note">${note}</span></div>${btn}</div>${
-          u.rows.map((r) => itemHtml(r, true)).join("")
-        }</div>`;
+        }</span><span class="alt-note">${note}</span>${hint}</div>${btn}</div><div class="alt-rows" data-unit="${u.key}">${rows}</div></div>`;
       };
       const unitHtml = (u) => u.type === "single" ? itemHtml(u.rows[0], false) : altHtml(u);
       const daysHtml = (us) => {
@@ -4735,6 +4840,32 @@
       document.querySelectorAll("[data-compare]").forEach((b) =>
         b.onclick = () => openCompare(b.dataset.compare)
       );
+      document.querySelectorAll("[data-suggest]").forEach((b) =>
+        b.onclick = () => {
+          const path = `/api/reservations/${b.dataset.suggest}/suggest`;
+          if (b.dataset.act === "withdraw") act("DELETE", path);
+          else act("POST", path, { action: b.dataset.act });
+        }
+      );
+      document.querySelectorAll("[data-accept]").forEach((b) =>
+        b.onclick = () => {
+          const r = data.find((x) => x.id === b.dataset.accept);
+          if (!r || !r.suggestion) return;
+          const ok = confirm(
+            r.suggestion.action === "cancel"
+              ? `「${r.service}」を要キャンセルにします。宿や店への連絡はご自分でお願いします。よろしいですか？`
+              : `「${r.service}」で確定します。同じプランの他の候補は要キャンセルになります。よろしいですか？`,
+          );
+          if (ok) act("POST", `/api/reservations/${r.id}/suggest/accept`);
+        }
+      );
+      document.querySelectorAll("[data-decline]").forEach((b) =>
+        b.onclick = () => act("DELETE", `/api/reservations/${b.dataset.decline}/suggest`)
+      );
+      document.querySelectorAll("[data-grip]").forEach((g) => {
+        g.onpointerdown = gripDown;
+        g.onkeydown = gripKey;
+      });
       document.querySelectorAll("[data-booked]").forEach((b) =>
         b.onclick = () => act("PATCH", `/api/reservations/${b.dataset.booked}`, { booked: true })
       );
@@ -4878,6 +5009,20 @@
         return;
       }
       const items = [];
+      // 共有している人からの提案（取り消し・確定）。受けるかどうかは持ち主が決める。
+      for (const r of active) {
+        if (r.shared || !r.suggestion) continue;
+        const cancel = r.suggestion.action === "cancel";
+        items.push(
+          `<div class="rail-item"><div class="lb">提案</div><div class="tt"><b>${
+            esc(r.suggestion.byName)
+          }さん: ${esc(r.service)} を${cancel ? "取り消す" : "確定する"}</b></div><div class="ds">${
+            fmtDate(startMs(r))
+          } · ${r.amount ? yen(r.amount) : "金額未定"}</div><div class="btns"><button class="rowbtn act" data-accept="${r.id}">${
+            cancel ? "要キャンセルにする" : "確定する"
+          }</button><button class="rowbtn" data-decline="${r.id}">そのままにする</button></div></div>`,
+        );
+      }
       for (const r of active) {
         if (r.shared || r.status !== "to_cancel") continue;
         const dl = freeDeadline(r);
@@ -5046,6 +5191,93 @@
         isHttpUrl(loc) ? "地図を開く" : esc(loc)
       }</a></div>`;
     }
+    // 希望順の並べ替え（オーナー 2026-11-13「ドラッグして移動して上が希望度高い
+    // みたいに共通して見れるように」）。つまみ（46px）を押したまま上下に動かすと、
+    // 隣の予約の中ほどを越えたところで入れ替わる。指でもマウスでも同じ（Pointer
+    // Events）。上下の矢印キーでも1つずつ動かせる。離したら、上から 1, 2, 3… を
+    // 予約の希望順として保存する（予約そのものに書くので、共有している人にも同じ順）。
+    let gripDrag = null;
+    const liveRowIds = (box) => [...box.querySelectorAll(".alt-row.live")].map((x) => x.dataset.id);
+    async function saveOrder(ids, focusId) {
+      try {
+        for (let i = 0; i < ids.length; i++) {
+          const r = data.find((x) => x.id === ids[i]);
+          if (r && r.rank !== i + 1) await api("PATCH", `/api/reservations/${r.id}`, { rank: i + 1 });
+        }
+      } catch (e) {
+        failed(e);
+      }
+      await refresh();
+      const g = focusId && document.querySelector(`[data-grip="${focusId}"]`);
+      if (g) g.focus();
+    }
+    function gripDown(e) {
+      if (e.button !== undefined && e.button !== 0) return;
+      const grip = e.currentTarget;
+      const row = grip.closest(".alt-row");
+      e.preventDefault();
+      gripDrag = { grip, row, startY: e.clientY, before: liveRowIds(row.parentElement) };
+      row.classList.add("dragging");
+      // 動かす・離すは画面全体で受ける。ドラッグ中の行は DOM の中で動かさない
+      // （動かすとポインターの捕捉が外れ、離したことが伝わらなくなる）。入れ替わるのは
+      // 隣の行の側。
+      window.addEventListener("pointermove", gripMove);
+      window.addEventListener("pointerup", gripUp);
+      window.addEventListener("pointercancel", gripUp);
+    }
+    function gripMove(e) {
+      const d = gripDrag;
+      if (!d) return;
+      const row = d.row;
+      const box = row.parentElement;
+      const isLive = (x) => x && x.classList.contains("live");
+      // 速く動かして一度に何行も越えたときも、越えた分だけ入れ替える。
+      for (let guard = 0; guard < 20; guard++) {
+        const next = row.nextElementSibling;
+        const prev = row.previousElementSibling;
+        if (isLive(next)) {
+          const nr = next.getBoundingClientRect();
+          if (e.clientY > nr.top + nr.height / 2) {
+            box.insertBefore(next, row);
+            d.startY += nr.height + 8;
+            continue;
+          }
+        }
+        if (isLive(prev)) {
+          const pr = prev.getBoundingClientRect();
+          if (e.clientY < pr.top + pr.height / 2) {
+            box.insertBefore(prev, row.nextSibling);
+            d.startY -= pr.height + 8;
+            continue;
+          }
+        }
+        break;
+      }
+      row.style.transform = `translateY(${e.clientY - d.startY}px)`;
+    }
+    function gripUp() {
+      const d = gripDrag;
+      gripDrag = null;
+      window.removeEventListener("pointermove", gripMove);
+      window.removeEventListener("pointerup", gripUp);
+      window.removeEventListener("pointercancel", gripUp);
+      if (!d) return;
+      d.row.style.transform = "";
+      d.row.classList.remove("dragging");
+      const after = liveRowIds(d.row.parentElement);
+      if (after.join() !== d.before.join()) saveOrder(after, d.row.dataset.id);
+    }
+    function gripKey(e) {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault();
+      const row = e.currentTarget.closest(".alt-row");
+      const ids = liveRowIds(row.parentElement);
+      const i = ids.indexOf(row.dataset.id);
+      const j = e.key === "ArrowUp" ? i - 1 : i + 1;
+      if (j < 0 || j >= ids.length) return;
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      saveOrder(ids, row.dataset.id);
+    }
     // 一覧の1行。いつ・何（種類・名前）・区間や金額・状態・無料で戻せる日だけを出し、
     // 期限の棒・場所・メモ・操作は押して開いた中（rowHtml）に置く。状態の言い方と、
     // 仮の時刻・時刻未定・未予約の見分け方は、カードのときと同じ（2026-11-12 の決まり）。
@@ -5089,13 +5321,23 @@
       const dup = k && (lookAlikes[k] || []).some((x) => x.id !== r.id)
         ? `<span class="i-flag">同じ予約かも</span>`
         : "";
+      const rank = inAlt && r.rank != null && (r.status === "candidate" || r.status === "confirmed")
+        ? `<span class="i-rank">第${r.rank}希望</span>`
+        : "";
+      const sg = r.suggestion;
+      const sgWord = sg ? (sg.action === "cancel" ? "取り消し" : "確定") : "";
+      const sug = !sg
+        ? ""
+        : r.shared
+        ? `<span class="i-flag">${sg.mine ? "" : esc(sg.byName) + "さんが"}${sgWord}を提案中</span>`
+        : `<span class="i-flag strong">${esc(sg.byName)}さんから${sgWord}の提案</span>`;
       return `<details class="item st-${r.status}" data-id="${r.id}"${openItems.has(r.id) ? " open" : ""}><summary>` +
         `<span class="i-when">${when}</span>` +
         `<span class="i-main"><span class="i-name">${kindTag(r)}<b>${esc(r.service)}</b></span>` +
         `<span class="i-sub">${sub}</span>` +
-        `<span class="i-meta"><span class="i-st">${st}</span>${
+        `<span class="i-meta">${rank}<span class="i-st">${st}</span>${
           dlText ? `<span class="i-dl${dlCls}">${dlText}</span>` : ""
-        }${dup}</span></span>` +
+        }${dup}${sug}</span></span>` +
         `<span class="i-chev" aria-hidden="true"></span></summary>` +
         `<div class="i-body">${rowHtml(r, true)}</div></details>`;
     }
@@ -5161,12 +5403,28 @@
       if (r.shared) {
         const canEdit = r.shared.role === "editor";
         const shareTools = canEdit ? `<div class="tools"><a data-edit="${r.id}">編集</a></div>` : "";
+        // 確定と取り消しは持ち主だけ。共有された側は「提案」までで、持ち主に届く
+        // （オーナー 2026-11-13「招待してもらった宿のプランをキャンセルに推奨する方法」）。
+        const live = r.status === "candidate" || r.status === "confirmed";
+        const sg = r.suggestion;
+        const owner = esc(r.shared.ownerDisplayName);
+        const suggestBox = viewingDemo || !live ? "" : sg
+          ? `<div class="sug-box"><span>${
+            sg.mine ? "" : esc(sg.byName) + "さんが"
+          }${owner}さんに${sg.action === "cancel" ? "取り消し" : "確定"}を提案しています。</span>${
+            sg.mine ? `<button class="rowbtn" data-suggest="${r.id}" data-act="withdraw">提案を取り下げる</button>` : ""
+          }</div>`
+          : `<div class="sug-box"><span>確定と取り消しは${owner}さんが行います。提案すると${owner}さんに届きます。</span>${
+            r.status === "candidate"
+              ? `<button class="rowbtn" data-suggest="${r.id}" data-act="confirm">確定を提案</button>`
+              : ""
+          }<button class="rowbtn" data-suggest="${r.id}" data-act="cancel">取り消しを提案</button></div>`;
         return `<div class="resv${off}">
         <div>${
           inItem ? "" : `<div class="name"><b>${esc(r.service)}</b>${cut}</div><div class="sub">${sub}</div>`
         }${locLink}<div class="share-tag">共有: ${
           esc(r.shared.ownerDisplayName)
-        }${canEdit ? "・編集可" : ""}</div>${shareTools}</div>
+        }${canEdit ? "・編集可" : ""}</div>${shareTools}${suggestBox}</div>
         <div>${track}${cap}</div>
         <div class="ract"><button class="rowbtn" data-leave="${r.id}">脱退</button></div></div>`;
       }
@@ -5197,12 +5455,19 @@
         ? ` · <a data-cancel="${r.id}">キャンセルした</a>`
         : "";
       const tools = `<div class="tools">${inviteLink}<a data-edit="${r.id}">編集</a> · <a data-del="${r.id}">削除</a>${cancelLink}</div>`;
+      const sgOwn = r.suggestion && !viewingDemo
+        ? `<div class="sug-box"><span>${esc(r.suggestion.byName)}さんから${
+          r.suggestion.action === "cancel" ? "取り消し" : "確定"
+        }の提案があります。</span><button class="rowbtn act" data-accept="${r.id}">${
+          r.suggestion.action === "cancel" ? "要キャンセルにする" : "確定する"
+        }</button><button class="rowbtn" data-decline="${r.id}">そのままにする</button></div>`
+        : "";
       return `<div class="resv${off}">
         <div>${
         inItem ? "" : `<div class="name">${kindTag(r)}<b>${esc(r.service)}</b>${
           unbooked(r) ? `<span class="tent">未予約</span>` : ""
         }${cut}</div><div class="sub">${sub}</div>`
-      }${locLink}${tools}${lookAlikeHtml(r)}</div>
+      }${locLink}${tools}${sgOwn}${lookAlikeHtml(r)}</div>
         <div>${track}${cap}</div>
         <div class="ract">${mainBtn}</div></div>`;
     }

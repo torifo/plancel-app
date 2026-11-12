@@ -61,6 +61,7 @@ import {
   mergeReservations,
   patchReservation,
   restoreReservation,
+  setSuggestion,
   webCreateSchema,
   type WebIds,
   webPatchSchema,
@@ -140,6 +141,7 @@ function isBareDate(body: unknown, field: string): boolean {
 const confirmOptsSchema = z.object({ replace: z.boolean().default(false) });
 const mergeSchema = z.object({ from: z.string().min(1) });
 const chooseSchema = z.object({ over: z.array(z.string().min(1)).min(1).max(10) });
+const suggestSchema = z.object({ action: z.enum(["cancel", "confirm"]) });
 
 /** 409 for a refused transition: the stable message, plus the next step. */
 function transitionRefused(error: WebTransitionError): Response {
@@ -300,14 +302,27 @@ export async function handleWebApi(
       const own = await listReservations(kv, token);
       // Merge reservations shared WITH this user (own ledger only). Own
       // reservations carry no `shared` field; shared ones carry the owner name.
+      // A proposal goes out without the proposer's user id: the screen only
+      // needs the name and whether it is the viewer's own (to offer 取り下げる).
+      const viewerId = user?.id ?? null;
+      const withSuggestion = <T extends WebReservation>(r: T) => ({
+        ...r,
+        suggestion: r.suggestion === null ? null : {
+          action: r.suggestion.action,
+          byName: r.suggestion.byName,
+          at: r.suggestion.at,
+          notifiedAt: r.suggestion.notifiedAt,
+          mine: r.suggestion.byUserId === viewerId,
+        },
+      });
       if (owner !== null) {
         const shared = (await listSharedReservations(kv, owner.id)).map((s) => ({
-          ...s.reservation,
+          ...withSuggestion(s.reservation),
           shared: { ownerDisplayName: s.ownerDisplayName, role: s.role },
         }));
-        return json({ reservations: [...own, ...shared] });
+        return json({ reservations: [...own.map(withSuggestion), ...shared] });
       }
-      return json({ reservations: own });
+      return json({ reservations: own.map(withSuggestion) });
     }
     if (req.method === "POST") {
       const raw = await readJson(req);
@@ -505,6 +520,82 @@ export async function handleWebApi(
     return json(outcome);
   }
 
+  // Proposals (owner 2026-11-13): a member cannot settle a booking someone
+  // shared with them — that stays the owner's — but can propose it.
+  //   POST   /:id/suggest {action}  member (any role) proposes cancel / confirm
+  //   DELETE /:id/suggest           the owner declines, or the proposer withdraws
+  //   POST   /:id/suggest/accept    the owner does what was proposed
+  // A proposal changes nothing by itself; the cron sweep tells the owner.
+  if (action === "suggest") {
+    if (sub === "accept" && req.method === "POST") {
+      const cur = await getReservation(kv, token, id);
+      if (cur === null) return await memberGate(kv, user, id, "owner");
+      if (cur.suggestion === null) {
+        return json({ error: "invalid", message: "提案はありません" }, 400);
+      }
+      if (cur.suggestion.action === "cancel") {
+        const affected = await markLost(kv, token, [id], ids, actor);
+        mutated(id);
+        return json({ reservation: await getReservation(kv, token, id), affected });
+      }
+      let outcome;
+      try {
+        outcome = await confirmReservationWithEffects(kv, token, id, ids, actor, { replace: true });
+      } catch (error) {
+        if (error instanceof WebTransitionError) return transitionRefused(error);
+        throw error;
+      }
+      if (outcome === null) return json({ error: "not found" }, 404);
+      mutated(id);
+      return json({ reservation: outcome.reservation, affected: outcome.affected });
+    }
+    if (sub !== undefined) return json({ error: "not found" }, 404);
+    const own = await getReservation(kv, token, id);
+    if (req.method === "DELETE") {
+      if (own !== null) {
+        const r = await setSuggestion(kv, token, id, null);
+        mutated(id);
+        return json({ reservation: r });
+      }
+      const share = user === null ? null : await findShare(kv, user.id, id);
+      const ownerUser = share === null ? null : await getUser(kv, share.ownerUserId);
+      if (share === null || ownerUser === null) return json({ error: "not found" }, 404);
+      const theirs = await getReservation(kv, ownerUser.ledgerId, id);
+      if (theirs?.suggestion?.byUserId !== user?.id) {
+        return json({ error: "forbidden", reason: "not_yours" }, 403);
+      }
+      await setSuggestion(kv, ownerUser.ledgerId, id, null);
+      mutated(id, ownerUser);
+      return json({ ok: true });
+    }
+    if (req.method === "POST") {
+      if (own !== null) {
+        return json({
+          error: "invalid",
+          message: "自分の予約は、提案せずにそのまま確定・取り消しできます",
+        }, 400);
+      }
+      const parsed = suggestSchema.safeParse(await readJson(req));
+      if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+      const share = user === null ? null : await findShare(kv, user.id, id);
+      const ownerUser = share === null ? null : await getUser(kv, share.ownerUserId);
+      if (share === null || ownerUser === null || user === null) {
+        return json({ error: "not found" }, 404);
+      }
+      const r = await setSuggestion(kv, ownerUser.ledgerId, id, {
+        action: parsed.data.action,
+        byUserId: user.id,
+        byName: displayLabel(user),
+        at: ids.nowIso(),
+        notifiedAt: null,
+      });
+      if (r === null) return json({ error: "not found" }, 404);
+      mutated(id, ownerUser);
+      return json({ ok: true, suggestion: r.suggestion, owner: displayLabel(ownerUser) });
+    }
+    return json({ error: "method not allowed" }, 405);
+  }
+
   // Choose: POST /api/reservations/:id/choose {over} — :id is the one taken,
   // `over` the ones given up for it (two inns on the same night; they need not
   // share a plan, nor an owner). Settling stays with each reservation's owner:
@@ -524,6 +615,8 @@ export async function handleWebApi(
       service: string;
       ownerDisplayName: string;
       need: "confirm" | "cancel";
+      /** True once a proposal was left on it for the owner. */
+      suggested?: boolean;
     }[] = [];
     // Everything named must be visible to the caller before anything is written.
     const mine = new Map<string, WebReservation>();
@@ -561,6 +654,26 @@ export async function handleWebApi(
       chosen = outcome.reservation;
       affected.push(...outcome.affected);
       mutated(id);
+    }
+    // What is only shared with the caller is proposed to its owner instead of
+    // being left as a sentence to relay by hand (owner 2026-11-13).
+    if (user !== null) {
+      for (const n of needsOwner) {
+        const share = await findShare(kv, user.id, n.id);
+        const ownerUser = share === null ? null : await getUser(kv, share.ownerUserId);
+        if (ownerUser === null) continue;
+        const done = await setSuggestion(kv, ownerUser.ledgerId, n.id, {
+          action: n.need,
+          byUserId: user.id,
+          byName: displayLabel(user),
+          at: ids.nowIso(),
+          notifiedAt: null,
+        });
+        if (done !== null) {
+          n.suggested = true;
+          mutated(n.id, ownerUser);
+        }
+      }
     }
     const lost = await markLost(
       kv,

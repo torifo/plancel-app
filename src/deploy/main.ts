@@ -69,7 +69,11 @@ import type { AuthIds } from "../web/users.ts";
 import { findUserByEmail } from "../web/users.ts";
 import { handleCalendarFeed, isCalendarFeedPath } from "../web/calendar/ics.ts";
 import { requestSync, sweepDirtySync, type SyncDeps } from "../web/calendar/sync.ts";
-import { EMAIL_DAILY_CAP_DEFAULT, sweepDeadlineNotifications } from "../web/notify.ts";
+import {
+  EMAIL_DAILY_CAP_DEFAULT,
+  sweepDeadlineNotifications,
+  sweepSuggestionNotifications,
+} from "../web/notify.ts";
 import {
   type EmailIntakeDeps,
   handleEmailWebhook,
@@ -377,6 +381,21 @@ if (import.meta.main) {
             ...(webNotifyLine !== null ? { line: webNotifyLine } : {}),
           });
           if (notified > 0) log.info("web deadline notifications sent", { notified });
+        },
+      },
+      {
+        name: "web proposal sweep",
+        run: async () => {
+          const told = await sweepSuggestionNotifications({
+            kv: store.kv,
+            nowMs: clock.now().epochMilliseconds,
+            baseUrl: webNotifyBaseUrl,
+            send: webNotifySend,
+            emailDailyCap,
+            allowedEmails,
+            ...(webNotifyLine !== null ? { line: webNotifyLine } : {}),
+          });
+          if (told > 0) log.info("web proposal notifications sent", { told });
         },
       },
       // Once a day, ask each provider whether it is still there. A retired

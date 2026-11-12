@@ -41,6 +41,8 @@ export interface ApiReservation {
   from?: string | null;
   to?: string | null;
   bookedBy?: string | null;
+  rank?: number | null;
+  suggestion?: { action: "cancel" | "confirm"; byName: string; at: string } | null;
   policy: WebPolicy;
   status: WebStatus;
   shared?: { ownerDisplayName: string; role: string };
@@ -73,6 +75,10 @@ export interface ModelReservation {
   to: string | null;
   /** Who made the booking — the person to ask about it. */
   bookedBy: string | null;
+  /** Place in the family's order of preference among alternatives (1 = most wanted), or null. */
+  rank: number | null;
+  /** A member's open proposal to the owner (cancel / confirm), or null. */
+  suggestion: { action: "cancel" | "confirm"; by: string; at: string } | null;
   /** What is still unsettled about this reservation, in words to relay. Empty when nothing is. */
   needsCheck: string[];
   policy: WebPolicy;
@@ -201,6 +207,14 @@ function needsCheck(r: ApiReservation, booked: boolean): string[] {
   if (r.amount === null) out.push("金額が未入力");
   if (r.kind === "stay" && r.endsAt == null) out.push("終了日（チェックアウト日）が未入力");
   if (r.kind === "parking" && r.endsAt == null) out.push("出庫日が未入力");
+  if (r.suggestion) {
+    const what = r.suggestion.action === "cancel" ? "取り消し" : "確定";
+    out.push(
+      r.shared
+        ? `${what}を持ち主に提案中（${r.suggestion.byName}）`
+        : `${r.suggestion.byName} さんから${what}の提案がある`,
+    );
+  }
   return out;
 }
 
@@ -306,6 +320,8 @@ export interface OverlapSummary {
     id: string;
     service: string;
     status: WebStatus;
+    /** Place in the order of preference (1 = most wanted), or null. */
+    rank: number | null;
     amount: number | null;
     freeUntil: string | null;
     /** Whose it is when it is only shared with this user; null for their own. */
@@ -317,7 +333,12 @@ export interface OverlapSummary {
 export function summarizeOverlaps(rows: ApiReservation[], nowMs: number): OverlapSummary[] {
   const live = rows.filter((r) => !isFinished(r, nowMs));
   return findOverlaps(live).map((g) => {
-    const members = g.ids.map((id) => live.find((r) => r.id === id)!);
+    // In the family's order of preference when one is set (rank 1 first), else by time.
+    const rk = (r: ApiReservation) => r.rank ?? 1000;
+    const members = g.ids.map((id) => live.find((r) => r.id === id)!)
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => rk(a.r) - rk(b.r) || a.i - b.i)
+      .map((x) => x.r);
     const deadlines = members
       .map((r) => r.booked === false ? null : freeDeadlineMs(r.policy, r.startsAt))
       .filter((d): d is number => d !== null && d > nowMs);
@@ -332,6 +353,7 @@ export function summarizeOverlaps(rows: ApiReservation[], nowMs: number): Overla
           id: r.id,
           service: r.service,
           status: r.status,
+          rank: r.rank ?? null,
           amount: r.amount,
           freeUntil: d === null ? null : jstOfMs(d),
           owner: r.shared?.ownerDisplayName ?? null,
@@ -366,6 +388,10 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     from: r.from ?? null,
     to: r.to ?? null,
     bookedBy: r.bookedBy ?? null,
+    rank: r.rank ?? null,
+    suggestion: r.suggestion
+      ? { action: r.suggestion.action, by: r.suggestion.byName, at: jst(r.suggestion.at) }
+      : null,
     needsCheck: needsCheck(r, booked),
     policy: r.policy,
     policyText: describePolicy(r.policy),

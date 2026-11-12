@@ -33,6 +33,8 @@ function row(over: Partial<WebReservation> = {}): WebReservation {
     from: null,
     to: null,
     bookedBy: null,
+    rank: null,
+    suggestion: null,
     policy: "staged",
     status: "candidate",
     created_at: "2026-10-01T00:00:00.000Z",
@@ -417,6 +419,7 @@ Deno.test("view: the list lines up different stays held for the same night, with
         id: "HERS",
         service: "ホテル白菊",
         status: "candidate",
+        rank: null,
         amount: 75768,
         freeUntil: "2026-12-11T23:59:59+09:00",
         owner: "母",
@@ -425,6 +428,7 @@ Deno.test("view: the list lines up different stays held for the same night, with
         id: "MINE",
         service: "おにやまホテル",
         status: "confirmed",
+        rank: null,
         amount: 65472,
         freeUntil: "2026-12-15T23:59:59+09:00",
         owner: null,
@@ -485,4 +489,29 @@ Deno.test("view: parking with no exit day says so in needsCheck", () => {
   const by = Object.fromEntries(out.reservations.map((r) => [r.id, r]));
   assertEquals(by.P!.needsCheck.includes("出庫日が未入力"), true);
   assertEquals(by.Q!.needsCheck.includes("出庫日が未入力"), false);
+});
+
+Deno.test("view: the order of preference and an open proposal go out with the row", () => {
+  const owner = presentReservation(
+    row({
+      rank: 1,
+      suggestion: {
+        action: "cancel",
+        byUserId: "U2",
+        byName: "@toriforiumu",
+        at: "2026-11-13T01:00:00.000Z",
+        notifiedAt: null,
+      },
+    }),
+    NOW,
+  );
+  assertEquals(owner.rank, 1);
+  assertEquals(owner.suggestion, {
+    action: "cancel",
+    by: "@toriforiumu",
+    at: "2026-11-13T10:00:00+09:00",
+  });
+  assertEquals(owner.needsCheck.includes("@toriforiumu さんから取り消しの提案がある"), true);
+  const plain = presentReservation(row(), NOW);
+  assertEquals([plain.rank, plain.suggestion], [null, null]);
 });

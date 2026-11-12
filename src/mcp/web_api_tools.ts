@@ -181,6 +181,10 @@ const patchInput = z.object({
   amount: z.number().int().min(0).nullable().optional().describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().optional().describe("場所（店名・住所。null で消す）"),
   policy: webPolicyInputSchema.optional().describe(POLICY_DESC),
+  rank: z.number().int().min(1).max(99).nullable().optional().describe(
+    "希望順（1 が第1希望）。どれか1つにする組（一覧の overlaps や同じプランの候補）の中で、家族が" +
+      "どれを一番取りたいか。共有している人にも同じ順で見える。null で外す",
+  ),
 });
 
 const ROLE_DESC =
@@ -482,7 +486,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "update_reservation",
     {
       description:
-        "予約の内容（店名・日時・時刻が仮かどうか・金額・場所・プラン・旅行名・規定・メモ）を編集する。" +
+        "予約の内容（店名・日時・時刻が仮かどうか・金額・場所・プラン・旅行名・規定・メモ・希望順）を編集する。" +
         "渡した項目だけが変わる。確定済みの予約の変更は家族のカレンダーにも反映される",
       inputSchema: patchInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
@@ -678,8 +682,9 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
         "決める。id の予約を確定し、overIds の予約を" +
         "「要キャンセル」（まだ予約していない案は見送り）にする。外す方が確定済みでもそのまま呼べる（replace の" +
         "指定は要らない）。変えられるのは自分の予約だけで、共有されている" +
-        "他の人の予約は変わらず、応答の needsOwner に「誰に確定／取り消しを頼むか」が出る（need が confirm なら確定、" +
-        "cancel なら取り消し）。要キャンセルになった予約の取り消しの連絡はユーザー自身が行い、無料で取り消せる期限は一覧の" +
+        "他の人の予約は変わらず、持ち主への提案になる（応答の needsOwner に、誰の予約に何を提案したかが出る。need が" +
+        " confirm なら確定、cancel なら取り消しの提案で、suggested: true なら持ち主に知らせが届く）。" +
+        "要キャンセルになった予約の取り消しの連絡はユーザー自身が行い、無料で取り消せる期限は一覧の" +
         "その予約の freeUntil。affected と needsOwner を" +
         "必ずユーザーに伝える。どちらにするかはユーザーが決めることなので、聞かずに呼ばない",
       inputSchema: chooseInput.passthrough(),
@@ -690,6 +695,31 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       return callApi(cfg, "POST", `/api/reservations/${parsed.data.id}/choose`, {
         over: parsed.data.overIds,
       });
+    },
+  );
+  const suggestInput = z.object({
+    id: z.string().min(1).describe("共有されている予約のID（一覧で shared が付いているもの）"),
+    action: z.enum(["cancel", "confirm", "withdraw"]).describe(
+      '"cancel"＝取り消しを提案、"confirm"＝確定を提案、"withdraw"＝自分の提案を取り下げる',
+    ),
+  });
+  server.registerTool(
+    "suggest_to_owner",
+    {
+      description:
+        "共有されている（他の人が持ち主の）予約に、取り消しか確定を提案する。確定・取り消しは持ち主だけができるので、" +
+        "提案は持ち主の台帳に印として残り、持ち主に LINE（未連携ならメール）で届く。予約そのものは変わらない。" +
+        "自分の予約には使わない（そのまま confirm_reservation / cancel_reservation などで変えられる）。" +
+        "どちらを提案するかはユーザーが決めることなので、聞かずに呼ばない",
+      inputSchema: suggestInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = suggestInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      const path = `/api/reservations/${parsed.data.id}/suggest`;
+      return parsed.data.action === "withdraw"
+        ? callApi(cfg, "DELETE", path)
+        : callApi(cfg, "POST", path, { action: parsed.data.action });
     },
   );
   server.registerTool("open_in_browser", {

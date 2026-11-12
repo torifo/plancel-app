@@ -335,7 +335,7 @@ Claude Desktop / Claude Code から本番の台帳を直接操作できる。
     台帳が返る。トークンは `$XDG_CONFIG_HOME/plancel/credentials.json`（無ければ `~/.config/plancel/`、
     `PLANCEL_CREDENTIALS` で上書き可）に **0600** で置かれ、API の URL ごとに分かれる。
     env の `PLANCEL_API_TOKEN` はファイルより優先（明示 ＞ 暗黙）。
-- **ツール**: 予約 9（まとめる `merge_reservations`、重なる宿から選ぶ `choose_reservation` を含む）＋ 施設の既定規定 4 ＋ 共有 4 ＋ 画面を見る 1
+- **ツール**: 予約 10（まとめる `merge_reservations`、重なる宿から選ぶ `choose_reservation`、共有された予約の持ち主に提案する `suggest_to_owner` を含む）＋ 施設の既定規定 4 ＋ 共有 4 ＋ 画面を見る 1
   （`open_in_browser`）＋ **承認 3**（`pair_with_plancel` / `pairing_status` /
   `unpair_plancel`＝ローカルの資格情報を消すだけ。サーバ側の失効はマイページ）。承認 3 は未連携でも常に
   登録されている（クライアントのツール一覧キャッシュを揺らさないため）。API が 401 を返したら資格情報を

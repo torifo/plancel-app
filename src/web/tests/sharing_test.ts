@@ -717,3 +717,129 @@ Deno.test("choose: what is only shared with me stays its owner's to settle, and 
     );
   });
 });
+
+Deno.test("rank: the order of preference is set by the owner or an editor, and everyone sees it", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const mom = await getOrCreateUserByEmail(kv, "mom@x.jp", ids);
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const hers = (await (await asUser(kv, ids, mom, "POST", BASE, {
+      service: "ホテル白菊",
+      startsAt: "2026-12-19T15:00:00+09:00",
+    })).json()).reservation;
+    assertEquals(hers.rank, null);
+    await asUser(kv, ids, mom, "POST", `${BASE}/${hers.id}/members`, { q: "me@x.jp" });
+    // A viewer cannot reorder what is not theirs.
+    assertEquals(
+      (await asUser(kv, ids, me, "PATCH", `${BASE}/${hers.id}`, { rank: 2 })).status,
+      403,
+    );
+    await asUser(kv, ids, mom, "PATCH", `${BASE}/${hers.id}/members/${me.id}`, { role: "editor" });
+    assertEquals(
+      (await asUser(kv, ids, me, "PATCH", `${BASE}/${hers.id}`, { rank: 2 })).status,
+      200,
+    );
+    // Stored on the owner's record, so she sees the order the family set.
+    assertEquals((await listReservations(kv, mom.ledgerId))[0]?.rank, 2);
+    assertEquals(
+      (await asUser(kv, ids, mom, "PATCH", `${BASE}/${hers.id}`, { rank: 0 })).status,
+      400,
+    );
+    await asUser(kv, ids, mom, "PATCH", `${BASE}/${hers.id}`, { rank: null });
+    assertEquals((await listReservations(kv, mom.ledgerId))[0]?.rank, null);
+  });
+});
+
+Deno.test("suggest: a member proposes, the owner accepts or declines, and settling stays hers", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const mom = await getOrCreateUserByEmail(kv, "mom@x.jp", ids);
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const stranger = await getOrCreateUserByEmail(kv, "other@x.jp", ids);
+    const mk = async (service: string) =>
+      (await (await asUser(kv, ids, mom, "POST", BASE, {
+        service,
+        startsAt: "2026-12-19T15:00:00+09:00",
+      })).json()).reservation;
+    const hers = await mk("ホテル白菊");
+    const other = await mk("別の宿");
+    for (const r of [hers, other]) {
+      await asUser(kv, ids, mom, "POST", `${BASE}/${r.id}/members`, { q: "me@x.jp" });
+    }
+    const S = (r: { id: string }) => `${BASE}/${r.id}/suggest`;
+
+    // Not shared with the stranger; the owner herself has nothing to propose.
+    assertEquals(
+      (await asUser(kv, ids, stranger, "POST", S(hers), { action: "cancel" })).status,
+      404,
+    );
+    assertEquals((await asUser(kv, ids, mom, "POST", S(hers), { action: "cancel" })).status, 400);
+    assertEquals((await asUser(kv, ids, me, "POST", S(hers), { action: "maybe" })).status, 400);
+
+    // Even a viewer may propose; nothing is settled by it.
+    const res = await asUser(kv, ids, me, "POST", S(hers), { action: "cancel" });
+    assertEquals(res.status, 200);
+    let row = (await listReservations(kv, mom.ledgerId)).find((r) => r.id === hers.id)!;
+    assertEquals([row.status, row.suggestion?.action, row.suggestion?.notifiedAt], [
+      "candidate",
+      "cancel",
+      null,
+    ]);
+    // The member's list shows it on the shared row too.
+    const mine = (await (await asUser(kv, ids, me, "GET", BASE)).json()).reservations;
+    assertEquals(mine.find((r: { id: string }) => r.id === hers.id).suggestion.action, "cancel");
+
+    // Only the owner accepts; accepting a cancel turns it to_cancel and clears the proposal.
+    assertEquals((await asUser(kv, ids, me, "POST", `${S(hers)}/accept`)).status, 403);
+    assertEquals((await asUser(kv, ids, mom, "POST", `${S(hers)}/accept`)).status, 200);
+    row = (await listReservations(kv, mom.ledgerId)).find((r) => r.id === hers.id)!;
+    assertEquals([row.status, row.suggestion], ["to_cancel", null]);
+
+    // A confirm proposal, declined by the owner.
+    await asUser(kv, ids, me, "POST", S(other), { action: "confirm" });
+    assertEquals((await asUser(kv, ids, mom, "DELETE", S(other))).status, 200);
+    row = (await listReservations(kv, mom.ledgerId)).find((r) => r.id === other.id)!;
+    assertEquals([row.status, row.suggestion], ["candidate", null]);
+
+    // The proposer may withdraw their own; a later status change also clears one.
+    await asUser(kv, ids, me, "POST", S(other), { action: "confirm" });
+    assertEquals((await asUser(kv, ids, me, "DELETE", S(other))).status, 200);
+    await asUser(kv, ids, me, "POST", S(other), { action: "confirm" });
+    await asUser(kv, ids, mom, "POST", `${BASE}/${other.id}/confirm`);
+    row = (await listReservations(kv, mom.ledgerId)).find((r) => r.id === other.id)!;
+    assertEquals([row.status, row.suggestion], ["confirmed", null]);
+  });
+});
+
+Deno.test("choose: what is only shared with me is proposed to its owner", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const mom = await getOrCreateUserByEmail(kv, "mom@x.jp", ids);
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const hers = (await (await asUser(kv, ids, mom, "POST", BASE, {
+      service: "ホテル白菊",
+      startsAt: "2026-12-19T15:00:00+09:00",
+      endsAt: "2026-12-20",
+    })).json()).reservation;
+    const mine = (await (await asUser(kv, ids, me, "POST", BASE, {
+      service: "おにやまホテル",
+      startsAt: "2026-12-19T15:30:00+09:00",
+      endsAt: "2026-12-20",
+      confirmed: true,
+    })).json()).reservation;
+    await asUser(kv, ids, mom, "POST", `${BASE}/${hers.id}/members`, { q: "me@x.jp" });
+    const out = await (await asUser(kv, ids, me, "POST", `${BASE}/${mine.id}/choose`, {
+      over: [hers.id],
+    })).json();
+    assertEquals(
+      out.needsOwner.map((n: { id: string; need: string; suggested?: boolean }) => [
+        n.id,
+        n.need,
+        n.suggested,
+      ]),
+      [[hers.id, "cancel", true]],
+    );
+    const row = (await listReservations(kv, mom.ledgerId))[0]!;
+    assertEquals([row.status, row.suggestion?.action], ["candidate", "cancel"]);
+  });
+});
