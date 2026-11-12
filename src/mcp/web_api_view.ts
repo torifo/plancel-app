@@ -257,6 +257,33 @@ export function summarizeTrips(rows: ApiReservation[]): TripSummary[] {
   });
 }
 
+export interface PossibleDuplicate {
+  service: string;
+  /** The JST day they share. */
+  day: string;
+  ids: string[];
+  /** Owners of the ones that are shared with the user (empty when all are the user's own). */
+  sharedBy: string[];
+}
+
+/** Groups of live rows at the same place on the same JST day. */
+export function findPossibleDuplicates(rows: ApiReservation[]): PossibleDuplicate[] {
+  const groups = new Map<string, ApiReservation[]>();
+  for (const r of rows) {
+    if (r.status === "cancelled") continue;
+    const ms = toInstantOrNull(r.startsAt)?.epochMilliseconds;
+    if (ms === undefined) continue;
+    const k = `${foldName(r.service)}|${jstOfMs(ms).slice(0, 10)}`;
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  return [...groups.entries()].filter(([, rs]) => rs.length > 1).map(([k, rs]) => ({
+    service: rs[0]!.service,
+    day: k.split("|")[1]!,
+    ids: rs.map((r) => r.id),
+    sharedBy: [...new Set(rs.flatMap((r) => r.shared ? [r.shared.ownerDisplayName] : []))],
+  }));
+}
+
 export function presentReservation(r: ApiReservation, nowMs: number): ModelReservation {
   const booked = r.booked !== false;
   // Nothing is held, so nothing can be lost by cancelling: no deadline, no fee.
@@ -331,6 +358,13 @@ export interface ModelList {
   policyUnknown: number;
   /** One line per trip among the shown rows: dates, count, money. Absent when none has a trip. */
   trips?: TripSummary[];
+  /**
+   * Entries that may be the same booking made twice — same place (spacing
+   * aside) on the same day — among the shown rows, the user's own and those
+   * shared with them alike. Never an error: a family books two rooms on
+   * purpose. Absent when there is none.
+   */
+  possibleDuplicates?: PossibleDuplicate[];
   reservations: ModelReservation[];
 }
 
@@ -404,6 +438,7 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
   );
   const limited = out.slice(0, f.limit);
   const trips = summarizeTrips(shownRows);
+  const duplicates = findPossibleDuplicates(shownRows);
   return {
     total: rows.length,
     count: limited.length,
@@ -412,6 +447,7 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
     policyUnknown:
       limited.filter((v) => v.policy === "unknown" && v.status !== "cancelled" && v.booked).length,
     ...(trips.length > 0 ? { trips } : {}),
+    ...(duplicates.length > 0 ? { possibleDuplicates: duplicates } : {}),
     reservations: limited,
   };
 }

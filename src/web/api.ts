@@ -56,6 +56,7 @@ import {
   findConfirmedInPlan,
   getReservation,
   listReservations,
+  mergeReservations,
   patchReservation,
   restoreReservation,
   webCreateSchema,
@@ -135,6 +136,7 @@ function isBareDate(body: unknown, field: string): boolean {
 }
 
 const confirmOptsSchema = z.object({ replace: z.boolean().default(false) });
+const mergeSchema = z.object({ from: z.string().min(1) });
 
 /** 409 for a refused transition: the stable message, plus the next step. */
 function transitionRefused(error: WebTransitionError): Response {
@@ -452,6 +454,54 @@ export async function handleWebApi(
     }
     return await memberGate(kv, user, id, "owner");
   }
+  // Merge: POST /api/reservations/:id/merge {from} — :id is kept, `from` is
+  // folded into it and removed. `from` must be the caller's own (you may only
+  // delete what is yours); :id may be the caller's own, or one shared with the
+  // caller as an editor.
+  if (action === "merge" && req.method === "POST") {
+    const parsed = mergeSchema.safeParse(await readJson(req));
+    if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+    const from = parsed.data.from;
+    if (from === id) {
+      return json({ error: "invalid", message: "同じ予約どうしはまとめられません" }, 400);
+    }
+    if ((await getReservation(kv, token, from)) === null) return json({ error: "not found" }, 404);
+    let targetLedger = token;
+    let ledgerOwner: WebUser | undefined;
+    if ((await getReservation(kv, token, id)) === null) {
+      const grant = await memberGate(kv, user, id, "edit");
+      if (grant instanceof Response) return grant;
+      targetLedger = grant.ledger;
+      ledgerOwner = grant.ownerUser;
+    }
+    // Who the removed one was shared with, read before it is gone.
+    const carried = owner !== null ? await listMembers(kv, owner.id, from) : [];
+    const outcome = await mergeReservations(
+      kv,
+      { ledger: targetLedger, id },
+      { ledger: token, id: from },
+      ids,
+      actor,
+    );
+    if (outcome === null) return json({ error: "not found" }, 404);
+    if (owner !== null) {
+      // Within my own ledger the people it was shared with keep seeing the
+      // booking — on the one that remains. Into someone else's, sharing is
+      // theirs to decide.
+      if (targetLedger === token) {
+        for (const m of carried) {
+          if (!(await isMember(kv, owner.id, id, m.userId))) {
+            await addMember(kv, owner.id, id, m.userId, ids, m.role);
+          }
+        }
+      }
+      await cleanupReservationShares(kv, owner.id, from);
+    }
+    mutated(from);
+    mutated(id, ledgerOwner);
+    return json(outcome);
+  }
+
   if (action === "restore" && req.method === "POST") {
     const r = await restoreReservation(kv, token, id, ids, actor);
     if (r) {

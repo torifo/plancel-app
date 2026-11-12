@@ -357,6 +357,8 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       "（null は期限が無いということ: 規定不明で見張れない＝その件数が policyUnknown、または「いつでも無料」「最初から有料」。policyText で見分ける）、nextCharge.from が料金のかかり始める時刻、" +
       "feeNow がいまキャンセルした場合の料率と金額。feeSchedule は料率表を日付にしたもの（until までは pct%＝yen 円）で、" +
       "ユーザーに料金を説明するときは policyText の言い回しでなく feeSchedule の日付を使う。" +
+      "possibleDuplicates は同じ店・同じ日の予約の組（自分のものと共有されたものを含む。同じ予約の二重登録かも" +
+      "しれないので、ユーザーに確かめる。まとめるなら merge_reservations）。" +
       "needsCheck は各予約でまだ決まっていない・確かめていないこと（要キャンセルの予約には「取り消しの連絡が要る」が出る）、trips は旅行ごとの日程と費用" +
       "（confirmedYen＝確定の合計、expectedYen＝未確定を含む見込みの最大）",
     inputSchema: listFilterSchema.passthrough(),
@@ -411,7 +413,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
           shown.hint,
           note +
           "今回の分も登録しました。意図した別の予約ならそのままでよく、同じ予約の入れ直しなら、" +
-          "ユーザーに確かめてから片方を delete_reservation で消してください（similar が既存の方）。",
+          "ユーザーに確かめてから merge_reservations で1件にまとめてください（similar が既存の方）。",
         ].filter((h) => typeof h === "string").join(" "),
       }));
     },
@@ -631,6 +633,31 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     const state = await cfg.pairing.start(args.force === true);
     return textResult(pairingInstructions(state), state.kind !== "paired");
   });
+  const mergeInput = z.object({
+    keepId: z.string().min(1).describe(
+      "残す予約のID。自分の予約か、自分に共有されていて編集を許可されている予約",
+    ),
+    removeId: z.string().min(1).describe("まとめて消す予約のID。自分の予約に限る"),
+  });
+  server.registerTool(
+    "merge_reservations",
+    {
+      description:
+        "同じ予約を別々に登録してしまった2件を1件にまとめる（家族がそれぞれ入れた場合など。一覧の " +
+        "possibleDuplicates や、登録時の similar で見つかる）。keepId の予約を残し、そこに無い情報" +
+        "（金額・規定・終了日・場所・メモ・予約した人など）を removeId から写してから、removeId を削除する。" +
+        "残す側の店名・状態（確定など）は変わらない。削除は取り消せないので、同じ予約かどうかと、どちらを" +
+        "残すかを必ずユーザーに確かめてから呼ぶ。同じ宿を2部屋取っているなど、別の予約ならまとめない",
+      inputSchema: mergeInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = mergeInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      return callApi(cfg, "POST", `/api/reservations/${parsed.data.keepId}/merge`, {
+        from: parsed.data.removeId,
+      });
+    },
+  );
   server.registerTool("open_in_browser", {
     description:
       "この台帳の画面をブラウザで見るための、1回だけ使えるリンクを出す（60秒以内に開く）。開くとログイン無しで" +

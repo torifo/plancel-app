@@ -2215,6 +2215,22 @@
         grid-row: 2;
       }
     }
+    .dup-note {
+      display: flex;
+      align-items: center;
+      gap: 8px 12px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+      padding: 8px 10px;
+      border: 1px dashed var(--lamp);
+      border-radius: 10px;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+      line-height: 1.6;
+    }
+    .dup-note span {
+      flex: 1 1 180px;
+    }
     .resv .note {
       font-size: calc(12.5px * var(--fs));
       color: var(--ink-2);
@@ -3512,6 +3528,42 @@
     // まだ予約していない案（r.booked === false）には、取り消すものが無い。期限も
     // 最大キャンセル料も数えない（2026-11-12）。
     const unbooked = (r) => r.booked === false;
+    // 同じ予約かもしれない組: 同じ名前（空白・全角半角・大小は同一視）で同じ日。自分の
+    // ものと共有されたものをまたいで探す。知らせるだけで、登録や確定は止めない
+    // （オーナー 2026-11-12）。render() が毎回作り直し、rowHtml が読む。
+    const foldName = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+    let lookAlikes = {};
+    const lookKey = (r) => {
+      const ms = startMs(r);
+      if (Number.isNaN(ms)) return null;
+      const d = new Date(ms);
+      return `${foldName(r.service)}|${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    };
+    function buildLookAlikes(rows) {
+      lookAlikes = {};
+      for (const r of rows) {
+        const k = lookKey(r);
+        if (k) (lookAlikes[k] = lookAlikes[k] || []).push(r);
+      }
+    }
+    function lookAlikeHtml(r) {
+      const k = lookKey(r);
+      const others = ((k && lookAlikes[k]) || []).filter((x) => x.id !== r.id);
+      if (others.length === 0) return "";
+      const owners = [...new Set(others.filter((x) => x.shared).map((x) => x.shared.ownerDisplayName))];
+      const who = owners.length ? `（共有: ${owners.map(esc).join("・")}）` : "";
+      // こちらを残してまとめられるのは、消す側が自分の予約で、残す側を自分が書き換え
+      // られるとき（自分の予約か、編集を許可された共有）。
+      const mine = others.find((x) => !x.shared);
+      const canKeep = !r.shared || r.shared.role === "editor";
+      const btn = mine && canKeep && !viewingDemo
+        ? `<button class="rowbtn" data-merge-keep="${r.id}" data-merge-from="${mine.id}">こちらにまとめる</button>`
+        : "";
+      const why = !btn && mine && r.shared
+        ? "まとめるには、共有した人に「編集を許可」してもらってください。"
+        : "";
+      return `<div class="dup-note"><span>同じ日に同じ名前の予約がもう${others.length}件あります${who}。同じ予約なら1件にまとめられます。${why}</span>${btn}</div>`;
+    }
     // 予約の種類。宿に限らず、飛行機・特急・バス・車も同じ台帳で扱う（2026-11-12）。
     const KIND_LABEL2 = {
       stay: "宿",
@@ -3664,6 +3716,7 @@
         q("#sc-import").onclick = openImport;
         return;
       }
+      buildLookAlikes(active);
       const groups = {};
       active.forEach((r) => {
         const k = r.plan || ("__" + r.id);
@@ -3822,6 +3875,21 @@
       );
       document.querySelectorAll("[data-confirm]").forEach((b) =>
         b.onclick = () => askConfirm(b.dataset.confirm)
+      );
+      document.querySelectorAll("[data-merge-keep]").forEach((b) =>
+        b.onclick = () => {
+          const keep = data.find((r) => r.id === b.dataset.mergeKeep);
+          if (!keep) return;
+          const ok = confirm(
+            `「${keep.service}」（${fmtDate(startMs(keep))}）を残して、もう1件をこちらにまとめます。\n\n` +
+              "こちらに無い情報（金額・キャンセル規定・終了日・メモなど）をもう1件から写したあと、" +
+              "もう1件を削除します。削除は取り消せません。\n\n" +
+              "別々の予約（同じ宿の2部屋など）なら、まとめないでください。",
+          );
+          if (ok) {
+            act("POST", `/api/reservations/${keep.id}/merge`, { from: b.dataset.mergeFrom });
+          }
+        }
       );
       document.querySelectorAll("[data-booked]").forEach((b) =>
         b.onclick = () => act("PATCH", `/api/reservations/${b.dataset.booked}`, { booked: true })
@@ -4233,7 +4301,7 @@
       return `<div class="resv${off}">
         <div><div class="name">${kindTag(r)}<b>${esc(r.service)}</b>${
         unbooked(r) ? `<span class="tent">未予約</span>` : ""
-      }${cut}</div><div class="sub">${sub}</div>${locLink}${tools}</div>
+      }${cut}</div><div class="sub">${sub}</div>${locLink}${tools}${lookAlikeHtml(r)}</div>
         <div>${track}${cap}</div>
         <div class="ract">${mainBtn}</div></div>`;
     }

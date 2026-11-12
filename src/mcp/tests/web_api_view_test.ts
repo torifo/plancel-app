@@ -356,3 +356,32 @@ Deno.test("view: a reservation waiting to be cancelled says so in needsCheck", (
   const noPolicy = presentReservation(row({ status: "to_cancel", policy: "unknown" }), NOW);
   assertEquals(noPolicy.needsCheck, ["取り消しの連絡が要る", "キャンセル規定が不明"]);
 });
+
+Deno.test("view: the list points out entries that may be the same booking, mine or shared", () => {
+  const shared = row({ id: "HERS", service: "白 菊", startsAt: "2026-12-19T06:00:00.000Z" }) as
+    & WebReservation
+    & { shared: { ownerDisplayName: string; role: string } };
+  shared.shared = { ownerDisplayName: "母", role: "editor" };
+  const rows = [
+    row({ id: "MINE", service: "白菊", startsAt: "2026-12-18T15:00:00.000Z", timeTentative: true }),
+    shared,
+    row({ id: "OTHER", service: "別の宿", startsAt: "2026-12-19T06:00:00.000Z" }),
+    row({ id: "GONE", service: "白菊", startsAt: "2026-12-19T06:00:00.000Z", status: "cancelled" }),
+  ];
+  const out = presentList(
+    rows,
+    listFilterSchema.parse({ status: ["candidate", "confirmed", "to_cancel", "cancelled"] }),
+    NOW,
+  );
+  assertEquals(out.possibleDuplicates, [{
+    service: "白菊",
+    day: "2026-12-19",
+    ids: ["MINE", "HERS"],
+    sharedBy: ["母"],
+  }]);
+  // Nothing alike → the key is absent.
+  assertEquals(
+    presentList([rows[0]!, rows[2]!], listFilterSchema.parse({}), NOW).possibleDuplicates,
+    undefined,
+  );
+});

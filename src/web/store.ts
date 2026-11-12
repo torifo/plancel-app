@@ -618,6 +618,86 @@ export async function cancelReservation(
   return next;
 }
 
+export interface MergeOutcome {
+  reservation: WebReservation;
+  /** Fields the kept reservation took from the removed one. */
+  filled: string[];
+  removedId: string;
+}
+
+/**
+ * Folds `source` into `target`: two entries of the same booking, made
+ * separately (owner 2026-11-12: 「お互いに別々で作った時統合する機能」 — the
+ * mother had already added the inn on her own). The target keeps every value
+ * it has; what it lacks is taken from the source; then the source is deleted.
+ * The two may live in different ledgers — the caller decides which is which
+ * and has already checked that it may write the target and owns the source.
+ *
+ * What "lacks" means, field by field: a null is filled; an unknown policy takes
+ * the known one; notes are joined (a note is never dropped); the booking exists
+ * if either said so; and a start whose time was not known yet takes the other's
+ * real time. The target's name, plan and status are its own — merging does not
+ * confirm or cancel anything.
+ */
+export async function mergeReservations(
+  kv: Deno.Kv,
+  target: { ledger: string; id: string },
+  source: { ledger: string; id: string },
+  ids: WebIds,
+  actor: WebActor = null,
+): Promise<MergeOutcome | null> {
+  const tEntry = await kv.get<WebReservation>(key(target.ledger, target.id));
+  const sEntry = await kv.get<WebReservation>(key(source.ledger, source.id));
+  const t = webReservationSchema.safeParse(tEntry.value);
+  const s = webReservationSchema.safeParse(sEntry.value);
+  if (!t.success || !s.success) return null;
+  const a = t.data, b = s.data;
+  const filled: string[] = [];
+  const take = <K extends keyof WebReservation>(k: K): WebReservation[K] => {
+    if (a[k] === null && b[k] !== null) {
+      filled.push(k);
+      return b[k];
+    }
+    return a[k];
+  };
+  const next: WebReservation = {
+    ...a,
+    endsAt: take("endsAt"),
+    amount: take("amount"),
+    location: take("location"),
+    trip: take("trip"),
+    kind: take("kind"),
+    from: take("from"),
+    to: take("to"),
+    bookedBy: take("bookedBy"),
+    updated_at: ids.nowIso(),
+    updated_by: actor,
+  };
+  if (a.policy === "unknown" && b.policy !== "unknown") {
+    next.policy = b.policy;
+    filled.push("policy");
+  }
+  if (b.notes !== null && !(a.notes ?? "").includes(b.notes)) {
+    next.notes = (a.notes === null ? b.notes : `${a.notes}\n${b.notes}`).slice(0, 2000);
+    filled.push("notes");
+  }
+  if (!a.booked && b.booked) {
+    next.booked = true;
+    filled.push("booked");
+  }
+  if (a.timeTentative && !b.timeTentative) {
+    next.startsAt = b.startsAt;
+    next.timeTentative = false;
+    filled.push("startsAt");
+  }
+  const done = await kv.atomic().check(tEntry).check(sEntry)
+    .set(key(target.ledger, target.id), next)
+    .delete(key(source.ledger, source.id))
+    .commit();
+  if (!done.ok) return null;
+  return { reservation: next, filled, removedId: b.id };
+}
+
 /** Physical delete (the web store is not the append-only event log). */
 export async function deleteReservation(
   kv: Deno.Kv,

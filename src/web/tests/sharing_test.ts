@@ -493,3 +493,114 @@ Deno.test("退会 integration: share mirrors are cleaned on both sides", async (
     assertEquals(await listSharedIn(kv, member2.id), []);
   });
 });
+
+// ---- merging two entries of the same booking (owner 2026-11-12) ----
+
+Deno.test("merge: two of my own entries become one, keeping what either knew", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const friend = await getOrCreateUserByEmail(kv, "f@x.jp", ids);
+    const mk = async (body: Record<string, unknown>) =>
+      (await (await asUser(kv, ids, me, "POST", BASE, body)).json()).reservation;
+    const keep = await mk({
+      service: "白菊",
+      startsAt: "2026-12-19",
+      notes: "夕朝食付き",
+      booked: false,
+    });
+    const other = await mk({
+      service: "ホテル白菊",
+      startsAt: "2026-12-19T15:00:00+09:00",
+      endsAt: "2026-12-20",
+      amount: 48000,
+      policy: "free24",
+      notes: "予約番号 TEST-1",
+      bookedBy: "母",
+      kind: "stay",
+    });
+    await asUser(kv, ids, me, "POST", `${BASE}/${other.id}/members`, { q: "f@x.jp" });
+
+    const res = await asUser(kv, ids, me, "POST", `${BASE}/${keep.id}/merge`, { from: other.id });
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    const r = body.reservation;
+    // Its own values stay; blanks are filled from the other.
+    assertEquals(r.service, "白菊");
+    assertEquals([r.amount, r.policy, r.bookedBy, r.kind], [48000, "free24", "母", "stay"]);
+    assertEquals(r.endsAt, "2026-12-19T15:00:00.000Z");
+    // A real time beats "not known yet"; booked if either was.
+    assertEquals([r.startsAt, r.timeTentative, r.booked], [
+      "2026-12-19T06:00:00.000Z",
+      false,
+      true,
+    ]);
+    assertEquals(r.notes, "夕朝食付き\n予約番号 TEST-1");
+    assertEquals(body.removedId, other.id);
+    assertEquals(body.filled.includes("amount") && body.filled.includes("policy"), true);
+
+    const left = await listReservations(kv, me.ledgerId);
+    assertEquals(left.map((x) => x.id), [keep.id]);
+    // Whoever the removed one was shared with still sees the booking.
+    const roster = await (await asUser(kv, ids, me, "GET", `${BASE}/${keep.id}/members`)).json();
+    assertEquals(roster.members.map((m: { userId: string }) => m.userId), [friend.id]);
+
+    // Merging something into itself, or something that is not mine, is refused.
+    assertEquals(
+      (await asUser(kv, ids, me, "POST", `${BASE}/${keep.id}/merge`, { from: keep.id })).status,
+      400,
+    );
+    assertEquals(
+      (await asUser(kv, ids, me, "POST", `${BASE}/${keep.id}/merge`, { from: "NOPE" })).status,
+      404,
+    );
+  });
+});
+
+Deno.test("merge: my copy folds into the one shared with me — if I may edit it", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const mom = await getOrCreateUserByEmail(kv, "mom@x.jp", ids);
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const hers = (await (await asUser(kv, ids, mom, "POST", BASE, {
+      service: "白菊",
+      startsAt: "2026-12-19T15:00:00+09:00",
+      confirmed: true,
+    })).json()).reservation;
+    const mine = (await (await asUser(kv, ids, me, "POST", BASE, {
+      service: "白菊",
+      startsAt: "2026-12-19T15:00:00+09:00",
+      amount: 48000,
+      policy: "staged",
+    })).json()).reservation;
+    await asUser(kv, ids, mom, "POST", `${BASE}/${hers.id}/members`, { q: "me@x.jp" });
+
+    // A viewer cannot change hers, so nothing of mine is removed either.
+    const viewer = await asUser(kv, ids, me, "POST", `${BASE}/${hers.id}/merge`, { from: mine.id });
+    assertEquals(viewer.status, 403);
+    assertEquals((await listReservations(kv, me.ledgerId)).length, 1);
+
+    await asUser(kv, ids, mom, "PATCH", `${BASE}/${hers.id}/members/${me.id}`, { role: "editor" });
+    const ok = await asUser(kv, ids, me, "POST", `${BASE}/${hers.id}/merge`, { from: mine.id });
+    assertEquals(ok.status, 200);
+    const merged = (await ok.json()).reservation;
+    assertEquals([merged.id, merged.amount, merged.policy, merged.status], [
+      hers.id,
+      48000,
+      "staged",
+      "confirmed",
+    ]);
+    // Mine is gone; hers lives in her ledger with what I knew.
+    assertEquals((await listReservations(kv, me.ledgerId)).length, 0);
+    assertEquals((await listReservations(kv, mom.ledgerId))[0]?.amount, 48000);
+    // She cannot fold MY entry away from her side: the removed one must be the caller's own.
+    const mine2 = (await (await asUser(kv, ids, me, "POST", BASE, {
+      service: "白菊",
+      startsAt: "2026-12-19T15:00:00+09:00",
+    })).json()).reservation;
+    assertEquals(
+      (await asUser(kv, ids, mom, "POST", `${BASE}/${hers.id}/merge`, { from: mine2.id })).status,
+      404,
+    );
+  });
+});

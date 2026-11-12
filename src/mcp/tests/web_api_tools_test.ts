@@ -56,6 +56,7 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
       "list_reservation_members",
       "list_reservations",
       "lookup_policy_template",
+      "merge_reservations",
       "open_in_browser",
       "pair_with_plancel",
       "pairing_status",
@@ -605,5 +606,27 @@ Deno.test("web-api MCP: open_in_browser asks the API for a one-use view link", a
     const { tools } = await client.listTools();
     const d = tools.find((t: { name: string }) => t.name === "open_in_browser")!.description!;
     assertStringIncludes(d, "閲覧専用");
+  });
+});
+
+Deno.test("web-api MCP: merge_reservations folds one entry into another through the API", async () => {
+  const { calls, fetchFn } = scriptedApi(() => ({
+    status: 200,
+    json: { reservation: ROW, filled: ["amount"], removedId: "R9" },
+  }));
+  await withClient(fetchFn, async (client) => {
+    const out = parsed(
+      await client.callTool({
+        name: "merge_reservations",
+        arguments: { keepId: "R1", removeId: "R9" },
+      }),
+    );
+    assertEquals(out.removedId, "R9");
+    assertEquals(calls[0]?.method, "POST");
+    assertEquals(calls[0]?.url, "https://plancel.test/api/reservations/R1/merge");
+    assertEquals(calls[0]?.body, { from: "R9" });
+    const { tools } = await client.listTools();
+    const d = tools.find((t: { name: string }) => t.name === "merge_reservations")!.description!;
+    assertStringIncludes(d, "ユーザーに確かめて");
   });
 });
