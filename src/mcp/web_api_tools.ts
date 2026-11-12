@@ -359,7 +359,8 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       "ユーザーに料金を説明するときは policyText の言い回しでなく feeSchedule の日付を使う。" +
       "possibleDuplicates は同じ店・同じ日の予約の組（自分のものと共有されたものを含む。同じ予約の二重登録かも" +
       "しれないので、ユーザーに確かめる。まとめるなら merge_reservations）。" +
-      "overlaps は同じ夜に重なっている別々の宿の組（自分のものと共有されたものを含む。どちらか1つにするはずなので、" +
+      "overlaps は両方は使えない予約の組: kind が stay なら同じ夜に重なっている別々の宿、transport なら同じ時間帯に" +
+      "重なっている飛行機・電車・バス（自分のものと共有されたものを含む。どちらか1つにするはずなので、" +
       "金額と freeUntil、reservations の同じ id にある feeSchedule を並べてユーザーに見せ、どちらにするか聞く。" +
       "owner は共有してくれた持ち主の名前で、null は自分の予約。decideBy は組の中でいちばん早い freeUntil で、" +
       "それまでに決めればどちらを外しても無料（残す方が決まっているなら、外す方の freeUntil が実際の期限）。" +
@@ -673,11 +674,12 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "choose_reservation",
     {
       description:
-        "同じ夜に重なっている宿（一覧の overlaps）のうち、どれにするかを決める。id の予約を確定し、overIds の予約を" +
+        "同じ夜に重なっている宿や、同じ時間帯に重なっている飛行機・電車・バス（一覧の overlaps）のうち、どれにするかを" +
+        "決める。id の予約を確定し、overIds の予約を" +
         "「要キャンセル」（まだ予約していない案は見送り）にする。外す方が確定済みでもそのまま呼べる（replace の" +
         "指定は要らない）。変えられるのは自分の予約だけで、共有されている" +
         "他の人の予約は変わらず、応答の needsOwner に「誰に確定／取り消しを頼むか」が出る（need が confirm なら確定、" +
-        "cancel なら取り消し）。要キャンセルになった宿への連絡はユーザー自身が行い、無料で取り消せる期限は一覧の" +
+        "cancel なら取り消し）。要キャンセルになった予約の取り消しの連絡はユーザー自身が行い、無料で取り消せる期限は一覧の" +
         "その予約の freeUntil。affected と needsOwner を" +
         "必ずユーザーに伝える。どちらにするかはユーザーが決めることなので、聞かずに呼ばない",
       inputSchema: chooseInput.passthrough(),

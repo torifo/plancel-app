@@ -285,9 +285,15 @@ export function findPossibleDuplicates(rows: ApiReservation[]): PossibleDuplicat
   }));
 }
 
-/** Different stays held for the same night: the family will take one of them. */
+/**
+ * Reservations that cannot both be used: different stays held for the same
+ * night, or rides (flight / train / bus) held for the same hours. The family
+ * will take one of them.
+ */
 export interface OverlapSummary {
-  /** First night and the morning it ends, as JST dates. */
+  /** `stay`: inns for the same night. `transport`: rides for the same hours. */
+  kind: "stay" | "transport";
+  /** Stay: first night and the morning it ends. Transport: the day(s) of the rides. JST dates. */
   from: string;
   to: string;
   /**
@@ -306,7 +312,7 @@ export interface OverlapSummary {
   }[];
 }
 
-/** Stays among the shown rows that cover the same night (see src/web/overlap.ts). */
+/** Stays for the same night and rides for the same hours among the shown rows (see src/web/overlap.ts). */
 export function summarizeOverlaps(rows: ApiReservation[], nowMs: number): OverlapSummary[] {
   const live = rows.filter((r) => !isFinished(r, nowMs));
   return findOverlaps(live).map((g) => {
@@ -315,6 +321,7 @@ export function summarizeOverlaps(rows: ApiReservation[], nowMs: number): Overla
       .map((r) => r.booked === false ? null : freeDeadlineMs(r.policy, r.startsAt))
       .filter((d): d is number => d !== null && d > nowMs);
     return {
+      kind: g.kind,
       from: g.from,
       to: g.to,
       decideBy: deadlines.length > 0 ? jstOfMs(Math.min(...deadlines)) : null,
@@ -415,9 +422,9 @@ export interface ModelList {
    */
   possibleDuplicates?: PossibleDuplicate[];
   /**
-   * Different stays covering the same night among the shown rows — two inns
-   * held for one evening, of which one will be taken. Never an error. Absent
-   * when there is none.
+   * Reservations among the shown rows that cannot both be used — two inns for
+   * one night, or two rides for the same hours — of which one will be taken.
+   * Never an error. Absent when there is none.
    */
   overlaps?: OverlapSummary[];
   reservations: ModelReservation[];

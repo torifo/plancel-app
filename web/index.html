@@ -3198,7 +3198,7 @@
     <!-- 同じ日程の宿を比べる -->
     <div class="overlay" id="compareOverlay">
       <div class="modal" style="max-width:640px">
-        <div class="modal-head"><h3>同じ日程の宿を比べる</h3><button class="x" data-close>×</button></div>
+        <div class="modal-head"><h3 id="cmpTitle">同じ日程の宿を比べる</h3><button class="x" data-close>×</button></div>
         <div id="cmpBody"></div>
       </div>
     </div>
@@ -3631,48 +3631,70 @@
     // 行から求める。知らせて比べられるようにするだけで、登録・確定は止めない。
     // src/web/overlap.ts の写し — src/web/tests/overlap_mirror_test.ts が見張る。
     function findOverlaps(rows) {
-      const DAY_MS = 86400000;
-      const dayOf = (ms) => Math.floor((ms + 9 * 3600000) / DAY_MS);
+      const DAY_MS = 86400000, JST_MS = 9 * 3600000, RIDE_MS = 3600000;
+      const dayOf = (ms) => Math.floor((ms + JST_MS) / DAY_MS);
       const dateOf = (day) => new Date(day * DAY_MS).toISOString().slice(0, 10);
       const fold = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
-      const stays = [];
-      for (const r of rows) {
-        if (r.status !== "candidate" && r.status !== "confirmed") continue;
-        const start = Date.parse(r.startsAt);
-        if (Number.isNaN(start)) continue;
-        const end = r.endsAt == null ? NaN : Date.parse(r.endsAt);
+      const at = (v) => v == null ? NaN : Date.parse(v);
+      // 宿: 泊まる夜 [最初の日, 出る日)。種類なしは、終わりが翌日以降なら宿
+      // （種類ができる前の宿はすべてこの形）。
+      const nightsOf = (r) => {
+        const start = at(r.startsAt);
+        if (Number.isNaN(start)) return null;
+        const end = at(r.endsAt);
         const first = dayOf(start);
         const last = Number.isNaN(end) ? first : dayOf(end);
         const kind = r.kind == null ? null : r.kind;
-        // 種類なしは、終わりが翌日以降なら宿（種類ができる前の宿はすべてこの形）。
-        if (kind !== null && kind !== "stay") continue;
-        if (kind === null && last <= first) continue;
-        stays.push({ r, a: first, b: Math.max(last, first + 1) });
-      }
-      stays.sort((x, y) => x.a - y.a || (x.r.id < y.r.id ? -1 : x.r.id > y.r.id ? 1 : 0));
-      const parent = stays.map((_, i) => i);
-      const root = (i) => parent[i] === i ? i : (parent[i] = root(parent[i]));
-      for (let i = 0; i < stays.length; i++) {
-        for (let j = i + 1; j < stays.length; j++) {
-          const x = stays[i], y = stays[j];
-          if (y.a >= x.b || x.a >= y.b) continue;
-          // 同じプランの候補は「どれか1つに」のカードが、同じ名前・同じ日は
-          // 「同じ予約かも」の囲みが受け持つ。
-          if (x.r.plan != null && x.r.plan === y.r.plan) continue;
-          if (x.a === y.a && fold(x.r.service) === fold(y.r.service)) continue;
-          parent[root(j)] = root(i);
+        if (kind !== null && kind !== "stay") return null;
+        if (kind === null && last <= first) return null;
+        return [first, Math.max(last, first + 1)];
+      };
+      // 乗りもの（飛行機・電車・バス。車は並行して借りるものなので入れない）:
+      // 出発から到着まで。到着の時刻が無ければ1時間とみなす。時刻未定（日付だけ）は
+      // 比べようがないので入れない。
+      const rideSpanOf = (r) => {
+        if (r.kind !== "flight" && r.kind !== "train" && r.kind !== "bus") return null;
+        const start = at(r.startsAt);
+        if (Number.isNaN(start)) return null;
+        const atMidnight = (ms) => (ms + JST_MS) % DAY_MS === 0;
+        if (r.timeTentative === true && atMidnight(start)) return null;
+        const end = at(r.endsAt);
+        return [start, Number.isNaN(end) || end <= start || atMidnight(end) ? start + RIDE_MS : end];
+      };
+      const live = rows.filter((r) => r.status === "candidate" || r.status === "confirmed");
+      const group = (kind, spanOf, day) => {
+        const items = [];
+        for (const r of live) {
+          const n = spanOf(r);
+          if (n !== null) items.push({ r, a: n[0], b: n[1] });
         }
-      }
-      const groups = new Map();
-      stays.forEach((st, i) => {
-        const k = root(i);
-        groups.set(k, [...(groups.get(k) || []), st]);
-      });
-      return [...groups.values()].filter((g) => g.length > 1).map((g) => ({
-        from: dateOf(Math.min(...g.map((st) => st.a))),
-        to: dateOf(Math.max(...g.map((st) => st.b))),
-        ids: g.map((st) => st.r.id),
-      }));
+        items.sort((x, y) => x.a - y.a || (x.r.id < y.r.id ? -1 : x.r.id > y.r.id ? 1 : 0));
+        const parent = items.map((_, i) => i);
+        const root = (i) => parent[i] === i ? i : (parent[i] = root(parent[i]));
+        for (let i = 0; i < items.length; i++) {
+          for (let j = i + 1; j < items.length; j++) {
+            const x = items[i], y = items[j];
+            if (y.a >= x.b || x.a >= y.b) continue;
+            // 同じプランの候補は「どれか1つに」のカードが、同じ名前・同じ日は
+            // 「同じ予約かも」の囲みが受け持つ。
+            if (x.r.plan != null && x.r.plan === y.r.plan) continue;
+            if (day(x.a) === day(y.a) && fold(x.r.service) === fold(y.r.service)) continue;
+            parent[root(j)] = root(i);
+          }
+        }
+        const groups = new Map();
+        items.forEach((it, i) => {
+          const k = root(i);
+          groups.set(k, [...(groups.get(k) || []), it]);
+        });
+        return [...groups.values()].filter((g) => g.length > 1).map((g) => ({
+          kind,
+          from: dateOf(day(Math.min(...g.map((it) => it.a)))),
+          to: dateOf(day(Math.max(...g.map((it) => it.b)))),
+          ids: g.map((it) => it.r.id),
+        }));
+      };
+      return [...group("stay", nightsOf, (n) => n), ...group("transport", rideSpanOf, dayOf)];
     }
     // 予約ID → 同じ組の全員（自分を含む）。render() が毎回作り直す。
     let overlapOf = {};
@@ -3680,21 +3702,18 @@
       overlapOf = {};
       for (const g of findOverlaps(rows)) {
         const members = g.ids.map((id) => rows.find((r) => r.id === id));
-        for (const r of members) overlapOf[r.id] = members;
+        for (const r of members) overlapOf[r.id] = { kind: g.kind, members, key: g.ids[0] };
       }
     }
-    const ownerNote = (r) => r.shared ? `（共有: ${esc(r.shared.ownerDisplayName)}）` : "";
-    function overlapHtml(r) {
-      const members = overlapOf[r.id];
-      if (!members) return "";
-      const names = members.filter((x) => x.id !== r.id)
-        .map((x) => `「${esc(x.service)}」${ownerNote(x)}`).join("・");
-      return `<div class="dup-note"><span>同じ日程に別の宿があります: ${names}。どちらか1つにするなら、並べて比べられます。</span><button class="rowbtn" data-compare="${r.id}">比べる</button></div>`;
-    }
+    // 組の種類ごとの言い方。宿は「日程」、乗りものは「時間帯」と「便」。
+    const OVERLAP_WORDS = {
+      stay: { when: "同じ日程", thing: "宿", count: "宿", call: "宿への連絡" },
+      transport: { when: "同じ時間帯", thing: "便", count: "便", call: "取り消しの連絡" },
+    };
     // 「こちらに決める」で起きることを、押す前に言葉にする。確定と取り消しは持ち主だけ
     // （サーバの決まり）なので、共有された予約は変わらず、誰に頼むかを言う。changes が
     // 0 なら、この台帳で変わるものが無いのでボタンを出さない。
-    function chooseEffects(win, losers) {
+    function chooseEffects(win, losers, call) {
       const lines = [];
       let changes = 0;
       if (win.shared) {
@@ -3725,14 +3744,18 @@
           lines.push(`「${r.service}」は見送りになります。`);
         } else {
           changes++;
-          lines.push(`「${r.service}」は「要キャンセル」になります。宿への連絡はご自分でお願いします。`);
+          lines.push(`「${r.service}」は「要キャンセル」になります。${call || "取り消しの連絡"}はご自分でお願いします。`);
         }
       }
       return { lines, changes };
     }
     function openCompare(id) {
-      const members = overlapOf[id];
-      if (!members) return;
+      const g = overlapOf[id];
+      if (!g) return;
+      const members = g.members;
+      const w = OVERLAP_WORDS[g.kind];
+      const ride = g.kind === "transport";
+      q("#cmpTitle").textContent = `${w.when}の${w.thing}を比べる`;
       const now = Date.now();
       const cell = (cls, html) => `<div class="cmp-cell${cls ? " " + cls : ""}">${html}</div>`;
       const line = (label, cells) => `<div class="cmp-label">${label}</div>${cells.join("")}`;
@@ -3747,7 +3770,15 @@
           : "";
         const tent = r.timeTentative ? (t ? "（仮）" : "（時刻未定）") : "";
         const end = r.endsAt ? Date.parse(r.endsAt) : NaN;
-        return `${fmtDate(ms)}${t}${tent}${Number.isNaN(end) ? "" : ` 〜 ${fmtDate(end)}`}`;
+        if (Number.isNaN(end)) return `${fmtDate(ms)}${t}${tent}`;
+        // 乗りものは到着の時刻まで（同じ日なら日付をくり返さない）。日付だけの終わりは日付だけ。
+        const e = new Date(end);
+        const et = ride && (e.getHours() || e.getMinutes())
+          ? `${String(e.getHours()).padStart(2, "0")}:${String(e.getMinutes()).padStart(2, "0")}`
+          : "";
+        const sameDay = fmtDate(end) === fmtDate(ms);
+        if (et) return `${fmtDate(ms)}${t}${tent} 〜 ${sameDay ? "" : fmtDate(end) + " "}${et}`;
+        return sameDay ? `${fmtDate(ms)}${t}${tent}` : `${fmtDate(ms)}${t}${tent} 〜 ${fmtDate(end)}`;
       };
       const freeText = (r) => {
         if (unbooked(r)) return "まだ予約していません";
@@ -3771,7 +3802,7 @@
           ? (unbooked(r) ? "これに決定（未予約）" : "確定済み")
           : (unbooked(r) ? "候補（未予約）" : "候補");
       const foot = members.map((r) => {
-        const fx = chooseEffects(r, members.filter((x) => x.id !== r.id));
+        const fx = chooseEffects(r, members.filter((x) => x.id !== r.id), w.call);
         if (fx.changes === 0) {
           // 押しても変わらない列: いまの状態と、誰に何を頼むかだけを短く言う。
           const asks = [
@@ -3792,23 +3823,33 @@
       });
       const dls = members.filter((r) => !unbooked(r)).map(freeDeadline)
         .filter((d) => d && d > now).sort((a, b) => a - b);
+      const blind = members.filter((r) => !unbooked(r) && unknownPolicy(r));
       const late = members.some((r) => !unbooked(r) && (pctNow(r, now) || 0) > 0);
       const decide = late
-        ? `<div class="decide-note">無料で取り消せる期限を過ぎた宿があります。取り消すと料金がかかる方を先に確かめてください。</div>`
+        ? `<div class="decide-note">無料で取り消せる期限を過ぎた${w.thing}があります。取り消すと料金がかかる方を先に確かめてください。</div>`
         : dls.length
-        ? `<div class="decide-note">⏳ 決めどきは <b>${fmtDate(dls[0])} まで</b> — この日までなら、どちらを取り消しても無料です。</div>`
+        ? `<div class="decide-note">⏳ 決めどきは <b>${fmtDate(dls[0])} まで</b> — ${
+          // 規定が分からない予約に「無料」とは言えない。分かっている分の期限だと断る。
+          blind.length
+            ? `規定が分かっている分の期限です。${
+              blind.map((r) => `「${esc(r.service)}」`).join("・")
+            }は規定が不明なので、取り消しの条件を先に確かめてください。`
+            : "この日までなら、どちらを取り消しても無料です。"
+        }</div>`
         : "";
       const ms = members.map(startMs);
       const ends = members.map((r) => r.endsAt ? Date.parse(r.endsAt) : NaN).filter((n) => !Number.isNaN(n));
-      const span = `${fmtDate(Math.min(...ms))}${ends.length ? `〜${fmtDate(Math.max(...ends))}` : ""}`;
+      const lastEnd = ends.length ? fmtDate(Math.max(...ends)) : "";
+      const span = fmtDate(Math.min(...ms)) +
+        (lastEnd && lastEnd !== fmtDate(Math.min(...ms)) ? `〜${lastEnd}` : "");
       const shared = members.some((r) => r.shared);
       q("#cmpBody").innerHTML =
-        `<p class="hint" style="margin-bottom:0">${span} に宿が${members.length}件あります。</p>${decide}` +
+        `<p class="hint" style="margin-bottom:0">${span} に${w.count}が${members.length}件あります。</p>${decide}` +
         `<div class="cmp" style="--n:${members.length}">` +
         members.map((r) =>
           cell(
             "name",
-            `<b>${esc(r.service)}</b><span class="sub">${status(r)}${
+            `${ride ? kindTag(r) : ""}<b>${esc(r.service)}</b><span class="sub">${status(r)}${
               r.shared ? ` · 共有: ${esc(r.shared.ownerDisplayName)}` : ""
             }</span>`,
           )
@@ -3830,13 +3871,19 @@
             )
           ),
         ) +
+        (members.some((r) => r.plan)
+          ? line("プラン", members.map((r) => cell("", r.plan ? esc(r.plan) : "—")))
+          : "") +
         line("無料で取り消せる期限", members.map((r) => cell("", freeText(r)))) +
         line("いま取り消すと", members.map((r) => cell("", feeNowText(r)))) +
         line(
           "キャンセル規定",
           members.map((r) => cell("", unbooked(r) ? "—" : esc(describePolicy(r.policy)))),
         ) +
-        line("日程", members.map((r) => cell("", dayTime(r)))) +
+        line(ride ? "時刻" : "日程", members.map((r) => cell("", dayTime(r)))) +
+        (ride && members.some((r) => routeText(r))
+          ? line("区間", members.map((r) => cell("", routeText(r) || "—")))
+          : "") +
         (members.some((r) => r.location)
           ? line("場所", members.map((r) => cell("", r.location ? esc(r.location) : "—")))
           : "") +
@@ -3851,7 +3898,7 @@
         b.onclick = () => {
           const win = members.find((r) => r.id === b.dataset.choose);
           const losers = members.filter((r) => r.id !== win.id);
-          const fx = chooseEffects(win, losers);
+          const fx = chooseEffects(win, losers, w.call);
           if (!confirm(`「${win.service}」に決めます。\n\n${fx.lines.join("\n")}\n\nよろしいですか？`)) return;
           closeAll();
           act("POST", `/api/reservations/${win.id}/choose`, { over: losers.map((r) => r.id) });
@@ -4018,7 +4065,38 @@
         const k = r.plan || ("__" + r.id);
         (groups[k] = groups[k] || []).push(r);
       });
-      const cardHtml = ([, rs]) => {
+      // どちらか1つにする組（同じ夜の宿・同じ時間帯の便）は、1枚のカードにまとめる。
+      // 別々のカードに離れていると、候補があることに気づけない（オーナー 2026-11-12
+      // 「下を消して上の中に統合するべき。最初から候補が見えて、比べるを押すと比べられる」）。
+      // 組に入った予約が属していたカード（プラン・単独）ごと、最初の1枚の位置へ寄せる。
+      const cardEntries = [];
+      const ovAt = {};
+      for (const [k, rs] of Object.entries(groups)) {
+        const g = rs.map((r) => overlapOf[r.id]).find(Boolean);
+        if (!g) {
+          cardEntries.push([k, rs]);
+        } else if (ovAt[g.key]) {
+          ovAt[g.key][1].push(...rs);
+        } else {
+          cardEntries.push(ovAt[g.key] = ["~" + g.key, [...rs], g]);
+        }
+      }
+      const overlapCardHtml = ([, rs, g]) => {
+        const w = OVERLAP_WORDS[g.kind];
+        const plans = [...new Set(rs.map((r) => r.plan).filter(Boolean))];
+        const title = plans.length === 1 ? plans[0] : `${w.when}の${w.thing}`;
+        const dls = g.members.filter((r) => !unbooked(r)).map(freeDeadline)
+          .filter((d) => d && d > now).sort((a, b) => a - b);
+        const decide = dls.length ? `決めどきは <b>${fmtDate(dls[0])} まで</b>。` : "";
+        return `<div class="plan"><div class="plan-head"><span class="plan-title">${
+          esc(title)
+        }</span><span class="plan-note">${g.members.length}件 · どれか1つに</span></div>` +
+          `<div class="dup-note"><span>${w.when}に${w.thing}が${g.members.length}件あります。${decide}</span><button class="rowbtn" data-compare="${g.key}">比べる</button></div>` +
+          `${rs.map(rowHtml).join("")}</div>`;
+      };
+      const cardHtml = (e) => {
+        if (e[2]) return overlapCardHtml(e);
+        const rs = e[1];
         const isPlan = !!rs[0].plan;
         const title = isPlan ? rs[0].plan : rs[0].service;
         const settled = rs.some((r) => r.status === "confirmed");
@@ -4055,7 +4133,7 @@
       // （宿・行き帰りの便・食事）で、別の束ね方（2026-11-12）。旅行の付いたカードは、
       // その旅行で最初に出てくる位置に見出しごとまとめて並べる。付いていないカードは
       // これまでどおりの順でそのまま。
-      const entries = Object.entries(groups);
+      const entries = cardEntries;
       const tripOf = (rs) => (rs.find((r) => r.trip) || {}).trip || null;
       const seenTrips = new Set();
       const blocks = [];
@@ -4084,15 +4162,18 @@
         // プランは一番高い候補だけ。要キャンセルは数えない）。
         const confirmedYen = all.filter((r) => r.status === "confirmed")
           .reduce((n, r) => n + (r.amount || 0), 0);
+        // 「どれか1つ」の束: 重なりの組があればそれ、無ければプラン。
+        const altOf = (r) => overlapOf[r.id] ? "~" + overlapOf[r.id].key : r.plan;
         const settled = new Set(
-          all.filter((r) => r.status === "confirmed" && r.plan).map((r) => r.plan),
+          all.filter((r) => r.status === "confirmed" && altOf(r)).map(altOf),
         );
         const dearest = {};
         let soloYen = 0;
         for (const r of all) {
           if (r.status !== "candidate") continue;
-          if (!r.plan) soloYen += r.amount || 0;
-          else if (!settled.has(r.plan)) dearest[r.plan] = Math.max(dearest[r.plan] || 0, r.amount || 0);
+          const alt = altOf(r);
+          if (!alt) soloYen += r.amount || 0;
+          else if (!settled.has(alt)) dearest[alt] = Math.max(dearest[alt] || 0, r.amount || 0);
         }
         const expectedYen = confirmedYen + soloYen +
           Object.values(dearest).reduce((a, b) => a + b, 0);
@@ -4566,7 +4647,7 @@
         return `<div class="resv${off}">
         <div><div class="name"><b>${esc(r.service)}</b>${cut}</div><div class="sub">${sub}</div>${locLink}<div class="share-tag">共有: ${
           esc(r.shared.ownerDisplayName)
-        }${canEdit ? "・編集可" : ""}</div>${shareTools}${overlapHtml(r)}</div>
+        }${canEdit ? "・編集可" : ""}</div>${shareTools}</div>
         <div>${track}${cap}</div>
         <div class="ract"><button class="rowbtn" data-leave="${r.id}">脱退</button></div></div>`;
       }
@@ -4600,7 +4681,7 @@
       return `<div class="resv${off}">
         <div><div class="name">${kindTag(r)}<b>${esc(r.service)}</b>${
         unbooked(r) ? `<span class="tent">未予約</span>` : ""
-      }${cut}</div><div class="sub">${sub}</div>${locLink}${tools}${lookAlikeHtml(r)}${overlapHtml(r)}</div>
+      }${cut}</div><div class="sub">${sub}</div>${locLink}${tools}${lookAlikeHtml(r)}</div>
         <div>${track}${cap}</div>
         <div class="ract">${mainBtn}</div></div>`;
     }

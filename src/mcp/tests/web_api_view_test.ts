@@ -407,6 +407,7 @@ Deno.test("view: the list lines up different stays held for the same night, with
   });
   const out = presentList([mine, hers, row({ id: "DINNER" })], listFilterSchema.parse({}), NOW);
   assertEquals(out.overlaps, [{
+    kind: "stay",
     from: "2026-12-19",
     to: "2026-12-20",
     // Hers closes first (8 days before): by then, dropping either is free.

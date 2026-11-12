@@ -63,6 +63,45 @@ const CASES: Record<string, OverlapRow[]> = {
   "kind says stay": [row({ id: "A" }), row({ id: "B", kind: "stay", endsAt: null })],
   "same plan": [row({ id: "A", plan: "別府の宿" }), row({ id: "B", plan: "別府の宿" })],
   "different plans": [row({ id: "A", plan: "別府の宿" }), row({ id: "B", plan: "母の案" })],
+  "flight against train": [
+    row({
+      id: "A",
+      kind: "flight",
+      startsAt: "2026-12-18T23:00:00.000Z",
+      endsAt: "2026-12-19T00:45:00.000Z",
+    }),
+    row({
+      id: "B",
+      kind: "train",
+      startsAt: "2026-12-19T00:00:00.000Z",
+      endsAt: "2026-12-19T02:00:00.000Z",
+    }),
+    row({ id: "C", kind: "bus", startsAt: "2026-12-19T02:00:00.000Z", endsAt: null }),
+    row({
+      id: "D",
+      kind: "car",
+      startsAt: "2026-12-18T23:30:00.000Z",
+      endsAt: "2026-12-20T09:00:00.000Z",
+    }),
+    row({ id: "E" }),
+  ],
+  "rides without an arrival time": [
+    row({ id: "A", kind: "flight", startsAt: "2026-12-18T23:00:00.000Z", endsAt: null }),
+    row({
+      id: "B",
+      kind: "train",
+      startsAt: "2026-12-18T23:59:00.000Z",
+      endsAt: "2026-12-18T15:00:00.000Z",
+    }),
+    row({ id: "C", kind: "bus", startsAt: "2026-12-19T01:00:00.000Z", endsAt: null }),
+    row({
+      id: "D",
+      kind: "bus",
+      startsAt: "2026-12-18T15:00:00.000Z",
+      endsAt: null,
+      timeTentative: true,
+    }),
+  ],
   "same name": [row({ id: "A", service: "ホテル　白菊" }), row({ id: "B", service: "ホテル白菊" })],
 };
 
@@ -75,4 +114,8 @@ Deno.test("mirror: the page names the same overlapping stays as the server", asy
   assertEquals(findOverlaps(CASES["two inns, one night"]!).length, 1);
   assertEquals(findOverlaps(CASES["chain of three"]!)[0]?.ids, ["A", "B", "C"]);
   assertEquals(findOverlaps(CASES["back to back"]!), []);
+  assertEquals(findOverlaps(CASES["flight against train"]!).map((g) => [g.kind, g.ids]), [
+    ["transport", ["A", "B"]],
+  ]);
+  assertEquals(findOverlaps(CASES["rides without an arrival time"]!)[0]?.ids, ["A", "B"]);
 });
