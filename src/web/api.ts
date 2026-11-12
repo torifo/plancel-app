@@ -305,9 +305,12 @@ export async function handleWebApi(
       // A proposal goes out without the proposer's user id: the screen only
       // needs the name and whether it is the viewer's own (to offer 取り下げる).
       const viewerId = user?.id ?? null;
+      // `== null`: a shared row is read raw from the owner's ledger (sharing.ts),
+      // and one written before 2026-11-13 has no `suggestion` key at all. `=== null`
+      // let it through and the whole list failed with a 500 in production.
       const withSuggestion = <T extends WebReservation>(r: T) => ({
         ...r,
-        suggestion: r.suggestion === null ? null : {
+        suggestion: r.suggestion == null ? null : {
           action: r.suggestion.action,
           byName: r.suggestion.byName,
           at: r.suggestion.at,
@@ -530,7 +533,8 @@ export async function handleWebApi(
     if (sub === "accept" && req.method === "POST") {
       const cur = await getReservation(kv, token, id);
       if (cur === null) return await memberGate(kv, user, id, "owner");
-      if (cur.suggestion === null) {
+      // Read raw from KV: an older record has no `suggestion` key at all.
+      if (cur.suggestion == null) {
         return json({ error: "invalid", message: "提案はありません" }, 400);
       }
       if (cur.suggestion.action === "cancel") {

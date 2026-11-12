@@ -843,3 +843,28 @@ Deno.test("choose: what is only shared with me is proposed to its owner", async 
     assertEquals([row.status, row.suggestion?.action], ["candidate", "cancel"]);
   });
 });
+
+Deno.test("list: a shared row written before proposals existed still loads (no suggestion key)", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const mom = await getOrCreateUserByEmail(kv, "mom@x.jp", ids);
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const hers = (await (await asUser(kv, ids, mom, "POST", BASE, {
+      service: "ホテル白菊",
+      startsAt: "2026-12-19T15:00:00+09:00",
+    })).json()).reservation;
+    // Rewrite it the way an older record sits in KV: without rank / suggestion.
+    const key = ["web", mom.ledgerId, "resv", hers.id];
+    const raw = { ...(await kv.get<Record<string, unknown>>(key)).value! };
+    delete raw.rank;
+    delete raw.suggestion;
+    await kv.set(key, raw);
+    await asUser(kv, ids, mom, "POST", `${BASE}/${hers.id}/members`, { q: "me@x.jp" });
+    const res = await asUser(kv, ids, me, "GET", BASE);
+    assertEquals(res.status, 200);
+    const row = (await res.json()).reservations[0];
+    assertEquals([row.id, row.suggestion], [hers.id, null]);
+    // And the owner's own list, read through the schema, is fine too.
+    assertEquals((await asUser(kv, ids, mom, "GET", BASE)).status, 200);
+  });
+});
