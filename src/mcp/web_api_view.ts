@@ -169,6 +169,14 @@ function feeNow(r: ApiReservation, nowMs: number): { pct: number; yen: number | 
 }
 
 /**
+ * True when only the day is known: the start was given as a bare date, so it is
+ * stored at midnight JST and flagged tentative.
+ */
+function timeUnknown(r: ApiReservation): boolean {
+  return r.timeTentative === true && jst(r.startsAt).endsWith("T00:00:00+09:00");
+}
+
+/**
  * What is still open about a reservation — the list a model reads back when
  * asked 「まだ決まっていないことは？」. Nothing here is an error; each line is
  * something the family has not found out or done yet.
@@ -176,8 +184,17 @@ function feeNow(r: ApiReservation, nowMs: number): { pct: number; yen: number | 
 function needsCheck(r: ApiReservation, booked: boolean): string[] {
   if (r.status === "cancelled") return [];
   const out: string[] = [];
+  if (r.status === "to_cancel" && booked) {
+    // Not chosen, but still held at the place: someone has to call.
+    const deadline = freeDeadlineMs(r.policy, r.startsAt);
+    out.push(
+      deadline === null
+        ? "取り消しの連絡が要る"
+        : `取り消しの連絡が要る（${jstOfMs(deadline).slice(0, 10)} まで無料）`,
+    );
+  }
   if (!booked) out.push("まだ予約していない");
-  if (r.timeTentative === true) out.push("時刻が仮");
+  if (r.timeTentative === true) out.push(timeUnknown(r) ? "時刻が未定" : "時刻が仮");
   // An unbooked idea has no policy to learn yet.
   if (booked && r.policy === "unknown") out.push("キャンセル規定が不明");
   if (r.amount === null) out.push("金額が未入力");
@@ -249,7 +266,8 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     service: r.service,
     plan: r.plan,
     status: r.status,
-    startsAt: jst(r.startsAt),
+    // Only the day is known → show the day, not a 0:00 that was never said.
+    startsAt: timeUnknown(r) ? jst(r.startsAt).slice(0, 10) : jst(r.startsAt),
     // `== null`: a row mirrored before the field existed has no `endsAt` at all,
     // and `undefined` would drop the key from the JSON the model reads.
     endsAt: r.endsAt == null ? null : jstEnd(r.endsAt),
@@ -369,8 +387,12 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
     out.push(v);
     shownRows.push(r);
   }
-  const startKey = (v: ModelReservation) =>
-    toInstantOrNull(v.startsAt)?.epochMilliseconds ?? Number.MAX_SAFE_INTEGER;
+  // A day with no time sorts after everything timed on that day, not at 0:00.
+  const startKey = (v: ModelReservation) => {
+    const ms = toInstantOrNull(v.startsAt)?.epochMilliseconds;
+    if (ms === undefined) return Number.MAX_SAFE_INTEGER;
+    return v.startsAt.length === 10 ? endOfJstDay(ms) : ms;
+  };
   const deadlineKey = (v: ModelReservation) =>
     v.freeUntil === null
       ? Number.MAX_SAFE_INTEGER

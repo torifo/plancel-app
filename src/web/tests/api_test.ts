@@ -967,3 +967,45 @@ Deno.test("web api: kind, route and who booked it are stored and edited", async 
     assertEquals(bad.status, 400);
   });
 });
+
+Deno.test("web api: a start given as a bare date is a day with no time yet", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const bus = await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", { service: "空港バス", startsAt: "2026-12-19", booked: false }),
+      ids,
+    )).json();
+    // Stored at midnight (there is nowhere else to put it) and flagged, so no
+    // reader takes it for a 0:00 departure.
+    assertEquals(bus.reservation.startsAt, "2026-12-18T15:00:00.000Z");
+    assertEquals(bus.reservation.timeTentative, true);
+    // Not booked, so there is no policy to ask about: no hint.
+    assertEquals(bus.hint, undefined);
+
+    const moved = await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${bus.reservation.id}`, "t", { startsAt: "2026-12-20" }),
+      ids,
+    )).json();
+    assertEquals(moved.reservation.timeTentative, true);
+    // Giving a time settles it, unless the caller says it is still a guess.
+    const timed = await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${bus.reservation.id}`, "t", {
+        startsAt: "2026-12-20T09:55:00+09:00",
+      }),
+      ids,
+    )).json();
+    assertEquals(timed.reservation.timeTentative, false);
+    const guess = await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${bus.reservation.id}`, "t", {
+        startsAt: "2026-12-20T10:00:00+09:00",
+        timeTentative: true,
+      }),
+      ids,
+    )).json();
+    assertEquals(guess.reservation.timeTentative, true);
+  });
+});

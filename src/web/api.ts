@@ -123,6 +123,17 @@ function pastStartWarning(
   };
 }
 
+/**
+ * True when `body[field]` is a date with no time (「2026-12-19」). Such a start is
+ * stored at midnight because a start must be an instant, and a model then read
+ * it as a 0:00 departure and listed it before the morning flight (dry run,
+ * 2026-11-12). The record is flagged instead, so every reader can tell.
+ */
+function isBareDate(body: unknown, field: string): boolean {
+  const v = (body as Record<string, unknown> | null)?.[field];
+  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.trim());
+}
+
 const confirmOptsSchema = z.object({ replace: z.boolean().default(false) });
 
 /** 409 for a refused transition: the stable message, plus the next step. */
@@ -294,8 +305,11 @@ export async function handleWebApi(
       return json({ reservations: own });
     }
     if (req.method === "POST") {
-      const parsed = webCreateSchema.safeParse(await readJson(req));
+      const raw = await readJson(req);
+      const parsed = webCreateSchema.safeParse(raw);
       if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+      // A start given as a bare date is a day whose time is not known yet.
+      if (isBareDate(raw, "startsAt")) parsed.data.timeTentative = true;
       let outcome;
       try {
         outcome = await createReservationWithEffects(kv, token, parsed.data, ids, actor);
@@ -319,7 +333,8 @@ export async function handleWebApi(
       const hints = [
         past.hint,
         settled.hint,
-        policySource === "unknown"
+        // Nothing is booked yet → there is no policy to ask about.
+        policySource === "unknown" && r.booked
           ? "キャンセル規定が不明なので、キャンセル期限を見張れません。推測で入れず、ユーザーに確認して規定が分かったら " +
             "update_reservation（画面では「日付変更・編集」）の policy に入れてください。"
           : undefined,
@@ -453,8 +468,14 @@ export async function handleWebApi(
   // Item: /api/reservations/:id
   if (action === undefined) {
     if (req.method === "PATCH") {
-      const parsed = webPatchSchema.safeParse(await readJson(req));
+      const raw = await readJson(req);
+      const parsed = webPatchSchema.safeParse(raw);
       if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+      // The same rule on edit: a bare date clears the time; a real time settles it
+      // unless the caller says it is still a guess.
+      if (parsed.data.startsAt !== undefined && parsed.data.timeTentative === undefined) {
+        parsed.data.timeTentative = isBareDate(raw, "startsAt");
+      }
       let r: WebReservation | null;
       // An editor member's edit is applied to the OWNER's ledger (no copy is
       // made in the member's) and reports the owner so the same post-write

@@ -72,6 +72,7 @@ const POLICY_DESC =
   'キャンセル規定: "unknown"/"none"(いつでも無料)/"free24"(前日まで無料)/"staged"(7日前まで無料→30%→50%→100%) ' +
   "または任意の段階。各段階は「開始の h 時間前の日いっぱいまで pct%」で、h は日数×24（前日=24、3日前=72、" +
   "当日=0）、期限は時刻でなくその日の終わりで切る。最後の段階は必ず h=0（当日）。" +
+  "「前日まで無料」としか聞いていないときは free24 でよい（当日は100%と仮定する。違うと分かったら段階で直す）。" +
   '例「3日前まで無料、そのあと50%、当日100%」= {"stages":[{"h":72,"pct":0},{"h":24,"pct":50},{"h":0,"pct":100}]}、' +
   '「5日前まで無料、以降は全額」= {"stages":[{"h":120,"pct":0},{"h":0,"pct":100}]}';
 
@@ -98,13 +99,15 @@ const TRIP_DESC =
   "（例: trip=別府旅行 の中に plan=宿の候補）";
 const TIME_TENTATIVE_DESC =
   "開始時刻が仮のとき true（「たぶん15時半ごろ」「時間は未定」など）。日付が確かなら時刻を仮に置いて登録し、" +
-  "これを true にする。まったく未定なら startsAt を日付だけにする（画面では「時刻未定」と出る）。" +
+  "これを true にする。まったく未定なら startsAt を日付だけにする（自動で仮になり、応答でも日付だけで返って" +
+  "needsCheck に「時刻が未定」と出る。その日の最後に並ぶ）。" +
   "時刻が確定したら update_reservation で false に戻す";
 
 const BOOKED_DESC =
   "予約がもう取れているか（既定 true）。まだ手配していない案・検討中のものは false にする" +
   "（例: 切符をまだ買っていない特急）。false の予約にはキャンセル期限も料金も無く、プランで選ばれなかったときは" +
-  "要キャンセルにならずそのまま外れる。予約を取ったら update_reservation で true にする";
+  "要キャンセルにならずそのまま外れる。予約を取ったら update_reservation で true にする。" +
+  '予約が要らないもの（予約不要のバスなど）は、乗る・使うと決めた時点で booked: true・policy: "none" にする';
 
 const KIND_DESC =
   '種類（任意）: "stay"(宿) / "meal"(食事) / "flight"(飛行機) / "train"(電車・特急) / "bus"(バス) / ' +
@@ -116,7 +119,7 @@ const SERVICE_DESC =
 const FROM_DESC = "出発地（交通）／借りる場所（車）。例「羽田」「博多駅」。任意";
 const TO_DESC = "到着地（交通）／返す場所（車）。到着時刻が分かれば endsAt に入れる。任意";
 const BOOKED_BY_DESC =
-  "実際に予約を取った人（例「母」）。誰に確認やキャンセルを頼めばよいかが分かる。任意";
+  "実際に予約を取った人（例「母」。ユーザー自身なら「自分」）。誰に確認やキャンセルを頼めばよいかが分かる。任意";
 
 const createInput = z.object({
   service: z.string().min(1).describe(SERVICE_DESC),
@@ -354,7 +357,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       "（null は期限が無いということ: 規定不明で見張れない＝その件数が policyUnknown、または「いつでも無料」「最初から有料」。policyText で見分ける）、nextCharge.from が料金のかかり始める時刻、" +
       "feeNow がいまキャンセルした場合の料率と金額。feeSchedule は料率表を日付にしたもの（until までは pct%＝yen 円）で、" +
       "ユーザーに料金を説明するときは policyText の言い回しでなく feeSchedule の日付を使う。" +
-      "needsCheck は各予約でまだ決まっていない・確かめていないこと、trips は旅行ごとの日程と費用" +
+      "needsCheck は各予約でまだ決まっていない・確かめていないこと（要キャンセルの予約には「取り消しの連絡が要る」が出る）、trips は旅行ごとの日程と費用" +
       "（confirmedYen＝確定の合計、expectedYen＝未確定を含む見込みの最大）",
     inputSchema: listFilterSchema.passthrough(),
   }, async (args: unknown) => {

@@ -332,3 +332,26 @@ Deno.test("view: a trip is summed up, and each row says what is still to be chec
     expectedYen: 48000 + 22000 + 8000,
   }]);
 });
+
+Deno.test("view: a day with no time is shown as a date, sorted last in its day, and listed as open", () => {
+  const rows = [
+    row({ id: "BUS", startsAt: "2026-12-18T15:00:00.000Z", timeTentative: true, booked: false }),
+    row({ id: "JAL", startsAt: "2026-12-18T23:05:00.000Z" }), // 12/19 08:05 JST
+    row({ id: "NEXT", startsAt: "2026-12-19T23:00:00.000Z" }), // 12/20 08:00 JST
+  ];
+  const out = presentList(rows, listFilterSchema.parse({}), NOW);
+  assertEquals(out.reservations.map((r) => r.id), ["JAL", "BUS", "NEXT"]);
+  const bus = out.reservations[1]!;
+  assertEquals(bus.startsAt, "2026-12-19");
+  assertEquals(bus.needsCheck, ["まだ予約していない", "時刻が未定"]);
+  // A real guess keeps its time and says so.
+  const guess = presentReservation(row({ timeTentative: true }), NOW);
+  assertEquals([guess.startsAt, guess.needsCheck], ["2026-12-20T19:00:00+09:00", ["時刻が仮"]]);
+});
+
+Deno.test("view: a reservation waiting to be cancelled says so in needsCheck", () => {
+  const v = presentReservation(row({ status: "to_cancel", policy: "free24" }), NOW);
+  assertEquals(v.needsCheck, ["取り消しの連絡が要る（2026-12-19 まで無料）"]);
+  const noPolicy = presentReservation(row({ status: "to_cancel", policy: "unknown" }), NOW);
+  assertEquals(noPolicy.needsCheck, ["取り消しの連絡が要る", "キャンセル規定が不明"]);
+});
