@@ -49,6 +49,7 @@ import {
   saveTemplate,
 } from "./policy-template.ts";
 import {
+  type AffectedReservation,
   cancelReservation,
   confirmReservationWithEffects,
   createReservationWithEffects,
@@ -56,6 +57,7 @@ import {
   findConfirmedInPlan,
   getReservation,
   listReservations,
+  markLost,
   mergeReservations,
   patchReservation,
   restoreReservation,
@@ -137,6 +139,7 @@ function isBareDate(body: unknown, field: string): boolean {
 
 const confirmOptsSchema = z.object({ replace: z.boolean().default(false) });
 const mergeSchema = z.object({ from: z.string().min(1) });
+const chooseSchema = z.object({ over: z.array(z.string().min(1)).min(1).max(10) });
 
 /** 409 for a refused transition: the stable message, plus the next step. */
 function transitionRefused(error: WebTransitionError): Response {
@@ -500,6 +503,75 @@ export async function handleWebApi(
     mutated(from);
     mutated(id, ledgerOwner);
     return json(outcome);
+  }
+
+  // Choose: POST /api/reservations/:id/choose {over} — :id is the one taken,
+  // `over` the ones given up for it (two inns on the same night; they need not
+  // share a plan, nor an owner). Settling stays with each reservation's owner:
+  // what is the caller's own is confirmed / turned to_cancel here, and what is
+  // only shared with the caller is left as it is and named in `needsOwner`, so
+  // the caller knows whom to ask.
+  if (action === "choose" && req.method === "POST") {
+    const parsed = chooseSchema.safeParse(await readJson(req));
+    if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+    const over = [...new Set(parsed.data.over)];
+    if (over.includes(id)) {
+      return json({ error: "invalid", message: "選ぶ予約と外す予約が同じです" }, 400);
+    }
+    const sharedRows = owner !== null ? await listSharedReservations(kv, owner.id) : [];
+    const needsOwner: {
+      id: string;
+      service: string;
+      ownerDisplayName: string;
+      need: "confirm" | "cancel";
+    }[] = [];
+    // Everything named must be visible to the caller before anything is written.
+    const mine = new Map<string, WebReservation>();
+    for (const rid of [id, ...over]) {
+      const own = await getReservation(kv, token, rid);
+      if (own !== null) {
+        mine.set(rid, own);
+        continue;
+      }
+      const s = sharedRows.find((x) => x.reservation.id === rid);
+      if (s === undefined) return json({ error: "not found", id: rid }, 404);
+      const live = s.reservation.status === "candidate" || s.reservation.status === "confirmed";
+      if (rid === id ? s.reservation.status !== "confirmed" : live) {
+        needsOwner.push({
+          id: rid,
+          service: s.reservation.service,
+          ownerDisplayName: s.ownerDisplayName,
+          need: rid === id ? "confirm" : "cancel",
+        });
+      }
+    }
+    const affected: AffectedReservation[] = [];
+    let chosen = mine.get(id) ?? null;
+    if (chosen !== null && chosen.status !== "confirmed") {
+      let outcome;
+      try {
+        outcome = await confirmReservationWithEffects(kv, token, id, ids, actor, {
+          replace: true,
+        });
+      } catch (error) {
+        if (error instanceof WebTransitionError) return transitionRefused(error);
+        throw error;
+      }
+      if (outcome === null) return json({ error: "not found", id }, 404);
+      chosen = outcome.reservation;
+      affected.push(...outcome.affected);
+      mutated(id);
+    }
+    const lost = await markLost(
+      kv,
+      token,
+      over.filter((rid) => mine.has(rid) && !affected.some((a) => a.id === rid)),
+      ids,
+      actor,
+    );
+    for (const a of lost) mutated(a.id);
+    affected.push(...lost);
+    return json({ ...(chosen !== null ? { reservation: chosen } : {}), affected, needsOwner });
   }
 
   if (action === "restore" && req.method === "POST") {

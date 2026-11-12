@@ -385,3 +385,54 @@ Deno.test("view: the list points out entries that may be the same booking, mine 
     undefined,
   );
 });
+
+Deno.test("view: the list lines up different stays held for the same night, with the day to decide by", () => {
+  const hers = row({
+    id: "HERS",
+    service: "ホテル白菊",
+    startsAt: "2026-12-19T06:00:00.000Z",
+    endsAt: "2026-12-20T01:00:00.000Z",
+    amount: 75768,
+    policy: { stages: [{ h: 192, pct: 0 }, { h: 0, pct: 100 }] },
+  }) as WebReservation & { shared: { ownerDisplayName: string; role: string } };
+  hers.shared = { ownerDisplayName: "母", role: "editor" };
+  const mine = row({
+    id: "MINE",
+    service: "おにやまホテル",
+    status: "confirmed",
+    startsAt: "2026-12-19T06:30:00.000Z",
+    endsAt: "2026-12-20T01:00:00.000Z",
+    amount: 65472,
+    policy: { stages: [{ h: 96, pct: 0 }, { h: 0, pct: 100 }] },
+  });
+  const out = presentList([mine, hers, row({ id: "DINNER" })], listFilterSchema.parse({}), NOW);
+  assertEquals(out.overlaps, [{
+    from: "2026-12-19",
+    to: "2026-12-20",
+    // Hers closes first (8 days before): by then, dropping either is free.
+    decideBy: "2026-12-11T23:59:59+09:00",
+    reservations: [
+      {
+        id: "HERS",
+        service: "ホテル白菊",
+        status: "candidate",
+        amount: 75768,
+        freeUntil: "2026-12-11T23:59:59+09:00",
+        owner: "母",
+      },
+      {
+        id: "MINE",
+        service: "おにやまホテル",
+        status: "confirmed",
+        amount: 65472,
+        freeUntil: "2026-12-15T23:59:59+09:00",
+        owner: null,
+      },
+    ],
+  }]);
+  // One stay and a dinner: nothing to weigh, so the key is absent.
+  assertEquals(
+    presentList([mine, row({ id: "DINNER" })], listFilterSchema.parse({}), NOW).overlaps,
+    undefined,
+  );
+});

@@ -618,6 +618,44 @@ export async function cancelReservation(
   return next;
 }
 
+/**
+ * Steps the caller's own reservations down after another was chosen over them
+ * (the 「比べて決める」 of two inns on the same night, which need not share a
+ * plan). Same rule as a plan's losing candidates: one that is held waits as
+ * to_cancel for the call to the place, an idea that was never booked is simply
+ * out. Rows already out, already over, or not in this ledger are left alone.
+ */
+export async function markLost(
+  kv: Deno.Kv,
+  token: string,
+  loserIds: string[],
+  ids: WebIds,
+  actor: WebActor = null,
+): Promise<AffectedReservation[]> {
+  const now = ids.nowIso();
+  const nowMs = Temporal.Instant.from(now).epochMilliseconds;
+  const affected: AffectedReservation[] = [];
+  for (const id of loserIds) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const entry = await kv.get<WebReservation>(key(token, id));
+      const parsed = webReservationSchema.safeParse(entry.value);
+      if (!parsed.success) break;
+      const cur = parsed.data;
+      if (cur.status !== "candidate" && cur.status !== "confirmed") break;
+      if (isFinished(cur, nowMs)) break;
+      const status = lostStatus(cur);
+      const done = await kv.atomic().check(entry)
+        .set(key(token, id), { ...cur, status, updated_at: now, updated_by: actor })
+        .commit();
+      if (done.ok) {
+        affected.push({ id, service: cur.service, status });
+        break;
+      }
+    }
+  }
+  return affected;
+}
+
 export interface MergeOutcome {
   reservation: WebReservation;
   /** Fields the kept reservation took from the removed one. */

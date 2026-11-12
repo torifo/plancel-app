@@ -2231,6 +2231,60 @@
     .dup-note span {
       flex: 1 1 180px;
     }
+    /* 同じ日程の宿を並べて比べる（#compareOverlay）。列 = 宿、行 = 比べる項目。項目名は
+       列をまたぐ1行にして、値の列を狭い画面でも広く取る。「こちらに決める」は名前の
+       すぐ下（最初の画面に入る位置）。 */
+    .cmp {
+      display: grid;
+      grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr));
+      gap: 0 14px;
+      margin-top: 12px;
+    }
+    .cmp-label {
+      grid-column: 1 / -1;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      font-size: calc(11.5px * var(--fs));
+      color: var(--soft);
+    }
+    .cmp-cell {
+      font-size: calc(13.5px * var(--fs));
+      line-height: 1.6;
+      overflow-wrap: anywhere;
+      padding-top: 2px;
+    }
+    .cmp-cell.name b {
+      font-size: calc(15px * var(--fs));
+    }
+    .cmp-cell.memo {
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+      white-space: pre-wrap;
+    }
+    .cmp-cell .sub {
+      display: block;
+      font-size: calc(11.5px * var(--fs));
+      color: var(--ink-2);
+    }
+    .cmp-good {
+      display: inline-block;
+      margin-left: 6px;
+      font-size: calc(11px * var(--fs));
+      font-weight: 700;
+      color: var(--safe-ink);
+      white-space: nowrap;
+    }
+    .cmp-cell.foot .okmark {
+      align-self: flex-start;
+    }
+    .cmp-cell.foot {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      margin-top: 8px;
+    }
     .resv .note {
       font-size: calc(12.5px * var(--fs));
       color: var(--ink-2);
@@ -3141,6 +3195,14 @@
       </div>
     </div>
 
+    <!-- 同じ日程の宿を比べる -->
+    <div class="overlay" id="compareOverlay">
+      <div class="modal" style="max-width:640px">
+        <div class="modal-head"><h3>同じ日程の宿を比べる</h3><button class="x" data-close>×</button></div>
+        <div id="cmpBody"></div>
+      </div>
+    </div>
+
     <!-- Invite / share modal -->
     <div class="overlay" id="inviteOverlay">
       <div class="modal" style="max-width:440px">
@@ -3564,6 +3626,239 @@
         : "";
       return `<div class="dup-note"><span>同じ日に同じ名前の予約がもう${others.length}件あります${who}。同じ予約なら1件にまとめられます。${why}</span>${btn}</div>`;
     }
+    // 同じ夜に重なっている別々の宿の組（オーナー 2026-11-12「おにやまホテルと白菊が
+    // 日付ブッキングしててどっちかを取るって比較をするのが理想」）。保存はせず、毎回
+    // 行から求める。知らせて比べられるようにするだけで、登録・確定は止めない。
+    // src/web/overlap.ts の写し — src/web/tests/overlap_mirror_test.ts が見張る。
+    function findOverlaps(rows) {
+      const DAY_MS = 86400000;
+      const dayOf = (ms) => Math.floor((ms + 9 * 3600000) / DAY_MS);
+      const dateOf = (day) => new Date(day * DAY_MS).toISOString().slice(0, 10);
+      const fold = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+      const stays = [];
+      for (const r of rows) {
+        if (r.status !== "candidate" && r.status !== "confirmed") continue;
+        const start = Date.parse(r.startsAt);
+        if (Number.isNaN(start)) continue;
+        const end = r.endsAt == null ? NaN : Date.parse(r.endsAt);
+        const first = dayOf(start);
+        const last = Number.isNaN(end) ? first : dayOf(end);
+        const kind = r.kind == null ? null : r.kind;
+        // 種類なしは、終わりが翌日以降なら宿（種類ができる前の宿はすべてこの形）。
+        if (kind !== null && kind !== "stay") continue;
+        if (kind === null && last <= first) continue;
+        stays.push({ r, a: first, b: Math.max(last, first + 1) });
+      }
+      stays.sort((x, y) => x.a - y.a || (x.r.id < y.r.id ? -1 : x.r.id > y.r.id ? 1 : 0));
+      const parent = stays.map((_, i) => i);
+      const root = (i) => parent[i] === i ? i : (parent[i] = root(parent[i]));
+      for (let i = 0; i < stays.length; i++) {
+        for (let j = i + 1; j < stays.length; j++) {
+          const x = stays[i], y = stays[j];
+          if (y.a >= x.b || x.a >= y.b) continue;
+          // 同じプランの候補は「どれか1つに」のカードが、同じ名前・同じ日は
+          // 「同じ予約かも」の囲みが受け持つ。
+          if (x.r.plan != null && x.r.plan === y.r.plan) continue;
+          if (x.a === y.a && fold(x.r.service) === fold(y.r.service)) continue;
+          parent[root(j)] = root(i);
+        }
+      }
+      const groups = new Map();
+      stays.forEach((st, i) => {
+        const k = root(i);
+        groups.set(k, [...(groups.get(k) || []), st]);
+      });
+      return [...groups.values()].filter((g) => g.length > 1).map((g) => ({
+        from: dateOf(Math.min(...g.map((st) => st.a))),
+        to: dateOf(Math.max(...g.map((st) => st.b))),
+        ids: g.map((st) => st.r.id),
+      }));
+    }
+    // 予約ID → 同じ組の全員（自分を含む）。render() が毎回作り直す。
+    let overlapOf = {};
+    function buildOverlaps(rows) {
+      overlapOf = {};
+      for (const g of findOverlaps(rows)) {
+        const members = g.ids.map((id) => rows.find((r) => r.id === id));
+        for (const r of members) overlapOf[r.id] = members;
+      }
+    }
+    const ownerNote = (r) => r.shared ? `（共有: ${esc(r.shared.ownerDisplayName)}）` : "";
+    function overlapHtml(r) {
+      const members = overlapOf[r.id];
+      if (!members) return "";
+      const names = members.filter((x) => x.id !== r.id)
+        .map((x) => `「${esc(x.service)}」${ownerNote(x)}`).join("・");
+      return `<div class="dup-note"><span>同じ日程に別の宿があります: ${names}。どちらか1つにするなら、並べて比べられます。</span><button class="rowbtn" data-compare="${r.id}">比べる</button></div>`;
+    }
+    // 「こちらに決める」で起きることを、押す前に言葉にする。確定と取り消しは持ち主だけ
+    // （サーバの決まり）なので、共有された予約は変わらず、誰に頼むかを言う。changes が
+    // 0 なら、この台帳で変わるものが無いのでボタンを出さない。
+    function chooseEffects(win, losers) {
+      const lines = [];
+      let changes = 0;
+      if (win.shared) {
+        if (win.status !== "confirmed") {
+          lines.push(`「${win.service}」は ${win.shared.ownerDisplayName} さんの予約です。確定は ${win.shared.ownerDisplayName} さんにお願いしてください。`);
+        }
+      } else if (win.status === "confirmed") {
+        lines.push(`「${win.service}」は確定済みのままです。`);
+      } else {
+        changes++;
+        lines.push(`「${win.service}」を確定します。`);
+        const sib = win.plan
+          ? data.filter((x) =>
+            !x.shared && x.id !== win.id && x.plan === win.plan &&
+            (x.status === "candidate" || x.status === "confirmed") &&
+            !losers.includes(x) && !isFinished(x, Date.now())
+          )
+          : [];
+        if (sib.length) {
+          lines.push(`同じプラン「${win.plan}」の他の ${sib.length}件も「要キャンセル」になります。`);
+        }
+      }
+      for (const r of losers) {
+        if (r.shared) {
+          lines.push(`「${r.service}」は ${r.shared.ownerDisplayName} さんの予約なので、この台帳では変わりません。取り消しは ${r.shared.ownerDisplayName} さんにお願いしてください。`);
+        } else if (unbooked(r)) {
+          changes++;
+          lines.push(`「${r.service}」は見送りになります。`);
+        } else {
+          changes++;
+          lines.push(`「${r.service}」は「要キャンセル」になります。宿への連絡はご自分でお願いします。`);
+        }
+      }
+      return { lines, changes };
+    }
+    function openCompare(id) {
+      const members = overlapOf[id];
+      if (!members) return;
+      const now = Date.now();
+      const cell = (cls, html) => `<div class="cmp-cell${cls ? " " + cls : ""}">${html}</div>`;
+      const line = (label, cells) => `<div class="cmp-label">${label}</div>${cells.join("")}`;
+      const priced = members.filter((r) => r.amount);
+      const cheapest = priced.length > 1 ? Math.min(...priced.map((r) => r.amount)) : null;
+      const allPriced = priced.length === members.length;
+      const dayTime = (r) => {
+        const ms = startMs(r);
+        const d = new Date(ms);
+        const t = (d.getHours() || d.getMinutes())
+          ? ` ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+          : "";
+        const tent = r.timeTentative ? (t ? "（仮）" : "（時刻未定）") : "";
+        const end = r.endsAt ? Date.parse(r.endsAt) : NaN;
+        return `${fmtDate(ms)}${t}${tent}${Number.isNaN(end) ? "" : ` 〜 ${fmtDate(end)}`}`;
+      };
+      const freeText = (r) => {
+        if (unbooked(r)) return "まだ予約していません";
+        if (unknownPolicy(r)) return "規定が不明";
+        if (alwaysFree(r)) return "いつでも無料";
+        const dl = freeDeadline(r);
+        if (dl === null) return "無料期間なし";
+        return dl > now
+          ? `${fmtDate(dl)} まで<span class="sub">あと${Math.max(1, Math.ceil((dl - now) / DAY))}日</span>`
+          : `${fmtDate(dl)} で終了`;
+      };
+      const feeNowText = (r) => {
+        if (unbooked(r)) return "¥0";
+        const pct = pctNow(r, now);
+        if (pct === null) return "不明";
+        if (!r.amount) return `${pct}%（金額未定）`;
+        return pct === 0 ? "¥0" : `${yen(Math.round(r.amount * pct / 100))}<span class="sub">${pct}%</span>`;
+      };
+      const status = (r) =>
+        r.status === "confirmed"
+          ? (unbooked(r) ? "これに決定（未予約）" : "確定済み")
+          : (unbooked(r) ? "候補（未予約）" : "候補");
+      const foot = members.map((r) => {
+        const fx = chooseEffects(r, members.filter((x) => x.id !== r.id));
+        if (fx.changes === 0) {
+          // 押しても変わらない列: いまの状態と、誰に何を頼むかだけを短く言う。
+          const asks = [
+            ...(r.shared && r.status !== "confirmed"
+              ? [`確定は ${r.shared.ownerDisplayName} さんにお願いしてください。`]
+              : []),
+            ...members.filter((x) => x.id !== r.id && x.shared).map((x) =>
+              `「${x.service}」の取り消しは ${x.shared.ownerDisplayName} さんにお願いしてください。`
+            ),
+          ];
+          return cell(
+            "foot",
+            (r.status === "confirmed" ? `<span class="okmark">✓ 確定済み</span>` : "") +
+              asks.map((t) => `<span class="sub">${esc(t)}</span>`).join(""),
+          );
+        }
+        return cell("foot", `<button class="rowbtn confirm" data-choose="${r.id}">こちらに決める</button>`);
+      });
+      const dls = members.filter((r) => !unbooked(r)).map(freeDeadline)
+        .filter((d) => d && d > now).sort((a, b) => a - b);
+      const late = members.some((r) => !unbooked(r) && (pctNow(r, now) || 0) > 0);
+      const decide = late
+        ? `<div class="decide-note">無料で取り消せる期限を過ぎた宿があります。取り消すと料金がかかる方を先に確かめてください。</div>`
+        : dls.length
+        ? `<div class="decide-note">⏳ 決めどきは <b>${fmtDate(dls[0])} まで</b> — この日までなら、どちらを取り消しても無料です。</div>`
+        : "";
+      const ms = members.map(startMs);
+      const ends = members.map((r) => r.endsAt ? Date.parse(r.endsAt) : NaN).filter((n) => !Number.isNaN(n));
+      const span = `${fmtDate(Math.min(...ms))}${ends.length ? `〜${fmtDate(Math.max(...ends))}` : ""}`;
+      const shared = members.some((r) => r.shared);
+      q("#cmpBody").innerHTML =
+        `<p class="hint" style="margin-bottom:0">${span} に宿が${members.length}件あります。</p>${decide}` +
+        `<div class="cmp" style="--n:${members.length}">` +
+        members.map((r) =>
+          cell(
+            "name",
+            `<b>${esc(r.service)}</b><span class="sub">${status(r)}${
+              r.shared ? ` · 共有: ${esc(r.shared.ownerDisplayName)}` : ""
+            }</span>`,
+          )
+        ).join("") +
+        foot.join("") +
+        line(
+          "金額",
+          members.map((r) =>
+            cell(
+              "",
+              r.amount
+                ? yen(r.amount) +
+                  (cheapest !== null && r.amount === cheapest
+                    ? (allPriced && priced.filter((x) => x.amount === cheapest).length === 1
+                      ? `<span class="cmp-good">いちばん安い</span>`
+                      : "")
+                    : (cheapest !== null ? `<span class="sub">＋${yen(r.amount - cheapest)}</span>` : ""))
+                : "金額未定",
+            )
+          ),
+        ) +
+        line("無料で取り消せる期限", members.map((r) => cell("", freeText(r)))) +
+        line("いま取り消すと", members.map((r) => cell("", feeNowText(r)))) +
+        line(
+          "キャンセル規定",
+          members.map((r) => cell("", unbooked(r) ? "—" : esc(describePolicy(r.policy)))),
+        ) +
+        line("日程", members.map((r) => cell("", dayTime(r)))) +
+        (members.some((r) => r.location)
+          ? line("場所", members.map((r) => cell("", r.location ? esc(r.location) : "—")))
+          : "") +
+        (members.some((r) => r.notes)
+          ? line("メモ", members.map((r) => cell("memo", r.notes ? esc(r.notes) : "—")))
+          : "") +
+        `</div>` +
+        (shared
+          ? `<p class="hint" style="margin:12px 0 0">確定と取り消しは、それぞれの予約の持ち主が行います。共有された予約はこの画面からは変わりません。</p>`
+          : "");
+      q("#cmpBody").querySelectorAll("[data-choose]").forEach((b) =>
+        b.onclick = () => {
+          const win = members.find((r) => r.id === b.dataset.choose);
+          const losers = members.filter((r) => r.id !== win.id);
+          const fx = chooseEffects(win, losers);
+          if (!confirm(`「${win.service}」に決めます。\n\n${fx.lines.join("\n")}\n\nよろしいですか？`)) return;
+          closeAll();
+          act("POST", `/api/reservations/${win.id}/choose`, { over: losers.map((r) => r.id) });
+        }
+      );
+      q("#compareOverlay").classList.add("on");
+    }
     // 予約の種類。宿に限らず、飛行機・特急・バス・車も同じ台帳で扱う（2026-11-12）。
     const KIND_LABEL2 = {
       stay: "宿",
@@ -3717,6 +4012,7 @@
         return;
       }
       buildLookAlikes(active);
+      buildOverlaps(active);
       const groups = {};
       active.forEach((r) => {
         const k = r.plan || ("__" + r.id);
@@ -3890,6 +4186,9 @@
             act("POST", `/api/reservations/${keep.id}/merge`, { from: b.dataset.mergeFrom });
           }
         }
+      );
+      document.querySelectorAll("[data-compare]").forEach((b) =>
+        b.onclick = () => openCompare(b.dataset.compare)
       );
       document.querySelectorAll("[data-booked]").forEach((b) =>
         b.onclick = () => act("PATCH", `/api/reservations/${b.dataset.booked}`, { booked: true })
@@ -4267,7 +4566,7 @@
         return `<div class="resv${off}">
         <div><div class="name"><b>${esc(r.service)}</b>${cut}</div><div class="sub">${sub}</div>${locLink}<div class="share-tag">共有: ${
           esc(r.shared.ownerDisplayName)
-        }${canEdit ? "・編集可" : ""}</div>${shareTools}</div>
+        }${canEdit ? "・編集可" : ""}</div>${shareTools}${overlapHtml(r)}</div>
         <div>${track}${cap}</div>
         <div class="ract"><button class="rowbtn" data-leave="${r.id}">脱退</button></div></div>`;
       }
@@ -4301,7 +4600,7 @@
       return `<div class="resv${off}">
         <div><div class="name">${kindTag(r)}<b>${esc(r.service)}</b>${
         unbooked(r) ? `<span class="tent">未予約</span>` : ""
-      }${cut}</div><div class="sub">${sub}</div>${locLink}${tools}${lookAlikeHtml(r)}</div>
+      }${cut}</div><div class="sub">${sub}</div>${locLink}${tools}${lookAlikeHtml(r)}${overlapHtml(r)}</div>
         <div>${track}${cap}</div>
         <div class="ract">${mainBtn}</div></div>`;
     }

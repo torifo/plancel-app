@@ -48,6 +48,7 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
     const names = tools.tools.map((t: { name: string }) => t.name).sort();
     assertEquals(names, [
       "cancel_reservation",
+      "choose_reservation",
       "confirm_reservation",
       "create_reservation",
       "delete_policy_template",
@@ -628,5 +629,37 @@ Deno.test("web-api MCP: merge_reservations folds one entry into another through 
     const { tools } = await client.listTools();
     const d = tools.find((t: { name: string }) => t.name === "merge_reservations")!.description!;
     assertStringIncludes(d, "ユーザーに確かめて");
+  });
+});
+
+Deno.test("web-api MCP: choose_reservation takes one stay over the others through the API", async () => {
+  const { calls, fetchFn } = scriptedApi(() => ({
+    status: 200,
+    json: {
+      reservation: ROW,
+      affected: [{ id: "R9", service: "別の宿", status: "to_cancel" }],
+      needsOwner: [{ id: "R7", service: "母の宿", ownerDisplayName: "母", need: "cancel" }],
+    },
+  }));
+  await withClient(fetchFn, async (client) => {
+    const out = parsed(
+      await client.callTool({
+        name: "choose_reservation",
+        arguments: { id: "R1", overIds: ["R9", "R7"] },
+      }),
+    );
+    assertEquals(out.needsOwner[0].need, "cancel");
+    assertEquals(calls[0]?.method, "POST");
+    assertEquals(calls[0]?.url, "https://plancel.test/api/reservations/R1/choose");
+    assertEquals(calls[0]?.body, { over: ["R9", "R7"] });
+    // No ids to drop → refused before the API is called.
+    const bad = await client.callTool({ name: "choose_reservation", arguments: { id: "R1" } });
+    assertEquals(bad.isError, true);
+    assertEquals(calls.length, 1);
+    const { tools } = await client.listTools();
+    const d = tools.find((t: { name: string }) => t.name === "choose_reservation")!.description!;
+    assertStringIncludes(d, "needsOwner");
+    const list = tools.find((t: { name: string }) => t.name === "list_reservations")!.description!;
+    assertStringIncludes(list, "overlaps");
   });
 });

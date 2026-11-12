@@ -12,6 +12,7 @@
 import { z } from "zod";
 import { readableInstantSchema, toInstantOrNull } from "../web/instant.ts";
 import { isFinished } from "../web/lifecycle.ts";
+import { findOverlaps } from "../web/overlap.ts";
 import {
   boundaryMs,
   describePolicy,
@@ -284,6 +285,54 @@ export function findPossibleDuplicates(rows: ApiReservation[]): PossibleDuplicat
   }));
 }
 
+/** Different stays held for the same night: the family will take one of them. */
+export interface OverlapSummary {
+  /** First night and the morning it ends, as JST dates. */
+  from: string;
+  to: string;
+  /**
+   * The earliest free-cancellation deadline still ahead among them: decide by
+   * then and whichever is dropped costs nothing. Null when none is ahead.
+   */
+  decideBy: string | null;
+  reservations: {
+    id: string;
+    service: string;
+    status: WebStatus;
+    amount: number | null;
+    freeUntil: string | null;
+    /** Whose it is when it is only shared with this user; null for their own. */
+    owner: string | null;
+  }[];
+}
+
+/** Stays among the shown rows that cover the same night (see src/web/overlap.ts). */
+export function summarizeOverlaps(rows: ApiReservation[], nowMs: number): OverlapSummary[] {
+  const live = rows.filter((r) => !isFinished(r, nowMs));
+  return findOverlaps(live).map((g) => {
+    const members = g.ids.map((id) => live.find((r) => r.id === id)!);
+    const deadlines = members
+      .map((r) => r.booked === false ? null : freeDeadlineMs(r.policy, r.startsAt))
+      .filter((d): d is number => d !== null && d > nowMs);
+    return {
+      from: g.from,
+      to: g.to,
+      decideBy: deadlines.length > 0 ? jstOfMs(Math.min(...deadlines)) : null,
+      reservations: members.map((r) => {
+        const d = r.booked === false ? null : freeDeadlineMs(r.policy, r.startsAt);
+        return {
+          id: r.id,
+          service: r.service,
+          status: r.status,
+          amount: r.amount,
+          freeUntil: d === null ? null : jstOfMs(d),
+          owner: r.shared?.ownerDisplayName ?? null,
+        };
+      }),
+    };
+  });
+}
+
 export function presentReservation(r: ApiReservation, nowMs: number): ModelReservation {
   const booked = r.booked !== false;
   // Nothing is held, so nothing can be lost by cancelling: no deadline, no fee.
@@ -365,6 +414,12 @@ export interface ModelList {
    * purpose. Absent when there is none.
    */
   possibleDuplicates?: PossibleDuplicate[];
+  /**
+   * Different stays covering the same night among the shown rows — two inns
+   * held for one evening, of which one will be taken. Never an error. Absent
+   * when there is none.
+   */
+  overlaps?: OverlapSummary[];
   reservations: ModelReservation[];
 }
 
@@ -439,6 +494,7 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
   const limited = out.slice(0, f.limit);
   const trips = summarizeTrips(shownRows);
   const duplicates = findPossibleDuplicates(shownRows);
+  const overlaps = summarizeOverlaps(shownRows, nowMs);
   return {
     total: rows.length,
     count: limited.length,
@@ -448,6 +504,7 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
       limited.filter((v) => v.policy === "unknown" && v.status !== "cancelled" && v.booked).length,
     ...(trips.length > 0 ? { trips } : {}),
     ...(duplicates.length > 0 ? { possibleDuplicates: duplicates } : {}),
+    ...(overlaps.length > 0 ? { overlaps } : {}),
     reservations: limited,
   };
 }

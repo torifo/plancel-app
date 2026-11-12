@@ -604,3 +604,116 @@ Deno.test("merge: my copy folds into the one shared with me — if I may edit it
     );
   });
 });
+
+Deno.test("choose: of two of my own stays, one is confirmed and the other waits to be cancelled", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const mk = async (body: Record<string, unknown>) =>
+      (await (await asUser(kv, ids, me, "POST", BASE, {
+        startsAt: "2026-12-19T15:00:00+09:00",
+        endsAt: "2026-12-20",
+        ...body,
+      })).json()).reservation;
+    const a = await mk({ service: "おにやまホテル", confirmed: true });
+    const b = await mk({ service: "ホテル白菊" });
+    const idea = await mk({ service: "まだ取っていない宿", booked: false });
+
+    const res = await asUser(kv, ids, me, "POST", `${BASE}/${b.id}/choose`, {
+      over: [a.id, idea.id],
+    });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.reservation.status, "confirmed");
+    assertEquals(out.needsOwner, []);
+    // The held one waits for the call to the inn; the idea is simply out.
+    assertEquals(
+      out.affected.map((x: { id: string; status: string }) => [x.id, x.status]),
+      [[a.id, "to_cancel"], [idea.id, "cancelled"]],
+    );
+    const rows = await listReservations(kv, me.ledgerId);
+    assertEquals(
+      Object.fromEntries(rows.map((r) => [r.service, r.status])),
+      {
+        "おにやまホテル": "to_cancel",
+        "ホテル白菊": "confirmed",
+        "まだ取っていない宿": "cancelled",
+      },
+    );
+
+    // Bad calls change nothing.
+    assertEquals(
+      (await asUser(kv, ids, me, "POST", `${BASE}/${b.id}/choose`, { over: [b.id] })).status,
+      400,
+    );
+    assertEquals(
+      (await asUser(kv, ids, me, "POST", `${BASE}/${b.id}/choose`, { over: ["NOPE"] })).status,
+      404,
+    );
+    assertEquals(
+      (await asUser(kv, ids, me, "POST", `${BASE}/${b.id}/choose`, { over: [] })).status,
+      400,
+    );
+  });
+});
+
+Deno.test("choose: what is only shared with me stays its owner's to settle, and I am told whom to ask", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const mom = await getOrCreateUserByEmail(kv, "mom@x.jp", ids);
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const stranger = await getOrCreateUserByEmail(kv, "other@x.jp", ids);
+    const hers = (await (await asUser(kv, ids, mom, "POST", BASE, {
+      service: "ホテル白菊",
+      startsAt: "2026-12-19T15:00:00+09:00",
+      endsAt: "2026-12-20",
+    })).json()).reservation;
+    const mine = (await (await asUser(kv, ids, me, "POST", BASE, {
+      service: "おにやまホテル",
+      startsAt: "2026-12-19T15:30:00+09:00",
+      endsAt: "2026-12-20",
+      confirmed: true,
+    })).json()).reservation;
+    // Not shared yet: hers is not mine to name at all.
+    assertEquals(
+      (await asUser(kv, ids, me, "POST", `${BASE}/${mine.id}/choose`, { over: [hers.id] })).status,
+      404,
+    );
+    await asUser(kv, ids, mom, "POST", `${BASE}/${hers.id}/members`, {
+      q: "me@x.jp",
+      role: "editor",
+    });
+
+    // Mine over hers: mine is already confirmed, hers is untouched even though I may edit it.
+    const keepMine = await (await asUser(kv, ids, me, "POST", `${BASE}/${mine.id}/choose`, {
+      over: [hers.id],
+    })).json();
+    assertEquals(keepMine.affected, []);
+    assertEquals(
+      keepMine.needsOwner.map((x: { id: string; need: string }) => [x.id, x.need]),
+      [[hers.id, "cancel"]],
+    );
+    assertEquals((await listReservations(kv, mom.ledgerId))[0]?.status, "candidate");
+
+    // Hers over mine: mine steps down here; confirming hers is asked of her.
+    const keepHers = await (await asUser(kv, ids, me, "POST", `${BASE}/${hers.id}/choose`, {
+      over: [mine.id],
+    })).json();
+    assertEquals(keepHers.reservation, undefined);
+    assertEquals(
+      keepHers.affected.map((x: { id: string; status: string }) => [x.id, x.status]),
+      [[mine.id, "to_cancel"]],
+    );
+    assertEquals(
+      keepHers.needsOwner.map((x: { id: string; need: string }) => [x.id, x.need]),
+      [[hers.id, "confirm"]],
+    );
+    assertEquals((await listReservations(kv, mom.ledgerId))[0]?.status, "candidate");
+    // Someone it is not shared with cannot name either.
+    assertEquals(
+      (await asUser(kv, ids, stranger, "POST", `${BASE}/${hers.id}/choose`, { over: [mine.id] }))
+        .status,
+      404,
+    );
+  });
+});
