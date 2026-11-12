@@ -303,13 +303,22 @@ export async function listReservations(kv: Deno.Kv, token: string): Promise<WebR
   return out;
 }
 
+/**
+ * One record, read through the schema so every key added since launch is there
+ * with its default (2026-11-13: shared rows were handed out raw, a record from
+ * before proposals had no `suggestion` key, and the ledger list failed with a
+ * 500 in production). A record the schema cannot read is returned as stored
+ * rather than dropped — a reservation must never vanish because it is old.
+ */
 export async function getReservation(
   kv: Deno.Kv,
   token: string,
   id: string,
 ): Promise<WebReservation | null> {
   const e = await kv.get<WebReservation>(key(token, id));
-  return e.value ?? null;
+  if (e.value === null) return null;
+  const parsed = webReservationSchema.safeParse(e.value);
+  return parsed.success ? parsed.data : e.value;
 }
 
 async function put(kv: Deno.Kv, token: string, r: WebReservation): Promise<void> {
