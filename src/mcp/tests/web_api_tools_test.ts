@@ -583,3 +583,40 @@ Deno.test("web-api MCP: endsAt says a date alone is enough", async () => {
     }
   });
 });
+
+Deno.test("web-api MCP: notes, trip and timeTentative travel to the API on create and update", async () => {
+  const { calls, fetchFn } = scriptedApi((method) =>
+    method === "GET"
+      ? { status: 200, json: { reservations: [] } }
+      : { status: 201, json: { reservation: ROW, policySource: "explicit" } }
+  );
+  await withClient(fetchFn, async (client) => {
+    await client.callTool({
+      name: "create_reservation",
+      arguments: {
+        service: "別府の宿",
+        startsAt: "2026-12-19T15:30:00+09:00",
+        endsAt: "2026-12-20",
+        notes: "夕朝食付き",
+        trip: "別府旅行",
+        timeTentative: true,
+      },
+    });
+    await client.callTool({
+      name: "update_reservation",
+      arguments: { id: "R1", timeTentative: false, notes: null },
+    });
+    const post = calls.find((c) => c.method === "POST")!.body as Record<string, unknown>;
+    assertEquals([post.notes, post.trip, post.timeTentative], ["夕朝食付き", "別府旅行", true]);
+    const patch = calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>;
+    assertEquals(patch, { timeTentative: false, notes: null });
+
+    const { tools } = await client.listTools();
+    const props = tools.find((t: { name: string }) => t.name === "create_reservation")!
+      .inputSchema.properties as Record<string, { description: string }>;
+    // The two groupings are told apart where the model chooses between them.
+    assertStringIncludes(props.trip!.description, "全部使う");
+    assertStringIncludes(props.plan!.description, "trip");
+    assertStringIncludes(props.timeTentative!.description, "仮");
+  });
+});

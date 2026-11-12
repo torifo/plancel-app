@@ -22,6 +22,29 @@ import { listSharedReservations } from "../sharing.ts";
  * Kept as this module's name for the same reading the store normalises with, so
  * a feed and the ledger can never disagree about what a timestamp meant.
  */
+/**
+ * The lines of a calendar event's description, shared by the ICS feed and
+ * Google Calendar so the two never say different things. `escape` is applied
+ * to the user's free text only (the trip name and the note); the other lines
+ * are written as they always were.
+ */
+export function descriptionLines(
+  r: WebReservation,
+  escape: (s: string) => string = (s) => s,
+): string[] {
+  return [
+    r.trip !== null ? `旅行: ${escape(r.trip)}` : null,
+    r.plan !== null ? `プラン: ${r.plan}` : null,
+    // The calendar shows the time as a fact; say so when it is a guess.
+    r.timeTentative ? "時刻は仮（確認前）" : null,
+    r.amount !== null ? `金額: ¥${r.amount.toLocaleString("ja-JP")}` : null,
+    // Never the raw policy: a custom stage table would print as JSON.
+    `キャンセル規定: ${describePolicy(r.policy)}`,
+    r.notes !== null ? `メモ: ${escape(r.notes)}` : null,
+    "plancel で管理されている予約",
+  ].filter((x): x is string => x !== null);
+}
+
 export function startsAtToInstant(startsAt: string): Temporal.Instant | null {
   return toInstantOrNull(startsAt);
 }
@@ -67,13 +90,7 @@ export function buildIcs(reservations: WebReservation[]): string {
     if (start === null) continue;
     const end = eventEndInstant(r, start);
     const stamp = startsAtToInstant(r.updated_at) ?? start;
-    const desc = [
-      r.plan !== null ? `プラン: ${r.plan}` : null,
-      r.amount !== null ? `金額: ¥${r.amount.toLocaleString("ja-JP")}` : null,
-      // Never the raw policy: a custom stage table would print as JSON.
-      `キャンセル規定: ${describePolicy(r.policy)}`,
-      "plancel で管理されている予約",
-    ].filter((x): x is string => x !== null).join("\\n");
+    const desc = descriptionLines(r, icsEscape).join("\\n");
     lines.push(
       "BEGIN:VEVENT",
       `UID:${icsEscape(r.id)}@plancel`,

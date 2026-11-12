@@ -87,18 +87,36 @@ const ENDS_AT_DESC =
   "終了日時（宿泊のチェックアウト日など、任意）。時刻が分からなければ日付だけでよい（例 2026-12-20）。" +
   "連泊・宿泊では必ず入れる — 無いと初日の終わりに「終わった予約」扱いになる";
 
+const NOTES_DESC =
+  "メモ（任意、2000字まで）。決まった欄に入らない情報を残す所: 食事の有無、含まれる券、人数と料金の単位" +
+  "（例「税込・家族4人合計」）、予約番号・予約サイト、規定の補足（例「連絡なし不泊は100%」）。ユーザーが言った" +
+  "補足は捨てずにここへ入れる";
+const TRIP_DESC =
+  "旅行名（任意）。同じ旅行で全部使う予約（宿・行きの便・帰りの便・食事など）をまとめる名前。plan とは別物: " +
+  "plan は1件だけ確定して残りをキャンセルする候補の束、trip はどれもキャンセルされない。両方付けてよい" +
+  "（例: trip=別府旅行 の中に plan=宿の候補）";
+const TIME_TENTATIVE_DESC =
+  "開始時刻が仮のとき true（「たぶん15時半ごろ」「時間は未定」など）。日付が確かなら時刻を仮に置いて登録し、" +
+  "これを true にする。まったく未定なら startsAt を日付だけにする（画面では「時刻未定」と出る）。" +
+  "時刻が確定したら update_reservation で false に戻す";
+
 const createInput = z.object({
   service: z.string().min(1).describe("お店・宿・サービス名"),
   startsAt: readableInstantSchema.describe(STARTS_AT_DESC),
   endsAt: readableInstantSchema.nullable().default(null).describe(ENDS_AT_DESC),
   plan: z.string().nullable().default(null).describe(
     "プラン名。同じ予定の候補（どちらにするか迷っている店・宿）を束ねる名前で、同じプラン名の中で確定できるのは1件。" +
-      "候補が1つだけの予約は省略してよい",
+      "候補が1つだけの予約は省略してよい。全部使う予約をまとめたいときは plan でなく trip を使う",
   ),
+  trip: z.string().max(60).nullable().default(null).describe(TRIP_DESC),
+  timeTentative: z.boolean().default(false).describe(TIME_TENTATIVE_DESC),
+  notes: z.string().max(2000).nullable().default(null).describe(NOTES_DESC),
   amount: z.number().int().min(0).nullable().default(null).describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().default(null).describe("場所（店名・住所、任意）"),
   policy: webPolicyInputSchema.default("unknown").describe(POLICY_DESC),
-  confirmed: z.boolean().default(false).describe("true で確定済みとして登録"),
+  confirmed: z.boolean().default(false).describe(
+    "true で確定済みとして登録（もう予約が取れているもの）。まだ取っていない・迷っているものは false のまま（候補）",
+  ),
   allowDuplicate: z.boolean().default(false).describe(
     "同じ店・同じ日の予約が既にあっても別件として登録する（既定 false: 既存の予約を返す）",
   ),
@@ -126,6 +144,11 @@ const patchInput = z.object({
   startsAt: readableInstantSchema.optional().describe(STARTS_AT_DESC),
   endsAt: readableInstantSchema.nullable().optional().describe(ENDS_AT_DESC + "。null で消す"),
   plan: z.string().nullable().optional().describe("プラン名（null で外す）"),
+  trip: z.string().max(60).nullable().optional().describe(TRIP_DESC + "。null で外す"),
+  timeTentative: z.boolean().optional().describe(TIME_TENTATIVE_DESC),
+  notes: z.string().max(2000).nullable().optional().describe(
+    NOTES_DESC + "。上書きになるので、足すときは既存のメモに続けて書く。null で消す",
+  ),
   amount: z.number().int().min(0).nullable().optional().describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().optional().describe("場所（店名・住所。null で消す）"),
   policy: webPolicyInputSchema.optional().describe(POLICY_DESC),
@@ -302,8 +325,8 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     description:
       "台帳の予約一覧。既定ではキャンセル済みと終わった予約を除く（除いた件数は hidden に出る）。count が" +
       "この応答の件数で、total は絞り込み（status / from / to / q）をかける前の台帳の全件数。開始が早い順に最大 50 件。日時は +09:00 表記。freeUntil が無料キャンセル期限" +
-      "（null なら規定不明などで見張れない。その件数が policyUnknown）、nextCharge.from が料金のかかり始める時刻、" +
-      "feeNow がいまキャンセルした場合の料率と金額。feeSchedule は料率表を日付にしたもの（until までは pct%）で、" +
+      "（null は期限が無いということ: 規定不明で見張れない＝その件数が policyUnknown、または「いつでも無料」「最初から有料」。policyText で見分ける）、nextCharge.from が料金のかかり始める時刻、" +
+      "feeNow がいまキャンセルした場合の料率と金額。feeSchedule は料率表を日付にしたもの（until までは pct%＝yen 円）で、" +
       "ユーザーに料金を説明するときは policyText の言い回しでなく feeSchedule の日付を使う",
     inputSchema: listFilterSchema.passthrough(),
   }, async (args: unknown) => {
@@ -418,7 +441,8 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     "update_reservation",
     {
       description:
-        "予約の内容（日時・金額・場所・プラン・規定）を編集する。確定済みの予約の変更は家族のカレンダーにも反映される",
+        "予約の内容（店名・日時・時刻が仮かどうか・金額・場所・プラン・旅行名・規定・メモ）を編集する。" +
+        "渡した項目だけが変わる。確定済みの予約の変更は家族のカレンダーにも反映される",
       inputSchema: patchInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {

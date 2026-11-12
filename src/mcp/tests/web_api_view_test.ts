@@ -25,6 +25,9 @@ function row(over: Partial<WebReservation> = {}): WebReservation {
     endsAt: null,
     amount: 30000,
     location: null,
+    notes: null,
+    timeTentative: false,
+    trip: null,
     policy: "staged",
     status: "candidate",
     created_at: "2026-10-01T00:00:00.000Z",
@@ -178,8 +181,8 @@ Deno.test("view: the fee schedule gives dates, so a gap in the wording cannot mi
     NOW,
   );
   assertEquals(v.feeSchedule, [
-    { until: "2026-12-10T23:59:59+09:00", pct: 0 },
-    { until: "2026-12-12T14:00:00+09:00", pct: 100 },
+    { until: "2026-12-10T23:59:59+09:00", pct: 0, yen: 0 },
+    { until: "2026-12-12T14:00:00+09:00", pct: 100, yen: 30000 },
   ]);
   // When the fee STARTS — the instant after the free deadline, not the deadline.
   assertEquals(v.freeUntil, "2026-12-10T23:59:59+09:00");
@@ -213,4 +216,41 @@ Deno.test("view: the same place on the same day is a possible duplicate even at 
   assertEquals(findSameDay(rows, "鮨 さいとう", "2026-12-19T23:30:00+09:00")?.id, "A");
   assertEquals(findSameDay(rows, "鮨さいとう", "2026-12-20T15:00:00+09:00"), null);
   assertEquals(findSameDay(rows, "別の店", "2026-12-19T15:00:00+09:00"), null);
+});
+
+Deno.test("view: notes, trip and the tentative-time flag reach the model, and trips can be listed", () => {
+  const rows = [
+    row({ id: "A", trip: "別府旅行", notes: "夕朝食付き", timeTentative: true }),
+    row({ id: "B", startsAt: "2026-12-21T10:00:00.000Z", trip: "別府 旅行" }),
+    row({ id: "C", startsAt: "2026-12-22T10:00:00.000Z" }),
+  ];
+  const a = presentReservation(rows[0]!, NOW);
+  assertEquals([a.trip, a.notes, a.timeTentative], ["別府旅行", "夕朝食付き", true]);
+  const c = presentReservation(rows[2]!, NOW);
+  assertEquals([c.trip, c.notes, c.timeTentative], [null, null, false]);
+  // Spacing aside, like every other name in the ledger.
+  const trip = presentList(rows, listFilterSchema.parse({ trip: "別府旅行" }), NOW);
+  assertEquals(trip.reservations.map((r) => r.id), ["A", "B"]);
+  // The free-text search reads the note and the trip name too.
+  assertEquals(
+    presentList(rows, listFilterSchema.parse({ q: "夕朝食" }), NOW).reservations.map((r) => r.id),
+    ["A"],
+  );
+});
+
+Deno.test("view: an end given as a date comes back as a date, and still holds the stay open that day", () => {
+  // Stored as midnight JST of the checkout day. Shown as "…T00:00:00+09:00" it
+  // read as "ends at midnight" — the end of the FIRST day (rehearsal, 2026-11-12).
+  const stay = row({ startsAt: "2026-12-19T06:30:00.000Z", endsAt: "2026-12-19T15:00:00.000Z" });
+  assertEquals(presentReservation(stay, NOW).endsAt, "2026-12-20");
+  // A real checkout time is shown as a time.
+  assertEquals(
+    presentReservation(row({ endsAt: "2026-12-20T01:00:00.000Z" }), NOW).endsAt,
+    "2026-12-20T10:00:00+09:00",
+  );
+  // The stay is not over on the morning of the checkout day…
+  assertEquals(presentReservation(stay, Date.parse("2026-12-20T00:30:00+09:00")).finished, false);
+  assertEquals(presentReservation(stay, Date.parse("2026-12-20T20:00:00+09:00")).finished, false);
+  // …and is once that day has ended.
+  assertEquals(presentReservation(stay, Date.parse("2026-12-21T00:30:00+09:00")).finished, true);
 });

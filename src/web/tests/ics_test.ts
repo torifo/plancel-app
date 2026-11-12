@@ -13,6 +13,9 @@ const resv = (over: Partial<WebReservation>): WebReservation => ({
   endsAt: null,
   amount: 8000,
   location: null,
+  notes: null,
+  timeTentative: false,
+  trip: null,
   policy: "free24",
   status: "confirmed",
   created_at: "2026-07-21T00:00:00.000Z",
@@ -128,4 +131,19 @@ Deno.test("calendar events run to the checkout, or an hour when there is none", 
       `endsAt=${bad} は1時間に落ちる`,
     );
   }
+});
+
+Deno.test("calendar: the trip, the note and a tentative time are written into the event", () => {
+  const ics = buildIcs([
+    resv({ trip: "別府旅行", notes: "夕朝食付き\n地獄めぐり券つき", timeTentative: true }),
+  ]);
+  assertStringIncludes(ics, "旅行: 別府旅行");
+  assertStringIncludes(ics, "メモ: 夕朝食付き");
+  assertStringIncludes(ics, "時刻は仮");
+  // A plain reservation gains none of the three lines.
+  const plain = buildIcs([resv({})]);
+  assertEquals(
+    plain.includes("旅行: ") || plain.includes("メモ: ") || plain.includes("時刻は仮"),
+    false,
+  );
 });

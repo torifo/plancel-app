@@ -1928,6 +1928,68 @@
         gap: 6px;
       }
     }
+    /* ═══ 旅行・メモ・仮の時刻（2026-11-12）═══ */
+    .trip {
+      border-left: 3px solid var(--lamp);
+      padding-left: 12px;
+      margin-bottom: 20px;
+    }
+    .trip .plan:last-child {
+      margin-bottom: 0;
+    }
+    .trip-head {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .trip-label {
+      font-size: calc(12px * var(--fs));
+      font-weight: 600;
+      color: var(--lamp-ink);
+      border: 1px solid var(--lamp);
+      border-radius: 999px;
+      padding: calc(1px * var(--fs)) calc(8px * var(--fs));
+    }
+    .trip-title {
+      font-weight: 700;
+      font-size: calc(16px * var(--fs));
+    }
+    .trip-note {
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+    }
+    .resv .note {
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+      line-height: 1.6;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin-top: 4px;
+    }
+    .tent {
+      display: inline-block;
+      margin-left: 6px;
+      font-size: calc(11.5px * var(--fs));
+      font-weight: 600;
+      color: var(--lamp-ink);
+      border: 1px dashed var(--lamp);
+      border-radius: 999px;
+      padding: 0 calc(7px * var(--fs));
+    }
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      cursor: pointer;
+    }
+    .check-row input {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 auto;
+    }
     /* ═══ ボタンの決まり（docs/design-system.md）═══
        大きさは標準と小の2つだけ、高さはどちらも 46px（押せる大きさの下限 44px に
        余裕を持たせる）、太さ 600、角丸は1種類。2026-11-11 に全 79 個を測ると文字
@@ -2402,6 +2464,11 @@
         <label>プラン名（例: 8月の宿）</label>
         <input id="f_plan" list="planList" placeholder="既存プラン名 or 新しいプラン名">
         <datalist id="planList"></datalist>
+        <div class="hint" style="margin:4px 0 0">プランは「どれか1つに決める候補」の束です。1つ確定すると残りは要キャンセルになります。</div>
+        <label>旅行名（任意）</label>
+        <input id="f_trip" list="tripList" maxlength="60" placeholder="例: 12月の別府旅行">
+        <datalist id="tripList"></datalist>
+        <div class="hint" style="margin:4px 0 0">同じ旅行で全部使う予約（宿・行き帰りの便・食事）をまとめます。プランと違い、どれもキャンセルにはなりません。</div>
         <label>お店・宿・サービス名 <span class="req">*</span></label>
         <input id="f_service" placeholder="例: 湖畔の湯宿 蛍">
         <label>場所（任意）</label>
@@ -2411,11 +2478,14 @@
           <div><label>予約日 <span class="req">*</span></label><input id="f_date" type="date"></div>
           <div><label>時刻</label><input id="f_time" type="time" value="18:00"></div>
         </div>
+        <label class="check-row"><input type="checkbox" id="f_tentative"> 時刻は仮（あとで確かめる）</label>
         <label>終了日（任意・連泊のとき）</label>
         <input id="f_end_date" type="date">
         <div class="hint" style="margin:4px 0 0">宿のチェックアウト日。入れると、その日が終わるまで台帳に残ります。空のままなら予約日で判定します。</div>
         <label>金額（円）</label>
         <input id="f_amount" type="number" min="0" step="1" inputmode="numeric" placeholder="例: 18000">
+        <label>メモ（任意）</label>
+        <textarea id="f_notes" rows="3" maxlength="2000" placeholder="例: 夕朝食付き。税込・家族4人合計。予約番号 ABC123。連絡なしの不泊は100%"></textarea>
         <label>キャンセル料</label>
         <div class="pol-modes" id="polModes">
           <button type="button" class="pol-mode" data-pol="unknown">不明（あとで）</button>
@@ -3182,6 +3252,9 @@
       q("#planList").innerHTML = [...new Set(data.map((r) => r.plan).filter(Boolean))].map((p) =>
         `<option value="${p}">`
       ).join("");
+      q("#tripList").innerHTML = [...new Set(data.map((r) => r.trip).filter(Boolean))].map((t) =>
+        `<option value="${esc(t)}">`
+      ).join("");
 
       const list = q("#list");
       if (active.length === 0 && finished.length === 0 && cancelled.length === 0) {
@@ -3206,7 +3279,7 @@
         const k = r.plan || ("__" + r.id);
         (groups[k] = groups[k] || []).push(r);
       });
-      list.innerHTML = Object.entries(groups).map(([k, rs]) => {
+      const cardHtml = ([, rs]) => {
         const isPlan = !!rs[0].plan;
         const title = isPlan ? rs[0].plan : rs[0].service;
         const settled = rs.some((r) => r.status === "confirmed");
@@ -3238,7 +3311,45 @@
         return `<div class="plan${settled ? " settled" : ""}${isPlan ? "" : " solo"}">${head}${
           rs.map(rowHtml).join("")
         }${decide}</div>`;
-      }).join("");
+      };
+      // 旅行の見出しでまとめる。プランは「1つに決める候補」、旅行は「全部使う予約」
+      // （宿・行き帰りの便・食事）で、別の束ね方（2026-11-12）。旅行の付いたカードは、
+      // その旅行で最初に出てくる位置に見出しごとまとめて並べる。付いていないカードは
+      // これまでどおりの順でそのまま。
+      const entries = Object.entries(groups);
+      const tripOf = (rs) => (rs.find((r) => r.trip) || {}).trip || null;
+      const seenTrips = new Set();
+      const blocks = [];
+      for (const e of entries) {
+        const t = tripOf(e[1]);
+        if (!t) {
+          blocks.push(cardHtml(e));
+          continue;
+        }
+        if (seenTrips.has(t)) continue;
+        seenTrips.add(t);
+        const members = entries.filter((x) => tripOf(x[1]) === t);
+        const all = members.flatMap((x) => x[1]);
+        const starts = all.map(startMs).filter((n) => !Number.isNaN(n));
+        const ends = all.map((r) => {
+          const e2 = r.endsAt ? Date.parse(r.endsAt) : NaN;
+          return Number.isNaN(e2) ? startMs(r) : e2;
+        }).filter((n) => !Number.isNaN(n));
+        let span = "";
+        if (starts.length) {
+          const a = fmtDate(Math.min(...starts));
+          const b = fmtDate(Math.max(...ends, ...starts));
+          span = a === b ? a : `${a}〜${b}`;
+        }
+        blocks.push(
+          `<section class="trip"><div class="trip-head"><span class="trip-label">旅行</span><span class="trip-title">${
+            esc(t)
+          }</span><span class="trip-note">${span ? span + " · " : ""}${all.length}件</span></div>${
+            members.map(cardHtml).join("")
+          }</section>`,
+        );
+      }
+      list.innerHTML = blocks.join("");
       // 台帳が空でも履歴があるなら「まだ予約がありません」の案内は出ていない。
       // 何も言わないと読み込み失敗のように見えるので、空である理由を書く。
       if (active.length === 0) {
@@ -3335,7 +3446,8 @@
         r.amount ? " · " + yen(r.amount) : ""
       }</div><span class="pill ${r.status}">${FINISHED_LABEL[r.status] || "終了"}</span>${shareTag}</div>
         <div class="sub" style="align-self:center">${
-        r.plan ? "プラン: " + esc(r.plan) : ""
+[r.trip ? "旅行: " + esc(r.trip) : "", r.plan ? "プラン: " + esc(r.plan) : ""].filter(Boolean)
+          .join(" · ")
       }</div>
         <div class="ract">${acts}</div></div>`;
     }
@@ -3353,7 +3465,8 @@
         r.amount ? " · " + yen(r.amount) : ""
       }</div><span class="pill cancelled">キャンセル済み</span>${shareTag}</div>
         <div class="sub" style="align-self:center">${
-        r.plan ? "プラン: " + esc(r.plan) : ""
+[r.trip ? "旅行: " + esc(r.trip) : "", r.plan ? "プラン: " + esc(r.plan) : ""].filter(Boolean)
+          .join(" · ")
       }</div>
         <div class="ract">${acts}</div></div>`;
     }
@@ -3609,10 +3722,16 @@
       const timeS = (d.getHours() || d.getMinutes())
         ? ` ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
         : "";
-      const sub = `${badStart ? BAD_START : fmtDate(start) + timeS} · ${
+      // 仮の時刻は確かな時刻と同じ見た目にしない（2026-11-12: 「たぶん15時半」が
+      // そのまま確定の時刻として並んでいた）。時刻が 0:00 のまま仮なら「時刻未定」。
+      const tent = r.timeTentative
+        ? `<span class="tent">${timeS ? "仮" : "時刻未定"}</span>`
+        : "";
+      const sub = `${badStart ? BAD_START : fmtDate(start) + timeS}${badStart ? "" : tent} · ${
         r.amount ? yen(r.amount) : "金額未定"
       }`;
-      const locLink = locationHtml(r);
+      const locLink = locationHtml(r) +
+        (r.notes ? `<div class="note">${esc(r.notes)}</div>` : "");
       const off = r.status === "to_cancel" ? " off" : "";
       const cut = r.status === "to_cancel" ? ` <span class="cut">✂ 要キャンセル</span>` : "";
       // 共有された予約（自分はメンバー）: オーナー表示名を行内に出す。編集を許された
@@ -4053,6 +4172,9 @@
       q("#f_plan").value = (r && r.plan) ? r.plan : "";
       q("#f_service").value = (r && r.service) ? r.service : "";
       q("#f_location").value = (r && r.location) ? r.location : "";
+      q("#f_trip").value = (r && r.trip) ? r.trip : "";
+      q("#f_notes").value = (r && r.notes) ? r.notes : "";
+      q("#f_tentative").checked = !!(r && r.timeTentative);
       // 読めない開始は空欄で開く。保存時の「予約日は必須」で選び直してもらう。
       const startAt = (r && r.startsAt) ? startMs(r) : Date.now() + 7 * DAY;
       const d = Number.isNaN(startAt) ? null : new Date(startAt);
@@ -4199,6 +4321,9 @@
       const plan = q("#f_plan").value.trim() || null;
       const amount = q("#f_amount").value ? Number(q("#f_amount").value) : null;
       const location = q("#f_location").value.trim() || null;
+      const trip = q("#f_trip").value.trim() || null;
+      const notes = q("#f_notes").value.trim() || null;
+      const timeTentative = q("#f_tentative").checked;
       const policy = readPolicy();
       const saveTpl = q("#tplSave").checked && !q("#tplSave").disabled;
       try {
@@ -4213,6 +4338,9 @@
             endsAt,
             amount,
             location,
+            trip,
+            notes,
+            timeTentative,
             policy,
           });
           if (wasCancelled) await api("POST", `/api/reservations/${editingId}/restore`);
@@ -4227,6 +4355,9 @@
             endsAt,
             amount,
             location,
+            trip,
+            notes,
+            timeTentative,
             policy,
             confirmed,
           });

@@ -5,8 +5,7 @@
  * that is what the `calendar.app.created` scope enforces server-side.
  */
 import type { WebReservation } from "../store.ts";
-import { describePolicy } from "../policy.ts";
-import { eventEndInstant, startsAtToInstant } from "./ics.ts";
+import { descriptionLines, eventEndInstant, startsAtToInstant } from "./ics.ts";
 
 const BASE = "https://www.googleapis.com/calendar/v3";
 export const PLANCEL_CALENDAR_SUMMARY = "plancel";
@@ -63,13 +62,7 @@ export async function ensureCalendar(deps: GcalDeps, current: string | null): Pr
 export function eventBody(r: WebReservation): Record<string, unknown> {
   const start = startsAtToInstant(r.startsAt);
   if (start === null) throw new GcalError(400, `unparseable startsAt: ${r.startsAt}`);
-  const desc = [
-    r.plan !== null ? `プラン: ${r.plan}` : null,
-    r.amount !== null ? `金額: ¥${r.amount.toLocaleString("ja-JP")}` : null,
-    // Never the raw policy: a custom stage table would print as JSON.
-    `キャンセル規定: ${describePolicy(r.policy)}`,
-    "plancel で管理されている予約",
-  ].filter((x): x is string => x !== null).join("\n");
+  const desc = descriptionLines(r).join("\n");
   return {
     summary: r.service,
     description: desc,

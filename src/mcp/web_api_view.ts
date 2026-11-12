@@ -32,6 +32,9 @@ export interface ApiReservation {
   endsAt: string | null;
   amount: number | null;
   location: string | null;
+  notes?: string | null;
+  timeTentative?: boolean;
+  trip?: string | null;
   policy: WebPolicy;
   status: WebStatus;
   shared?: { ownerDisplayName: string; role: string };
@@ -47,6 +50,12 @@ export interface ModelReservation {
   endsAt: string | null;
   amount: number | null;
   location: string | null;
+  /** The outing this belongs to (things that are all used), or null. */
+  trip: string | null;
+  /** True when the start time is a guess; the day is still firm. */
+  timeTentative: boolean;
+  /** Free-text note: what the fixed fields cannot hold. */
+  notes: string | null;
   policy: WebPolicy;
   /** The policy in words, as the app screen shows it (「7日前まで無料 → …」). */
   policyText: string;
@@ -64,7 +73,7 @@ export interface ModelReservation {
    * wording and names only each band's far edge — 「2日前まで無料 → 当日100%」
    * is 100% from the day before — so dates are what a model should quote.
    */
-  feeSchedule: { until: string; pct: number }[] | null;
+  feeSchedule: { until: string; pct: number; yen: number | null }[] | null;
   /**
    * What cancelling right now would cost: the rate in force and, when the
    * amount is known, the yen figure. Null when the policy is unknown.
@@ -109,16 +118,27 @@ function nextCharge(policy: WebPolicy, startsAt: string): { from: string; pct: n
 
 /** Each band of the policy as "through this instant, this rate". */
 function feeSchedule(
-  policy: WebPolicy,
-  startsAt: string,
-): { until: string; pct: number }[] | null {
-  const stages = stagesOf(policy);
-  const start = toInstantOrNull(startsAt);
+  r: ApiReservation,
+): { until: string; pct: number; yen: number | null }[] | null {
+  const stages = stagesOf(r.policy);
+  const start = toInstantOrNull(r.startsAt);
   if (stages === null || start === null) return null;
   return stages.map((s) => ({
     until: jstOfMs(boundaryMs(start.epochMilliseconds, s.h)),
     pct: s.pct,
+    yen: r.amount === null ? null : Math.round(r.amount * s.pct / 100),
   }));
+}
+
+/**
+ * An end as the model should read it. An end given as a bare date is stored as
+ * midnight JST of that day; shown with its time it reads as "ends at 0:00",
+ * which is the END of the day before. Only the day of an end matters to the
+ * ledger, so a midnight end goes back out as the date it came in as.
+ */
+function jstEnd(value: string): string {
+  const shown = jst(value);
+  return shown.endsWith("T00:00:00+09:00") ? shown.slice(0, 10) : shown;
 }
 
 /** The fee if cancelled at `nowMs` — the question 「いまキャンセルしたらいくら」. */
@@ -140,14 +160,17 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     startsAt: jst(r.startsAt),
     // `== null`: a row mirrored before the field existed has no `endsAt` at all,
     // and `undefined` would drop the key from the JSON the model reads.
-    endsAt: r.endsAt == null ? null : jst(r.endsAt),
+    endsAt: r.endsAt == null ? null : jstEnd(r.endsAt),
     amount: r.amount,
     location: r.location,
+    trip: r.trip ?? null,
+    timeTentative: r.timeTentative ?? false,
+    notes: r.notes ?? null,
     policy: r.policy,
     policyText: describePolicy(r.policy),
     freeUntil: deadline === null ? null : jstOfMs(deadline),
     nextCharge: nextCharge(r.policy, r.startsAt),
-    feeSchedule: feeSchedule(r.policy, r.startsAt),
+    feeSchedule: feeSchedule(r),
     feeNow: feeNow(r, nowMs),
     finished: isFinished(r, nowMs),
     ...(r.shared !== undefined ? { shared: r.shared } : {}),
@@ -163,8 +186,9 @@ export const listFilterSchema = z.object({
   ),
   to: readableInstantSchema.optional().describe("この日時まで（日付だけならその日いっぱい）"),
   q: z.string().optional().describe(
-    "店名・プラン名・場所に含まれる語（空白・全角半角・大小は同一視）",
+    "店名・プラン名・旅行名・場所・メモに含まれる語（空白・全角半角・大小は同一視）",
   ),
+  trip: z.string().optional().describe("この旅行名の予約だけ（空白・全角半角・大小は同一視）"),
   includeFinished: z.boolean().default(false).describe("終わった予約も含める（既定 false）"),
   sort: z.enum(["startsAt", "deadline"]).default("startsAt").describe(
     '並び順: "startsAt"（開始が早い順）/ "deadline"（無料キャンセル期限が近い順、期限なしは最後）',
@@ -204,6 +228,7 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
   // A date-only `to` means the whole of that day.
   const toMs = toRaw === null ? null : f.to!.includes("T") ? toRaw : endOfJstDay(toRaw);
   const q = f.q === undefined ? null : foldName(f.q);
+  const trip = f.trip === undefined ? null : foldName(f.trip);
   const out: ModelReservation[] = [];
   const hidden = { finished: 0, cancelled: 0 };
   for (const r of rows) {
@@ -225,10 +250,13 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
     if (toMs !== null && (startMs === null || startMs > toMs)) continue;
     if (
       q !== null &&
-      ![r.service, r.plan ?? "", r.location ?? ""].some((s) => foldName(s).includes(q))
+      ![r.service, r.plan ?? "", r.trip ?? "", r.location ?? "", r.notes ?? ""].some((s) =>
+        foldName(s).includes(q)
+      )
     ) {
       continue;
     }
+    if (trip !== null && foldName(r.trip ?? "") !== trip) continue;
     out.push(v);
   }
   const startKey = (v: ModelReservation) =>

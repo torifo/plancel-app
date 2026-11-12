@@ -44,6 +44,26 @@ export const webReservationSchema = z.object({
   amount: z.number().nullable(),
   // Optional venue (店名/住所). Defaulted so pre-2026-07-22 records still parse.
   location: z.string().nullable().default(null),
+  /**
+   * What the fixed fields cannot hold (first real Codex run, 2026-11-12): what
+   * is included, how many people the amount covers, a booking number, a
+   * no-show rule. One free-text note rather than a column for each — the ledger
+   * watches deadlines; it does not need to understand these, only keep them.
+   */
+  notes: z.string().nullable().default(null),
+  /**
+   * The start TIME is a guess (「チェックインはたぶん 15:30」). The day is what
+   * deadlines hang on, so a guessed time is safe to store — but it must not
+   * read as confirmed, on the screen or in the calendar.
+   */
+  timeTentative: z.boolean().default(false),
+  /**
+   * The outing this belongs to. NOT `plan`: a plan is alternatives of which one
+   * is confirmed and the rest are cancelled; a trip is things that are all
+   * used — the inn, the way there, the way back. Grouping only: nothing is
+   * settled or cancelled through it.
+   */
+  trip: z.string().nullable().default(null),
   policy: webPolicySchema,
   status: webStatusSchema,
   created_at: z.string(),
@@ -70,6 +90,12 @@ export type WebActor = string | null;
  */
 const yenSchema = z.number().int("金額は円の整数で").min(0, "金額は 0 以上で");
 
+/** Free text on write: trimmed, bounded, and an empty string is "none". */
+const textSchema = (max: number) =>
+  z.string().trim().max(max).transform((v) => (v === "" ? null : v)).nullable();
+const notesSchema = textSchema(2000);
+const tripSchema = textSchema(60);
+
 /** Fields a client may set on create; server owns id/status/timestamps. */
 export const webCreateSchema = z.object({
   plan: z.string().nullable().default(null),
@@ -80,6 +106,9 @@ export const webCreateSchema = z.object({
   endsAt: readableInstantSchema.nullable().default(null),
   amount: yenSchema.nullable().default(null),
   location: z.string().nullable().default(null),
+  notes: notesSchema.default(null),
+  timeTentative: z.boolean().default(false),
+  trip: tripSchema.default(null),
   policy: webPolicySchema.default("unknown"),
   confirmed: z.boolean().default(false),
 });
@@ -92,6 +121,9 @@ export const webPatchSchema = z.object({
   endsAt: readableInstantSchema.nullable().optional(),
   amount: yenSchema.nullable().optional(),
   location: z.string().nullable().optional(),
+  notes: notesSchema.optional(),
+  timeTentative: z.boolean().optional(),
+  trip: tripSchema.optional(),
   policy: webPolicySchema.optional(),
 });
 
@@ -206,10 +238,20 @@ async function put(kv: Deno.Kv, token: string, r: WebReservation): Promise<void>
   await kv.set(key(token, r.id), r);
 }
 
+/**
+ * What the create functions take: the parsed create body, with the fields added
+ * on 2026-11-12 optional. The intake routes that build this by hand (LINE, mail)
+ * have nothing to put in them, and should not have to say so one by one.
+ */
+type ParsedCreate = z.infer<typeof webCreateSchema>;
+export type WebCreateInput =
+  & Omit<ParsedCreate, "notes" | "timeTentative" | "trip">
+  & Partial<Pick<ParsedCreate, "notes" | "timeTentative" | "trip">>;
+
 export async function createReservation(
   kv: Deno.Kv,
   token: string,
-  input: z.infer<typeof webCreateSchema>,
+  input: WebCreateInput,
   ids: WebIds,
   actor: WebActor = null,
 ): Promise<WebReservation> {
@@ -220,7 +262,7 @@ export async function createReservation(
 export async function createReservationWithEffects(
   kv: Deno.Kv,
   token: string,
-  input: z.infer<typeof webCreateSchema>,
+  input: WebCreateInput,
   ids: WebIds,
   actor: WebActor = null,
 ): Promise<CreateOutcome> {
@@ -245,6 +287,9 @@ export async function createReservationWithEffects(
     endsAt: normalizeInstant(input.endsAt),
     amount: input.amount,
     location: input.location,
+    notes: input.notes ?? null,
+    timeTentative: input.timeTentative ?? false,
+    trip: input.trip ?? null,
     policy,
     // Confirm through confirmReservation below so create-with-confirmed uses
     // exactly the same transition validation and atomic plan settlement.
@@ -303,6 +348,9 @@ export async function patchReservation(
     ...(patch.endsAt !== undefined ? { endsAt: normalizeInstant(patch.endsAt) } : {}),
     ...(patch.amount !== undefined ? { amount: patch.amount } : {}),
     ...(patch.location !== undefined ? { location: patch.location } : {}),
+    ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+    ...(patch.timeTentative !== undefined ? { timeTentative: patch.timeTentative } : {}),
+    ...(patch.trip !== undefined ? { trip: patch.trip } : {}),
     ...(patch.policy !== undefined ? { policy: patch.policy } : {}),
     updated_at: ids.nowIso(),
     updated_by: actor,

@@ -771,3 +771,88 @@ Deno.test("web api: replace confirms the reservation the first choice turned to_
     assertEquals(cancelled.status, 409);
   });
 });
+
+// ---- notes / tentative time / trip (first real Codex run, 2026-11-12) ----
+
+Deno.test("web api: notes, trip and timeTentative are stored, edited, and default for old rows", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const full = await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        service: "別府の宿",
+        startsAt: "2026-12-19T15:30:00+09:00",
+        endsAt: "2026-12-20",
+        notes: "  夕朝食付き。税込・家族4人合計。連絡なし不泊は100%  ",
+        trip: " 別府旅行 ",
+        timeTentative: true,
+      }),
+      ids,
+    )).json();
+    assertEquals(full.reservation.notes, "夕朝食付き。税込・家族4人合計。連絡なし不泊は100%");
+    assertEquals(full.reservation.trip, "別府旅行");
+    assertEquals(full.reservation.timeTentative, true);
+
+    const bare = await (await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", { service: "鮨", startsAt: "2026-12-05T18:00:00+09:00", notes: "" }),
+      ids,
+    )).json();
+    assertEquals(
+      [bare.reservation.notes, bare.reservation.trip, bare.reservation.timeTentative],
+      [null, null, false],
+    );
+
+    // Edit: confirm the time, move it to another trip, clear the note.
+    const edited = await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${full.reservation.id}`, "t", {
+        timeTentative: false,
+        trip: "九州旅行",
+        notes: null,
+      }),
+      ids,
+    )).json();
+    assertEquals(
+      [edited.reservation.notes, edited.reservation.trip, edited.reservation.timeTentative],
+      [null, "九州旅行", false],
+    );
+    // An edit that does not mention them leaves them alone.
+    const untouched = await (await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${full.reservation.id}`, "t", { amount: 50000 }),
+      ids,
+    )).json();
+    assertEquals(untouched.reservation.trip, "九州旅行");
+
+    // Bounds.
+    const tooLong = await handleWebApi(
+      kv,
+      reqOf("POST", BASE, "t", {
+        service: "宿",
+        startsAt: "2026-12-19T15:00:00+09:00",
+        notes: "あ".repeat(2001),
+      }),
+      ids,
+    );
+    assertEquals(tooLong.status, 400);
+    assertEquals((await tooLong.json()).issues[0].path, ["notes"]);
+
+    // A row written before these fields existed still loads, with the defaults.
+    await kv.set(["web", "t", "resv", "OLD"], {
+      id: "OLD",
+      plan: null,
+      service: "昔の宿",
+      startsAt: "2026-12-30T06:00:00.000Z",
+      amount: null,
+      policy: "unknown",
+      status: "candidate",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    const list = (await (await handleWebApi(kv, reqOf("GET", BASE, "t"), ids)).json())
+      .reservations as Record<string, unknown>[];
+    const old = list.find((r) => r.id === "OLD")!;
+    assertEquals([old.notes, old.trip, old.timeTentative], [null, null, false]);
+  });
+});
