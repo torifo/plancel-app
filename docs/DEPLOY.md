@@ -335,12 +335,18 @@ Claude Desktop / Claude Code から本番の台帳を直接操作できる。
     台帳が返る。トークンは `$XDG_CONFIG_HOME/plancel/credentials.json`（無ければ `~/.config/plancel/`、
     `PLANCEL_CREDENTIALS` で上書き可）に **0600** で置かれ、API の URL ごとに分かれる。
     env の `PLANCEL_API_TOKEN` はファイルより優先（明示 ＞ 暗黙）。
-- **ツール**: 予約 7 ＋ 施設の既定規定 4 ＋ 共有 4 ＋ **承認 3**（`pair_with_plancel` / `pairing_status` /
+- **ツール**: 予約 7 ＋ 施設の既定規定 4 ＋ 共有 4 ＋ 画面を見る 1（`open_in_browser`）＋ **承認 3**（`pair_with_plancel` / `pairing_status` /
   `unpair_plancel`＝ローカルの資格情報を消すだけ。サーバ側の失効はマイページ）。承認 3 は未連携でも常に
   登録されている（クライアントのツール一覧キャッシュを揺らさないため）。API が 401 を返したら資格情報を
   捨てて「連携が解除されています」と返し、次の呼び出しで再ペアリングする。
 - **権限フラグ**: remote は `--allow-net=<host>` と資格情報ディレクトリへの `--allow-read/--allow-write`
   が要る。local は `--allow-read/--allow-write`（KV）。README の例は両方を載せている。
+- **画面を見るための閲覧専用セッション**（2026-11-12）: `open_in_browser` が `POST /auth/device/view-link`
+  （デバイストークンをヘッダで渡す。URL には入れない）を呼び、1回だけ使える 60 秒有効のリンクを返す。開くと
+  15 分の閲覧専用セッションが入る。このセッションは `viewOnlyGate`（`src/web/auth/routes.ts`、サーバの入口で
+  1回だけ通す許可リスト）により、台帳の読み取りと `/auth/me`（秘密の値を除いたもの）以外はすべて 403
+  `view_only`。元のデバイスをマイページで失効すると同時に切れる。既にログイン中のブラウザで開いても、その
+  セッションは置き換えない。
 - **どちらのモードで動いているか**（issue #3）: 両モードに `pairing_status` がある。remote は
   「接続先: 本番の台帳（アカウント）」、local は「接続先: ローカル KV のコア台帳（スマホには出ない）」と
   答える。local のツール説明はすべて「[ローカル台帳]」で始まる（`create_reservation` /

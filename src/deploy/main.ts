@@ -58,7 +58,13 @@ import { createLineClient } from "../line/client.ts";
 import { handleLineWebhook, type LineWebhookDeps } from "../line/webhook.ts";
 import { handleUserLookup, handleWebApi, isApiPath, isUsersLookupPath } from "../web/api.ts";
 import { handleParseApi, type ParseApiDeps } from "../web/parse-api.ts";
-import { type AuthDeps, handleAuthApi, isAuthPath, resolveIdentity } from "../web/auth/routes.ts";
+import {
+  type AuthDeps,
+  handleAuthApi,
+  isAuthPath,
+  resolveIdentity,
+  viewOnlyGate,
+} from "../web/auth/routes.ts";
 import type { AuthIds } from "../web/users.ts";
 import { findUserByEmail } from "../web/users.ts";
 import { handleCalendarFeed, isCalendarFeedPath } from "../web/calendar/ics.ts";
@@ -440,6 +446,9 @@ if (import.meta.main) {
 
   Deno.serve({ port: Number(env.get("PORT") ?? "8000") }, async (req) => {
     const url = new URL(req.url);
+    // A view-only session is checked once, here, before any route can see it.
+    const refused = await viewOnlyGate(req, authDeps);
+    if (refused !== null) return refused;
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return new Response(INDEX_HTML, { headers: htmlHeaders });
     }

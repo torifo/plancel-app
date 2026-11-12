@@ -55,17 +55,21 @@ import {
   findUserByGoogleSub,
   findUserByUid,
   getOrCreateUserByEmail,
+  getSession,
   getSessionUser,
   getUser,
   issueApiToken,
   issueLineLinkCode,
+  issueViewCode,
   LINE_CODE_TTL_MS,
   linkGoogle,
   listApiTokens,
   mailAddressFor,
   MIN_PUBLIC_UID_LEN,
   normalizeEmail,
+  openViewSession,
   RESERVED_UIDS,
+  resolveDeviceToken,
   revokeApiTokenById,
   rotateIcsSecret,
   rotateMailSecret,
@@ -77,6 +81,8 @@ import {
   uidSchema,
   unlinkLineUser,
   updateUser,
+  VIEW_LINK_TTL_MS,
+  VIEW_SESSION_TTL_MS,
   type WebUser,
 } from "../users.ts";
 import { seal, unseal } from "../../lib/seal.ts";
@@ -227,6 +233,40 @@ async function sessionResponse(
   return redirect(to, {
     "set-cookie": sessionSetCookie(sid, SESSION_TTL_MS / 1000, isSecureRequest(req)),
   });
+}
+
+/**
+ * The gate for a VIEW-ONLY session (owner 2026-11-12). Returns the refusal, or
+ * null when the request may go on — which includes every request that is not
+ * from a view-only session at all.
+ *
+ * A view session comes from a device token, and the rule is that it can never
+ * do more than that token: the token reads and writes reservations and nothing
+ * else, so the browser it opens may READ reservations and nothing else. It is
+ * an allowlist on purpose. Every route added later — a new write, a new
+ * identity operation — is refused until someone decides otherwise, instead of
+ * being open until someone remembers to close it. The server calls this once,
+ * before any routing.
+ */
+export async function viewOnlyGate(req: Request, deps: AuthDeps): Promise<Response | null> {
+  const sid = getCookie(req, SESSION_COOKIE);
+  if (sid === null) return null;
+  const session = await getSession(deps.kv, sid, deps.ids.nowMs());
+  if (session === null || session.view === null) return null;
+  const path = new URL(req.url).pathname;
+  const read = req.method === "GET" || req.method === "HEAD";
+  const auth = path === "/auth" || path.startsWith("/auth/");
+  const allowed =
+    // Leaving, and the page's own boot beacon (it reports a page that died).
+    (req.method === "POST" && (path === "/auth/logout" || path === "/api/beacon")) ||
+    // The page and its static files; of the account routes, only "who am I".
+    (read && !path.startsWith("/api/") && (!auth || path === "/auth/me")) ||
+    // The ledger, read.
+    (read &&
+      (path === "/api/reservations" || path.startsWith("/api/reservations/") ||
+        path === "/api/policy-templates" || path.startsWith("/api/policy-templates/")));
+  if (allowed) return null;
+  return json({ error: "view_only", message: "閲覧専用の表示です。変更はできません。" }, 403);
 }
 
 /** The logged-in user for a request (session cookie or dev bypass). */
@@ -439,9 +479,61 @@ export async function handleAuthApi(req: Request, deps: AuthDeps): Promise<Respo
     return await sessionResponse(deps, req, user.id, "/");
   }
 
+  // ---- view-only browser session (owner 2026-11-12) ----
+  // The PC asks with its device token (header, never the URL) and gets a link
+  // that works once, for a minute. The token is not in the link.
+  if (path === "/auth/device/view-link" && req.method === "POST") {
+    const token = req.headers.get("x-plancel-token")?.trim() ?? "";
+    const owner = token === "" ? null : await resolveDeviceToken(deps.kv, token);
+    if (owner === null) return json({ error: "not logged in" }, 401);
+    if (!(await attemptAllowed(deps.kv, `view:${owner.userId}`))) {
+      return json({ error: "rate limited" }, 429);
+    }
+    const code = await issueViewCode(deps.kv, owner.userId, owner.tokenId, deps.ids);
+    return json({
+      url: `${origin(req, deps)}/auth/view?c=${encodeURIComponent(code)}`,
+      expiresInSec: VIEW_LINK_TTL_MS / 1000,
+      sessionMinutes: VIEW_SESSION_TTL_MS / 60000,
+      viewOnly: true,
+    });
+  }
+  if (path === "/auth/view" && req.method === "GET") {
+    // A browser that is already signed in keeps its own session: the link must
+    // not downgrade it, nor switch it to another account's ledger.
+    if (await requestUser(req, deps) !== null) return redirect("/");
+    const sid = await openViewSession(deps.kv, url.searchParams.get("c") ?? "", deps.ids);
+    if (sid === null) return redirect("/?auth_error=view_link");
+    return redirect("/", {
+      "set-cookie": sessionSetCookie(sid, VIEW_SESSION_TTL_MS / 1000, isSecureRequest(req)),
+    });
+  }
+
   if (path === "/auth/me" && req.method === "GET") {
     const user = await requestUser(req, deps);
     if (user === null) return json({ error: "not logged in" }, 401);
+    const sid = getCookie(req, SESSION_COOKIE);
+    const session = sid === null ? null : await getSession(deps.kv, sid, deps.ids.nowMs());
+    if (session !== null && session.view !== null) {
+      // Who, and that it is view-only — and nothing a device token could not
+      // already see: no feed address, no mail address, no token list.
+      return json({
+        email: user.email,
+        displayName: user.displayName,
+        uid: user.uid,
+        viewOnly: true,
+        viewExpiresAt: Temporal.Instant.fromEpochMilliseconds(session.view.expiresAt).toString(),
+        google: false,
+        googleError: null,
+        icsPath: null,
+        mailAddress: null,
+        hasApiToken: false,
+        apiTokens: [],
+        line: { linked: false },
+        altEmail: null,
+        hasPassword: true,
+        emailVerified: true,
+      });
+    }
     // Admins additionally see the user count and the 100-user warning flag.
     const isAdmin = deps.adminEmails?.has(user.email) ?? false;
     const adminExtras = isAdmin

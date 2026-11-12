@@ -56,6 +56,7 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
       "list_reservation_members",
       "list_reservations",
       "lookup_policy_template",
+      "open_in_browser",
       "pair_with_plancel",
       "pairing_status",
       "restore_reservation",
@@ -445,42 +446,6 @@ Deno.test("web-api MCP: list_reservations answers in JST with deadlines, filtere
   });
 });
 
-Deno.test("web-api MCP: create_reservation returns the existing row instead of a second one (issue #5)", async () => {
-  const { calls, fetchFn } = scriptedApi((method) =>
-    method === "GET"
-      ? { status: 200, json: { reservations: [ROW] } }
-      : { status: 201, json: { reservation: { ...ROW, id: "R2" }, policySource: "explicit" } }
-  );
-  await withClient(fetchFn, async (client) => {
-    const dup = parsed(
-      await client.callTool({
-        name: "create_reservation",
-        arguments: { service: "鮨さいとう", startsAt: "2026-12-20T19:00:00+09:00" },
-      }),
-    );
-    assertEquals(dup.warning, "duplicate");
-    assertEquals(dup.reservation.id, "R1");
-    assertEquals(dup.reservation.startsAt, "2026-12-20T19:00:00+09:00");
-    assertEquals(calls.filter((c) => c.method === "POST").length, 0);
-
-    const forced = parsed(
-      await client.callTool({
-        name: "create_reservation",
-        arguments: {
-          service: "鮨さいとう",
-          startsAt: "2026-12-20T19:00:00+09:00",
-          endsAt: "2026-12-21T10:00:00+09:00",
-          allowDuplicate: true,
-        },
-      }),
-    );
-    assertEquals(forced.reservation.id, "R2");
-    const post = calls.find((c) => c.method === "POST")!;
-    assertEquals((post.body as { endsAt: string }).endsAt, "2026-12-21T10:00:00+09:00");
-    assertEquals("allowDuplicate" in (post.body as object), false);
-  });
-});
-
 Deno.test("web-api MCP: an API error code comes with a Japanese next step (issue #5)", async () => {
   const { fetchFn } = scriptedApi(() => ({ status: 404, json: { error: "user_not_found" } }));
   await withClient(fetchFn, async (client) => {
@@ -490,19 +455,6 @@ Deno.test("web-api MCP: an API error code comes with a Japanese next step (issue
     });
     assertEquals(r.isError, true);
     assertStringIncludes(parsed(r).hint, "未登録");
-  });
-});
-
-Deno.test("web-api MCP: a duplicate answer says nothing was created", async () => {
-  const { fetchFn } = scriptedApi(() => ({ status: 200, json: { reservations: [ROW] } }));
-  await withClient(fetchFn, async (client) => {
-    const dup = parsed(
-      await client.callTool({
-        name: "create_reservation",
-        arguments: { service: "鮨さいとう", startsAt: "2026-12-20T19:00:00+09:00" },
-      }),
-    );
-    assertEquals(dup.created, false);
   });
 });
 
@@ -546,28 +498,6 @@ Deno.test("web-api MCP: descriptions say how stages, plans and 要キャンセ�
     const confirm = tool("confirm_reservation").description!;
     assertStringIncludes(confirm, "お店に取り消しの連絡");
     assertStringIncludes(confirm, "cancel_reservation");
-  });
-});
-
-Deno.test("web-api MCP: a same-day booking at the same place is held back as a possible duplicate", async () => {
-  const { calls, fetchFn } = scriptedApi((method) =>
-    method === "GET"
-      ? { status: 200, json: { reservations: [ROW] } }
-      : { status: 201, json: { reservation: { ...ROW, id: "R2" }, policySource: "explicit" } }
-  );
-  await withClient(fetchFn, async (client) => {
-    // ROW is 12/20 19:00; the same place at 18:00 that day.
-    const held = parsed(
-      await client.callTool({
-        name: "create_reservation",
-        arguments: { service: "鮨さいとう", startsAt: "2026-12-20T18:00:00+09:00" },
-      }),
-    );
-    assertEquals(held.created, false);
-    assertEquals(held.warning, "possible_duplicate");
-    assertEquals(held.reservation.id, "R1");
-    assertStringIncludes(held.hint, "update_reservation");
-    assertEquals(calls.filter((c) => c.method === "POST").length, 0);
   });
 });
 
@@ -618,5 +548,62 @@ Deno.test("web-api MCP: notes, trip and timeTentative travel to the API on creat
     assertStringIncludes(props.trip!.description, "全部使う");
     assertStringIncludes(props.plan!.description, "trip");
     assertStringIncludes(props.timeTentative!.description, "仮");
+  });
+});
+
+Deno.test("web-api MCP: a look-alike is reported, never blocked (owner 2026-11-12)", async () => {
+  const { calls, fetchFn } = scriptedApi((method) =>
+    method === "GET"
+      ? { status: 200, json: { reservations: [ROW] } }
+      : { status: 201, json: { reservation: { ...ROW, id: "R2" }, policySource: "explicit" } }
+  );
+  await withClient(fetchFn, async (client) => {
+    // The same place at the same instant: a family may book it twice on purpose.
+    const same = parsed(
+      await client.callTool({
+        name: "create_reservation",
+        arguments: { service: "鮨さいとう", startsAt: "2026-12-20T19:00:00+09:00" },
+      }),
+    );
+    assertEquals(same.reservation.id, "R2");
+    assertEquals(same.warning, "duplicate");
+    assertEquals(same.similar.id, "R1");
+    assertStringIncludes(same.hint, "登録しました");
+
+    // The same place that day at another hour.
+    const sameDay = parsed(
+      await client.callTool({
+        name: "create_reservation",
+        arguments: { service: "鮨さいとう", startsAt: "2026-12-20T18:00:00+09:00" },
+      }),
+    );
+    assertEquals(sameDay.reservation.id, "R2");
+    assertEquals(sameDay.warning, "possible_duplicate");
+
+    // Nothing alike: no warning, no `similar`.
+    const other = parsed(
+      await client.callTool({
+        name: "create_reservation",
+        arguments: { service: "別の店", startsAt: "2026-12-20T19:00:00+09:00" },
+      }),
+    );
+    assertEquals([other.warning, other.similar], [undefined, undefined]);
+    assertEquals(calls.filter((c) => c.method === "POST").length, 3);
+  });
+});
+
+Deno.test("web-api MCP: open_in_browser asks the API for a one-use view link", async () => {
+  const { calls, fetchFn } = scriptedApi(() => ({
+    status: 200,
+    json: { url: "https://plancel.test/auth/view?c=abc", expiresInSec: 60, viewOnly: true },
+  }));
+  await withClient(fetchFn, async (client) => {
+    const out = parsed(await client.callTool({ name: "open_in_browser", arguments: {} }));
+    assertEquals(out.url, "https://plancel.test/auth/view?c=abc");
+    assertEquals(calls[0]?.method, "POST");
+    assertEquals(calls[0]?.url, "https://plancel.test/auth/device/view-link");
+    const { tools } = await client.listTools();
+    const d = tools.find((t: { name: string }) => t.name === "open_in_browser")!.description!;
+    assertStringIncludes(d, "閲覧専用");
   });
 });

@@ -1927,6 +1927,199 @@
         gap: 6px;
       }
     }
+    /* ═══ 閲覧専用の表示（2026-11-12）═══ */
+    .viewbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      border: 1px solid var(--lamp);
+      background: var(--lamp-soft);
+      color: var(--lamp-ink);
+      border-radius: 12px;
+      padding: 8px 14px;
+      margin-bottom: 14px;
+      font-size: calc(14px * var(--fs));
+      font-weight: 600;
+    }
+    /* ═══ カレンダー（日付の札から開く。2026-11-12）═══ */
+    .chip-btn {
+      min-height: var(--btn-h);
+      padding: 0 12px;
+      border-radius: var(--btn-r);
+      background: var(--card);
+      border: 1px solid var(--line);
+      color: var(--ink);
+      font-size: calc(14px * var(--fs));
+      font-weight: var(--btn-fw);
+      white-space: nowrap;
+    }
+    .chip-btn:hover {
+      border-color: var(--lamp);
+      color: var(--lamp-ink);
+    }
+    .cal-card {
+      max-width: 620px;
+      margin-bottom: 12px;
+    }
+    .cal-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .cal-title {
+      flex: 1 1 auto;
+      text-align: center;
+      font-weight: 700;
+      font-size: calc(17px * var(--fs));
+    }
+    .cal-week,
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 4px;
+    }
+    .cal-week {
+      margin-bottom: 4px;
+      text-align: center;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+    }
+    .cal-week .sun,
+    .cal-cell.sun .cal-num {
+      color: var(--danger-ink);
+    }
+    /* 日のマスは「標準・小」のボタンとは別の部品（7列の表）。高さは 52px 以上。 */
+    .cal-cell {
+      min-height: 52px;
+      padding: 4px 0 3px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 3px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      color: var(--ink);
+      font-size: calc(14px * var(--fs));
+    }
+    .cal-cell.blank {
+      pointer-events: none;
+    }
+    .cal-cell.has {
+      background: var(--card2);
+    }
+    .cal-cell.today {
+      border-color: var(--line);
+      font-weight: 700;
+    }
+    .cal-cell.sel {
+      border-color: var(--lamp);
+      background: var(--lamp-soft);
+    }
+    .cal-marks {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      min-height: 12px;
+      flex-wrap: wrap;
+    }
+    .cal-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      box-sizing: border-box;
+    }
+    .cal-dot.confirmed {
+      background: var(--safe);
+    }
+    .cal-dot.candidate {
+      border: 2px solid var(--lamp);
+    }
+    .cal-dot.to_cancel {
+      background: var(--danger);
+    }
+    .cal-dot.stay {
+      opacity: .45;
+    }
+    .cal-dl {
+      color: var(--lamp-ink);
+      font-size: calc(11px * var(--fs));
+      line-height: 1;
+    }
+    .cal-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+      margin-top: 12px;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+    }
+    .cal-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .cal-day-title {
+      font-weight: 700;
+      font-size: calc(16px * var(--fs));
+      margin-bottom: 8px;
+    }
+    .cal-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      min-height: var(--btn-h);
+      padding: 6px 0;
+      background: none;
+      border: none;
+      border-top: 1px solid var(--line);
+      border-radius: 0;
+      text-align: left;
+      color: var(--ink);
+      font-size: calc(14px * var(--fs));
+    }
+    .cal-item:first-of-type {
+      border-top: none;
+    }
+    .cal-item .what {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .cal-item .when {
+      color: var(--ink-2);
+      font-size: calc(12.5px * var(--fs));
+      white-space: nowrap;
+    }
+    /* スマホ幅では日のマスを 44px 以上にする。カードの左右の余白と列の間を詰めないと、
+       375px で 40px にしかならなかった（測って発覚）。 */
+    @media (max-width: 520px) {
+      .cal-card {
+        padding: 14px 6px;
+      }
+      .cal-week,
+      .cal-grid {
+        gap: 4px 0;
+      }
+      .cal-nav,
+      .cal-legend,
+      .cal-day-title,
+      .cal-item,
+      #calDay > .hint {
+        margin-left: 8px;
+        margin-right: 8px;
+      }
+      .cal-item {
+        width: auto;
+      }
+    }
     /* ═══ 旅行・メモ・仮の時刻（2026-11-12）═══ */
     .trip {
       border-left: 3px solid var(--lamp);
@@ -2173,7 +2366,7 @@
         <div class="logo-sub">予約整理アプリ</div>
       </div>
       <div class="top-right">
-        <span class="chip" id="todayChip"></span>
+        <button class="chip-btn" id="todayChip" aria-label="カレンダーを開く" title="カレンダーを開く"></button>
         <button class="theme-toggle" id="themeBtn" title="ライト/ダーク切替">◑</button>
         <button class="fs-toggle" id="fsBtn" aria-label="文字サイズ: 標準（押すと大きめ）" title="文字サイズ: 標準（押すと大きめ）">A</button>
         <button class="btn-primary" id="importBtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M12 5v14M5 12h14"></path></svg>取り込む</button>
@@ -2183,6 +2376,10 @@
     </div>
 
     <div class="wrap">
+      <div class="viewbar" id="viewOnlyBar" style="display:none" role="status">
+        <span id="viewOnlyText">閲覧専用で表示中。変更はできません。</span>
+        <button class="rowbtn" id="viewOnlyEnd">終了</button>
+      </div>
       <div id="ledgerView">
       <div class="databar" id="dataBar">
         <div class="txt"><b>自分のデータ</b>　ログイン中: <span id="meEmail">…</span></div>
@@ -2355,6 +2552,29 @@
       </section>
 
       <!-- 使い方: マイページと同じページビュー。LINE の /#help からも開く。 -->
+      <section id="calendarPage" style="display:none">
+        <div class="page-head">
+          <a class="back-link" id="calBack">‹ 台帳へ戻る</a>
+          <h2>カレンダー</h2>
+        </div>
+        <div class="pagecard cal-card">
+          <div class="cal-nav">
+            <button class="rowbtn" id="calPrev" aria-label="前の月">‹</button>
+            <div class="cal-title" id="calTitle" aria-live="polite"></div>
+            <button class="rowbtn" id="calNext" aria-label="次の月">›</button>
+            <button class="rowbtn" id="calToday">今月</button>
+          </div>
+          <div class="cal-week" aria-hidden="true"><span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+          <div class="cal-grid" id="calGrid"></div>
+          <div class="cal-legend" aria-hidden="true">
+            <span><i class="cal-dot confirmed"></i>確定</span>
+            <span><i class="cal-dot candidate"></i>候補</span>
+            <span><i class="cal-dot to_cancel"></i>要キャンセル</span>
+            <span><span class="cal-dl">◆</span>無料キャンセル期限</span>
+          </div>
+        </div>
+        <div class="pagecard cal-card" id="calDay"></div>
+      </section>
       <section id="helpPage" style="display:none">
         <div class="page-head">
           <a class="back-link" id="helpBack">‹ 台帳へ戻る</a>
@@ -2909,6 +3129,7 @@
       "invalid facility name": "施設名が正しくありません。",
       user_not_found: "その相手が見つかりませんでした。メールアドレスかユーザーIDをご確認ください。",
       cannot_share_with_self: "自分自身には共有できません。",
+      view_only: "閲覧専用の表示です。変更はできません。",
       "login required": LINE_RELOAD,
       "not logged in": LINE_RELOAD,
       reauth: "確認のため、もう一度ログインしてください。",
@@ -2984,7 +3205,9 @@
       return BUILD;
     }
     const viewName = () =>
-      q("#helpPage").style.display !== "none"
+      q("#calendarPage").style.display !== "none"
+        ? "calendar"
+        : q("#helpPage").style.display !== "none"
         ? "help"
         : q("#profilePage").style.display !== "none"
         ? "profile"
@@ -3260,6 +3483,8 @@
 
     function render() {
       renderLoadState();
+      // カレンダーを開いたまま台帳が読み直されたら、表も新しい中身にする。
+      if (q("#calendarPage").style.display !== "none") renderCalendar();
       q("#dataBar").style.display = viewingDemo ? "none" : "flex";
       q("#demoBar").classList.toggle("on", viewingDemo);
       if (ME) q("#meEmail").textContent = ME.email;
@@ -5510,14 +5735,159 @@
     q("#todayChip").textContent = fmtDate(Date.now());
     // 台帳 / マイページ / 使い方 のページ切替（どれもモーダルではなくページ）
     function setView(view) {
-      const profile = view === "profile", help = view === "help";
-      q("#ledgerView").style.display = (profile || help) ? "none" : "";
+      const profile = view === "profile", help = view === "help", cal = view === "calendar";
+      q("#ledgerView").style.display = (profile || help || cal) ? "none" : "";
       q("#profilePage").style.display = profile ? "" : "none";
       q("#helpPage").style.display = help ? "" : "none";
-      q("#bnLedger").classList.toggle("active", !profile && !help);
+      q("#calendarPage").style.display = cal ? "" : "none";
+      q("#bnLedger").classList.toggle("active", !profile && !help && !cal);
       q("#bnProfile").classList.toggle("active", profile);
+      if (cal) renderCalendar();
       scrollTo({ top: 0 });
     }
+
+    // ---- カレンダー（上の日付の札から開く。オーナー 2026-11-12）----
+    // 台帳は「期限が近い順」に並ぶので、「その日・その週に何があるか」は読みにくい。
+    // 月の表に、予約のある日（泊まりは最終日まで）と無料キャンセル期限の日を印で出し、
+    // 日を押すとその日の中身を下に並べる。見るための画面で、ここから変更はしない
+    // （行を押すと台帳のその予約へ移る）。日付は台帳と同じく端末の時刻で数える。
+    let calMonth = null;
+    let calSel = null;
+    const calKey = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const midnight = (ms) => {
+      const d = new Date(ms);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+    function calEvents() {
+      const map = {};
+      const add = (ms, ev) => {
+        if (ms == null || Number.isNaN(ms)) return;
+        const k = calKey(new Date(ms));
+        (map[k] = map[k] || []).push(ev);
+      };
+      for (const r of data) {
+        if (r.status === "cancelled") continue;
+        const s = startMs(r);
+        if (Number.isNaN(s)) continue;
+        const e = r.endsAt ? Date.parse(r.endsAt) : NaN;
+        const lastDay = midnight(Number.isNaN(e) || e < s ? s : e).getTime();
+        const day = midnight(s);
+        // 泊まりは開始日から終了日まで毎日（上限は念のため 60 日）。
+        for (let i = 0; day.getTime() <= lastDay && i < 60; i++) {
+          add(day.getTime(), { kind: i === 0 ? "start" : "stay", r, last: day.getTime() === lastDay });
+          day.setDate(day.getDate() + 1);
+        }
+        add(freeDeadline(r), { kind: "deadline", r });
+      }
+      return map;
+    }
+    const CAL_STATUS = { candidate: "候補", confirmed: "確定", to_cancel: "要キャンセル" };
+    function renderCalendar() {
+      const now = new Date();
+      if (!calMonth) {
+        calMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        calSel = calKey(now);
+      }
+      const ev = calEvents();
+      const y = calMonth.getFullYear(), m = calMonth.getMonth();
+      q("#calTitle").textContent = `${y}年${m + 1}月`;
+      const lead = new Date(y, m, 1).getDay();
+      const days = new Date(y, m + 1, 0).getDate();
+      const todayK = calKey(now);
+      let cells = "";
+      for (let i = 0; i < lead; i++) cells += `<div class="cal-cell blank"></div>`;
+      for (let d = 1; d <= days; d++) {
+        const k = `${y}-${m}-${d}`;
+        const list = ev[k] || [];
+        const resv = list.filter((x) => x.kind !== "deadline");
+        const hasDl = list.some((x) => x.kind === "deadline");
+        const dots = resv.slice(0, 3).map((x) =>
+          `<i class="cal-dot ${x.r.status}${x.kind === "stay" ? " stay" : ""}"></i>`
+        ).join("");
+        const cls = [
+          "cal-cell",
+          list.length ? "has" : "",
+          k === todayK ? "today" : "",
+          k === calSel ? "sel" : "",
+          new Date(y, m, d).getDay() === 0 ? "sun" : "",
+        ].filter(Boolean).join(" ");
+        const label = `${m + 1}月${d}日` + (resv.length ? ` 予約${resv.length}件` : "") +
+          (hasDl ? " 無料キャンセル期限あり" : "");
+        cells += `<button type="button" class="${cls}" data-day="${k}" aria-label="${label}"${
+          k === calSel ? ' aria-pressed="true"' : ""
+        }><span class="cal-num">${d}</span><span class="cal-marks">${dots}${
+          hasDl ? `<span class="cal-dl">◆</span>` : ""
+        }</span></button>`;
+      }
+      q("#calGrid").innerHTML = cells;
+
+      // 選んでいる日の中身
+      const [sy, sm, sd] = (calSel || todayK).split("-").map(Number);
+      const selDate = new Date(sy, sm, sd);
+      const list = ev[calKey(selDate)] || [];
+      const hm = (ms) => {
+        const d = new Date(ms);
+        return (d.getHours() || d.getMinutes())
+          ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+          : "";
+      };
+      const order = { deadline: 0, start: 1, stay: 2 };
+      const items = [...list].sort((a, b) =>
+        order[a.kind] - order[b.kind] || startMs(a.r) - startMs(b.r)
+      ).map((x) => {
+        const r = x.r;
+        if (x.kind === "deadline") {
+          return `<button type="button" class="cal-item" data-goto="${r.id}"><span class="cal-dl">◆</span><span class="what"><b>${
+            esc(r.service)
+          }</b> の無料キャンセル期限</span><span class="when">この日まで ¥0</span></button>`;
+        }
+        const when = x.kind === "start"
+          ? (hm(startMs(r)) || (r.timeTentative ? "時刻未定" : "")) +
+            (r.timeTentative && hm(startMs(r)) ? "（仮）" : "")
+          : (x.last ? "この日まで" : "滞在中");
+        return `<button type="button" class="cal-item" data-goto="${r.id}"><i class="cal-dot ${r.status}${
+          x.kind === "stay" ? " stay" : ""
+        }"></i><span class="what"><b>${esc(r.service)}</b>${
+          r.trip ? ` <span class="when">${esc(r.trip)}</span>` : ""
+        }</span><span class="when">${[when, CAL_STATUS[r.status] || ""].filter(Boolean).join(" · ")}</span></button>`;
+      }).join("");
+      q("#calDay").innerHTML = `<div class="cal-day-title">${fmtDate(selDate.getTime())}</div>` +
+        (items || `<div class="hint" style="margin:0">この日の予約や期限はありません。</div>`);
+    }
+    q("#todayChip").onclick = () => {
+      calMonth = null; // 開くたびに今月・今日から
+      setView("calendar");
+    };
+    q("#calBack").onclick = () => setView("ledger");
+    q("#calPrev").onclick = () => {
+      calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1);
+      renderCalendar();
+    };
+    q("#calNext").onclick = () => {
+      calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1);
+      renderCalendar();
+    };
+    q("#calToday").onclick = () => {
+      calMonth = null;
+      renderCalendar();
+    };
+    q("#calGrid").onclick = (e) => {
+      const b = e.target.closest("[data-day]");
+      if (!b) return;
+      calSel = b.dataset.day;
+      renderCalendar();
+    };
+    q("#calDay").onclick = (e) => {
+      const b = e.target.closest("[data-goto]");
+      if (!b) return;
+      setView("ledger");
+      const row = document.querySelector(
+        `[data-edit="${b.dataset.goto}"], [data-leave="${b.dataset.goto}"]`,
+      );
+      const card = row && (row.closest(".resv") || row);
+      if (card) card.scrollIntoView({ block: "center" });
+    };
     q("#profileBack").onclick = () => setView("ledger");
     const KIND_LABEL = { error: "不具合", request: "要望", system: "自動検知" };
     const jst = (iso) => {
@@ -5785,6 +6155,7 @@
       capacity: "現在、新規アカウントの受付を停止しています（定員に達しました）。管理者にお問い合わせください。",
       email_taken: "そのメールアドレスのアカウントが既にあります。メールアドレス＋パスワードでログインし、マイページから Google を紐付けてください。",
       google_taken: "その Google アカウントは別のアカウントに紐付いています。",
+      view_link: "この閲覧用リンクは使用済みか、期限が切れています。もう一度リンクを出してください。",
     };
     async function boot() {
       const err = new URLSearchParams(location.search).get("auth_error");
@@ -5806,6 +6177,24 @@
       }
       ME = await res.json();
       q("#loginOverlay").classList.remove("on");
+      // 閲覧専用のセッション（PC の確認用リンクから開いたもの）。変更は全部サーバが
+      // 断るので、押してから知るのではなく最初に言っておく。
+      if (ME.viewOnly) {
+        const until = ME.viewExpiresAt ? new Date(ME.viewExpiresAt) : null;
+        const hhmm = until && !Number.isNaN(until.getTime())
+          ? `（${String(until.getHours()).padStart(2, "0")}:${
+            String(until.getMinutes()).padStart(2, "0")
+          } まで）`
+          : "";
+        q("#viewOnlyText").textContent = `閲覧専用で表示中${hhmm}。変更はできません。`;
+        q("#viewOnlyBar").style.display = "";
+        q("#viewOnlyEnd").onclick = async () => {
+          try {
+            await fetch("/auth/logout", { method: "POST" });
+          } catch (e) {}
+          location.reload();
+        };
+      }
       // 使い方は マイページ を開かずにも読めるので、転送メールの節と「入れ方は N 通り」
       // はログイン直後にそろえておく。
       renderMailFeature();

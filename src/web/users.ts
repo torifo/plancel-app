@@ -791,7 +791,23 @@ export async function deleteAccount(
 
 // ---------- sessions ----------
 
-const sessionSchema = z.object({ userId: z.string(), expiresAt: z.number() });
+/**
+ * `view` marks a VIEW-ONLY session (owner 2026-11-12): one opened from a
+ * device token so a coding agent's browser can look at the ledger it already
+ * reaches through MCP. It names the token it came from, and lives only as long
+ * as that token does.
+ */
+const sessionSchema = z.object({
+  userId: z.string(),
+  expiresAt: z.number(),
+  view: z.object({ tokenId: z.string() }).optional(),
+});
+
+/** How long a view-only session lasts. Short: it is for a look, not for living in. */
+export const VIEW_SESSION_TTL_MS = 15 * 60 * 1000;
+/** How long the one-use link that opens it stays good. */
+export const VIEW_LINK_TTL_MS = 60 * 1000;
+const VIEW_CODE = "viewcode";
 
 export async function createSession(kv: Deno.Kv, userId: string, ids: AuthIds): Promise<string> {
   const sid = ids.randomToken();
@@ -801,19 +817,104 @@ export async function createSession(kv: Deno.Kv, userId: string, ids: AuthIds): 
   return sid;
 }
 
+export interface SessionInfo {
+  user: WebUser;
+  /** Set for a view-only session: when it ends. */
+  view: { tokenId: string; expiresAt: number } | null;
+}
+
+/** The session behind a cookie, or null when it is gone, expired, or orphaned. */
+export async function getSession(
+  kv: Deno.Kv,
+  sid: string,
+  nowMs: number,
+): Promise<SessionInfo | null> {
+  const e = await kv.get([SESSION, sid]);
+  const parsed = sessionSchema.safeParse(e.value);
+  if (!parsed.success) return null;
+  const { userId, expiresAt, view } = parsed.data;
+  if (expiresAt <= nowMs) {
+    await kv.delete([SESSION, sid]);
+    return null;
+  }
+  if (view !== undefined) {
+    // A view session is the token's shadow: revoke the device on マイページ and
+    // the browser it opened is signed out with it.
+    if ((await kv.get([APITOKEN_BY_USER, userId, view.tokenId])).value === null) {
+      await kv.delete([SESSION, sid]);
+      return null;
+    }
+  }
+  const user = await getUser(kv, userId);
+  if (user === null) return null;
+  return { user, view: view === undefined ? null : { tokenId: view.tokenId, expiresAt } };
+}
+
 export async function getSessionUser(
   kv: Deno.Kv,
   sid: string,
   nowMs: number,
 ): Promise<WebUser | null> {
-  const e = await kv.get([SESSION, sid]);
-  const parsed = sessionSchema.safeParse(e.value);
+  return (await getSession(kv, sid, nowMs))?.user ?? null;
+}
+
+/**
+ * Who a device token belongs to, with the token's id. Null for an unknown
+ * token and for a legacy one that has no id (it cannot anchor a view session).
+ */
+export async function resolveDeviceToken(
+  kv: Deno.Kv,
+  token: string,
+): Promise<{ userId: string; tokenId: string } | null> {
+  const parsed = apiTokenRefSchema.safeParse((await kv.get([APITOKEN, token])).value);
+  if (!parsed.success || typeof parsed.data === "string") return null;
+  return parsed.data;
+}
+
+/** A one-use code that opens a view-only session for `userId` (60 seconds). */
+export async function issueViewCode(
+  kv: Deno.Kv,
+  userId: string,
+  tokenId: string,
+  ids: AuthIds,
+): Promise<string> {
+  const code = ids.randomToken();
+  await kv.set([VIEW_CODE, code], { userId, tokenId, expiresAt: ids.nowMs() + VIEW_LINK_TTL_MS }, {
+    expireIn: VIEW_LINK_TTL_MS,
+  });
+  return code;
+}
+
+const viewCodeSchema = z.object({
+  userId: z.string(),
+  tokenId: z.string(),
+  expiresAt: z.number(),
+});
+
+/**
+ * Spends a view code and opens the session. The delete is checked against the
+ * entry that was read, so two browsers racing on one link cannot both win.
+ */
+export async function openViewSession(
+  kv: Deno.Kv,
+  code: string,
+  ids: AuthIds,
+): Promise<string | null> {
+  if (code === "") return null;
+  const entry = await kv.get([VIEW_CODE, code]);
+  const parsed = viewCodeSchema.safeParse(entry.value);
   if (!parsed.success) return null;
-  if (parsed.data.expiresAt <= nowMs) {
-    await kv.delete([SESSION, sid]);
-    return null;
-  }
-  return await getUser(kv, parsed.data.userId);
+  const spent = await kv.atomic().check(entry).delete([VIEW_CODE, code]).commit();
+  if (!spent.ok || parsed.data.expiresAt <= ids.nowMs()) return null;
+  const { userId, tokenId } = parsed.data;
+  if ((await kv.get([APITOKEN_BY_USER, userId, tokenId])).value === null) return null;
+  const sid = ids.randomToken();
+  await kv.set([SESSION, sid], {
+    userId,
+    expiresAt: ids.nowMs() + VIEW_SESSION_TTL_MS,
+    view: { tokenId },
+  }, { expireIn: VIEW_SESSION_TTL_MS });
+  return sid;
 }
 
 export async function deleteSession(kv: Deno.Kv, sid: string): Promise<void> {

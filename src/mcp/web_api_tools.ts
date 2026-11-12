@@ -117,9 +117,6 @@ const createInput = z.object({
   confirmed: z.boolean().default(false).describe(
     "true で確定済みとして登録（もう予約が取れているもの）。まだ取っていない・迷っているものは false のまま（候補）",
   ),
-  allowDuplicate: z.boolean().default(false).describe(
-    "同じ店・同じ日の予約が既にあっても別件として登録する（既定 false: 既存の予約を返す）",
-  ),
 });
 
 const idInput = z.object({ id: z.string().min(1).describe("予約ID") });
@@ -342,7 +339,8 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     {
       description:
         "台帳に予約を登録する（confirmed=true で確定として登録。確定は家族のカレンダーにも反映される）。" +
-        "同じ店・同じ日の予約が既にあれば作らずに既存の予約を返す（created: false）。" +
+        "同じ店・同じ日の予約が既にあっても登録は行い、応答の warning と similar で知らせる" +
+        "（同じ宿を別々に予約することもあるので止めない。入れ直しかどうかはユーザーに確かめる）。" +
         "キャンセル規定の決め方: 分かれば policy に入れる。分からなければ省略する（施設の既定規定が保存されて" +
         'いれば自動で適用され、応答の policySource が "template" になる）。それでも policySource が ' +
         '"unknown" で hint が返ったら、規定はユーザーに確認して update_reservation の policy で入れる' +
@@ -352,37 +350,36 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     async (args: any) => {
       const parsed = createInput.safeParse(args ?? {});
       if (!parsed.success) return invalidArgs(parsed.error.issues);
-      const { allowDuplicate, ...input } = parsed.data;
-      if (!allowDuplicate) {
-        // A retried create must not make a second row (issue #5).
-        const rows = await fetchRows(cfg);
-        if (!Array.isArray(rows)) return rows;
-        const sameDay = findDuplicate(rows, input.service, input.startsAt) === null
-          ? findSameDay(rows, input.service, input.startsAt)
-          : null;
-        if (sameDay !== null) {
-          return textResult(JSON.stringify({
-            created: false,
-            warning: "possible_duplicate",
-            hint:
-              "同じ店・同じ日の予約が既にあるので、新しくは作っていません（時刻だけ違う同じ予約の可能性）。" +
-              "同じ予約なら update_reservation で既存の方を直し、別件（昼と夜など）なら allowDuplicate: true で" +
-              "呼んでください。",
-            reservation: presentReservation(sameDay, nowMsOf(cfg)),
-          }));
-        }
-        const dup = findDuplicate(rows, input.service, input.startsAt);
-        if (dup !== null) {
-          return textResult(JSON.stringify({
-            created: false,
-            warning: "duplicate",
-            hint: "同じ店・同じ開始日時の予約が既にあるので、新しくは作っていません。" +
-              "別件として登録するなら allowDuplicate: true で呼んでください。",
-            reservation: presentReservation(dup, nowMsOf(cfg)),
-          }));
-        }
-      }
-      return callApi(cfg, "POST", "/api/reservations", input);
+      const input = parsed.data;
+      // Look first, create regardless (owner 2026-11-12: 「同じ宿の同じプランを別で
+      // 予約することもあるから、通知であくまでブロックはしない」). A family books
+      // the same inn twice on purpose; whether a look-alike is a mistake is for
+      // the person to say, so the reply names it and the reservation is made.
+      const rows = await fetchRows(cfg);
+      if (!Array.isArray(rows)) return rows;
+      const exact = findDuplicate(rows, input.service, input.startsAt);
+      const similar = exact ?? findSameDay(rows, input.service, input.startsAt);
+      const r = await request(cfg, "POST", "/api/reservations", input);
+      if (!("res" in r)) return r;
+      if (!r.res.ok || similar === null) return finish(cfg, r.res, r.text);
+      const body = parseJson(r.text);
+      if (typeof body !== "object" || body === null) return finish(cfg, r.res, r.text);
+      const shown = presentResponse(body, nowMsOf(cfg)) as Record<string, unknown>;
+      const note = exact !== null
+        ? "同じ店・同じ開始日時の予約が既にあります。"
+        : "同じ店・同じ日の予約が既にあります（時刻だけ違う同じ予約かもしれません）。";
+      return textResult(JSON.stringify({
+        ...shown,
+        // The API's own warning (past start, settled plan) keeps the first seat.
+        warning: shown.warning ?? (exact !== null ? "duplicate" : "possible_duplicate"),
+        similar: presentReservation(similar, nowMsOf(cfg)),
+        hint: [
+          shown.hint,
+          note +
+          "今回の分も登録しました。意図した別の予約ならそのままでよく、同じ予約の入れ直しなら、" +
+          "ユーザーに確かめてから片方を delete_reservation で消してください（similar が既存の方）。",
+        ].filter((h) => typeof h === "string").join(" "),
+      }));
     },
   );
 
@@ -598,6 +595,14 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     const state = await cfg.pairing.start(args.force === true);
     return textResult(pairingInstructions(state), state.kind !== "paired");
   });
+  server.registerTool("open_in_browser", {
+    description:
+      "この台帳の画面をブラウザで見るための、1回だけ使えるリンクを出す（60秒以内に開く）。開くとログイン無しで" +
+      "15分だけ表示できる。閲覧専用で、予約の変更・確定・削除やマイページの操作はできない。画面の見た目を確かめる" +
+      "用途のもので、変更は引き続きこの MCP のツールで行う。リンクはこの PC のブラウザで開くためのもので、" +
+      "他人に送らない",
+    inputSchema: z.object({}).passthrough(),
+  }, () => callApi(cfg, "POST", "/auth/device/view-link"));
   server.registerTool("pairing_status", {
     description:
       "どの台帳に接続しているか（本番の台帳＝スマホと同じ／そのアカウント）と連携状態を返す",
