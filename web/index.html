@@ -74,7 +74,7 @@
          いま調整し終えた状態そのままになる（px を rem に書き換えない理由もこれ）。
          zoom / transform: scale は使わない（文字がぼけるうえ、position: fixed の
          更新バー・ボトムナビ・モーダルが壊れる）。
-         例外はボトムナビの2つだけ（.bn-item は列幅で頭打ち・.bn-fab は 11px 固定）。
+         例外はボトムナビの .bn-item だけ（列幅で頭打ち）。.bn-fab は＋の図形だけで文字が無い。
          どちらも理由をその場に書いてある。 */
       --fs: 1;
       font-family: 'Zen Kaku Gothic New','Hiragino Sans','Hiragino Kaku Gothic ProN',sans-serif;
@@ -1903,10 +1903,9 @@
       .bn-item {
         font-size: min(calc(12px * var(--fs)), max(12px, 3.8vw));
       }
-      /* FAB は直径 56px を変えない意匠なので、ラベルも 11px 固定にする（--fs を
-         掛けない唯一の文字）。12px にすると「取り込む」が 48px になり、3px の縁の
-         内側 1px まで迫って輪に当たって見える。＋の図形と隣のナビ文字で読めるので、
-         ここだけは大きくしない。 */
+      /* FAB は直径 56px を変えない意匠。文字のラベル「取り込む」は外した
+         （オーナー 2026-11-12「＋だけで伝わる」）。読み上げ用の名前は aria-label に
+         残してある。font-size は中身が図形だけになったので効かないが、指定は残す。 */
       .bn-fab {
         width: 56px;
         height: 56px;
@@ -2445,7 +2444,7 @@
            （オーナー 2026-07-28）。読み上げ名は件数まで入れて renderRail が書き替える
            ので、ここには置かない。0件のときは飛び先の節が無いので .off で無効化する。 -->
       <button class="bn-item" id="bnDone"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M8.5 7.5 20 19M8.5 16.5 20 5"></path></svg><span class="bn-label">終了<span id="bnDoneCount">0</span></span></button>
-      <button class="bn-fab" id="bnImport"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>取り込む</button>
+      <button class="bn-fab" id="bnImport" aria-label="取り込む" title="取り込む"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
       <button class="bn-item" id="bnCal"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg>連携</button>
       <button class="bn-item" id="bnProfile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>マイページ</button>
     </nav>
