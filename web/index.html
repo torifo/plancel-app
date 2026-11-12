@@ -6209,7 +6209,8 @@
       }
       // one-time: carry the pre-login browser-token ledger into this account
       const legacy = localStorage.getItem("plancel.token");
-      if (legacy && !localStorage.getItem("plancel.adopted")) {
+      // 閲覧専用では引き継がない（書き込みなのでサーバが断り、済みの印だけが付く）。
+      if (legacy && !ME.viewOnly && !localStorage.getItem("plancel.adopted")) {
         try {
           await fetch("/auth/adopt", {
             method: "POST",
