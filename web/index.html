@@ -1709,6 +1709,11 @@
       .cols {
         flex-direction: column;
       }
+      /* 縦に積むときは、中身が短くても（読み込み中の仮の行など）幅いっぱいにする。
+         .cols の align-items: flex-start のままだと、中身の幅まで縮む。 */
+      .mapcol {
+        width: 100%;
+      }
       .railcol {
         order: -1;
         max-width: none;
@@ -2212,6 +2217,51 @@
       font-size: calc(14px * var(--fs));
       font-weight: 700;
       margin: 4px 0 10px;
+    }
+    /* 読み込み中（一度も読めていない間）。¥0・0件・空の台帳に見せない。 */
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 4px;
+      font-size: calc(14px * var(--fs));
+      font-weight: 600;
+      color: var(--ink-2);
+    }
+    .spin {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--line);
+      border-top-color: var(--lamp);
+      animation: spin .8s linear infinite;
+    }
+    .skel {
+      height: 72px;
+      margin-bottom: 8px;
+      border-radius: 12px;
+      background: var(--card2);
+      border: 1px solid var(--line);
+      animation: skel 1.4s ease-in-out infinite;
+    }
+    .skel.short {
+      height: 56px;
+    }
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    @keyframes skel {
+      50% {
+        opacity: .55;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .spin,
+      .skel {
+        animation: none;
+      }
     }
     /* ═══ 一覧: 日ごとの時系列・1件1行・どれか1つの囲み（2026-11-13）═══ */
     .day {
@@ -2786,8 +2836,8 @@
 
       <div class="statusrow">
         <div class="chips">
-          <span class="chip lamp" id="chipNext">◆ 次の無料キャンセル期限 —</span>
-          <span class="chip">最大キャンセル料 <b style="color:var(--danger-ink)" id="stLoss">¥0</b></span>
+          <span class="chip lamp" id="chipNext">◆ 次の無料キャンセル期限 読み込み中…</span>
+          <span class="chip">最大キャンセル料 <b style="color:var(--danger-ink)" id="stLoss">読み込み中…</b></span>
         </div>
         <div class="miniacts">
           <button class="btn-ghost mini" id="addBtn">＋手動で追加</button>
@@ -2798,19 +2848,19 @@
       <div class="cols">
         <div class="mapcol">
           <div class="datescale" id="dateScale"></div>
-          <div id="list"></div>
+          <div id="list" aria-busy="true"><div class="loading" role="status"><span class="spin" aria-hidden="true"></span>台帳を読み込み中…</div><div class="skel" aria-hidden="true"></div><div class="skel" aria-hidden="true"></div><div class="skel" aria-hidden="true"></div></div>
         </div>
         <aside class="railcol">
           <div class="rail-head">
             <span class="stamp">要処理</span>
             <span>今日やること</span>
-            <span class="cnt" id="todoCount">0件</span>
+            <span class="cnt" id="todoCount">読み込み中</span>
           </div>
-          <div id="rail"></div>
+          <div id="rail"><div class="skel short" aria-hidden="true"></div></div>
         </aside>
       </div>
 
-      <p class="foot-note">データはログイン中のアカウントに紐づけてサーバ（KV）に保存されます。別の端末でも同じアカウントでログインすれば同じ台帳が開きます。</p>
+      <p class="foot-note">同じアカウントでログインすれば、どの端末でも同じ台帳が開きます。</p>
       </div>
 
       <!-- My page: profile, credentials, account linking (GUI-only flows).
@@ -3099,7 +3149,7 @@
       <!-- 終了（キャンセル済み）。ラベルは他の4つと同じ日本語にそろえ、件数も戻す
            （オーナー 2026-07-28）。読み上げ名は件数まで入れて renderRail が書き替える
            ので、ここには置かない。0件のときは飛び先の節が無いので .off で無効化する。 -->
-      <button class="bn-item" id="bnDone"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M8.5 7.5 20 19M8.5 16.5 20 5"></path></svg><span class="bn-label">終了<span id="bnDoneCount">0</span></span></button>
+      <button class="bn-item" id="bnDone"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M8.5 7.5 20 19M8.5 16.5 20 5"></path></svg><span class="bn-label">終了<span id="bnDoneCount"></span></span></button>
       <button class="bn-fab" id="bnImport" aria-label="取り込む" title="取り込む"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
       <button class="bn-item" id="bnCal"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg>連携</button>
       <button class="bn-item" id="bnProfile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>マイページ</button>
@@ -4484,13 +4534,21 @@
       // は出し、操作は「脱退」だけにする（cancelledRowHtml）。
       const cancelled = data.filter((r) => r.status === "cancelled")
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      // まだ一度も読めていない間は、¥0・0件・「期限なし」と言い切らない（読み込み中に
+      // 空の台帳に見えていた。オーナー 2026-11-13「データロード中は読み込み中とかに」）。
+      q("#list").setAttribute("aria-busy", String(!dataLoaded && loadError === null));
+      if (!dataLoaded) {
+        const msg = loadError === null ? "読み込み中…" : "—";
+        q("#chipNext").textContent = `◆ 次の無料キャンセル期限 ${msg}`;
+        q("#stLoss").textContent = msg;
+      }
       const dls = active.map(freeDeadline).filter((d) => d && d > now).sort((a, b) => a - b);
-      q("#chipNext").innerHTML = dls.length
+      if (dataLoaded) q("#chipNext").innerHTML = dls.length
         ? `◆ 次の無料キャンセル期限 <b>${fmtDate(dls[0])}</b>（あと${
           Math.max(1, Math.ceil((dls[0] - now) / DAY))
         }日）`
         : "◆ 近い無料キャンセル期限なし";
-      q("#stLoss").textContent = yen(active.reduce((s, r) => s + maxLoss(r), 0));
+      if (dataLoaded) q("#stLoss").textContent = yen(active.reduce((s, r) => s + maxLoss(r), 0));
       renderDateScale(now);
       buildLookAlikes(active);
       buildUnits(active);
@@ -4508,6 +4566,12 @@
       if (active.length === 0 && finished.length === 0 && cancelled.length === 0) {
         // 一度も読めていないうちは「予約が無い」と断定できない。始め方の案内を出すと
         // 既存の台帳が消えたように見えるので、読めていないことだけを言う。
+        if (!dataLoaded && loadError === null) {
+          list.innerHTML =
+            `<div class="loading" role="status"><span class="spin" aria-hidden="true"></span>台帳を読み込み中…</div>` +
+            `<div class="skel" aria-hidden="true"></div>`.repeat(3);
+          return;
+        }
         if (!dataLoaded) {
           list.innerHTML =
             `<div class="empty"><h3>台帳をまだ読み込めていません</h3><p class="hint" style="margin-bottom:0">上の「もう一度読み込む」でやり直せます。予約は消えていません。</p></div>`;
@@ -4808,6 +4872,11 @@
     }
     // やることレール: 要キャンセル → プランの決めどき → 規定の補完 → 処理済み
     function renderRail(active, doneCount, now) {
+      if (!dataLoaded) {
+        q("#todoCount").textContent = loadError === null ? "読み込み中" : "—";
+        q("#rail").innerHTML = loadError === null ? `<div class="skel short" aria-hidden="true"></div>` : "";
+        return;
+      }
       const items = [];
       for (const r of active) {
         if (r.shared || r.status !== "to_cancel") continue;
