@@ -24,6 +24,7 @@ import { readableInstantSchema } from "../web/instant.ts";
 import {
   type ApiReservation,
   findDuplicate,
+  findSameDay,
   listFilterSchema,
   presentList,
   presentReservation,
@@ -79,12 +80,17 @@ const STARTS_AT_DESC =
   "開始日時。ISO 8601 で渡す（例 2026-10-27T19:00:00+09:00。オフセットが無ければ JST）。" +
   "「10月27日 19時」「来週の金曜」のような自然文は不可 — 今日の日付から ISO に直してから渡す";
 
+// 終了は「日」だけが効く（その日の終わりまで予約が続いている扱いになる）。最初の
+// 実走で、チェックアウトの日付は分かるのに時刻が不明だからと省かれ、宿泊が初日の
+// 夜に「終わった予約」へ回る形で登録された（2026-11-12）。
+const ENDS_AT_DESC =
+  "終了日時（宿泊のチェックアウト日など、任意）。時刻が分からなければ日付だけでよい（例 2026-12-20）。" +
+  "連泊・宿泊では必ず入れる — 無いと初日の終わりに「終わった予約」扱いになる";
+
 const createInput = z.object({
   service: z.string().min(1).describe("お店・宿・サービス名"),
   startsAt: readableInstantSchema.describe(STARTS_AT_DESC),
-  endsAt: readableInstantSchema.nullable().default(null).describe(
-    "終了日時（宿泊のチェックアウトなど。ISO 8601、任意）",
-  ),
+  endsAt: readableInstantSchema.nullable().default(null).describe(ENDS_AT_DESC),
   plan: z.string().nullable().default(null).describe(
     "プラン名。同じ予定の候補（どちらにするか迷っている店・宿）を束ねる名前で、同じプラン名の中で確定できるのは1件。" +
       "候補が1つだけの予約は省略してよい",
@@ -94,7 +100,7 @@ const createInput = z.object({
   policy: webPolicyInputSchema.default("unknown").describe(POLICY_DESC),
   confirmed: z.boolean().default(false).describe("true で確定済みとして登録"),
   allowDuplicate: z.boolean().default(false).describe(
-    "同じ店・同じ開始日時の予約が既にあっても別件として登録する（既定 false: 既存の予約を返す）",
+    "同じ店・同じ日の予約が既にあっても別件として登録する（既定 false: 既存の予約を返す）",
   ),
 });
 
@@ -118,9 +124,7 @@ const patchInput = z.object({
   id: z.string().min(1).describe("予約ID"),
   service: z.string().min(1).optional().describe("お店・宿・サービス名"),
   startsAt: readableInstantSchema.optional().describe(STARTS_AT_DESC),
-  endsAt: readableInstantSchema.nullable().optional().describe(
-    "終了日時（ISO 8601。null で消す）",
-  ),
+  endsAt: readableInstantSchema.nullable().optional().describe(ENDS_AT_DESC + "。null で消す"),
   plan: z.string().nullable().optional().describe("プラン名（null で外す）"),
   amount: z.number().int().min(0).nullable().optional().describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().optional().describe("場所（店名・住所。null で消す）"),
@@ -315,7 +319,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     {
       description:
         "台帳に予約を登録する（confirmed=true で確定として登録。確定は家族のカレンダーにも反映される）。" +
-        "同じ店・同じ開始日時の予約が既にあれば作らずに既存の予約を返す（created: false）。" +
+        "同じ店・同じ日の予約が既にあれば作らずに既存の予約を返す（created: false）。" +
         "キャンセル規定の決め方: 分かれば policy に入れる。分からなければ省略する（施設の既定規定が保存されて" +
         'いれば自動で適用され、応答の policySource が "template" になる）。それでも policySource が ' +
         '"unknown" で hint が返ったら、規定はユーザーに確認して update_reservation の policy で入れる' +
@@ -330,6 +334,20 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
         // A retried create must not make a second row (issue #5).
         const rows = await fetchRows(cfg);
         if (!Array.isArray(rows)) return rows;
+        const sameDay = findDuplicate(rows, input.service, input.startsAt) === null
+          ? findSameDay(rows, input.service, input.startsAt)
+          : null;
+        if (sameDay !== null) {
+          return textResult(JSON.stringify({
+            created: false,
+            warning: "possible_duplicate",
+            hint:
+              "同じ店・同じ日の予約が既にあるので、新しくは作っていません（時刻だけ違う同じ予約の可能性）。" +
+              "同じ予約なら update_reservation で既存の方を直し、別件（昼と夜など）なら allowDuplicate: true で" +
+              "呼んでください。",
+            reservation: presentReservation(sameDay, nowMsOf(cfg)),
+          }));
+        }
         const dup = findDuplicate(rows, input.service, input.startsAt);
         if (dup !== null) {
           return textResult(JSON.stringify({

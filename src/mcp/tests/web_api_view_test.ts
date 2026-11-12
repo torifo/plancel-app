@@ -6,6 +6,7 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
 import {
   findDuplicate,
+  findSameDay,
   jst,
   listFilterSchema,
   presentList,
@@ -198,4 +199,18 @@ Deno.test("view: policyUnknown counts rows still to be watched, not cancelled on
   );
   assertEquals(out.count, 2);
   assertEquals(out.policyUnknown, 1);
+});
+
+// ---- from the first real Codex run against the production ledger (2026-11-12) ----
+
+Deno.test("view: the same place on the same day is a possible duplicate even at another time", () => {
+  // A stay filed with a tentative 15:30 check-in, then again with 15:00: the
+  // exact-instant check let the second one through.
+  const rows = [row({ id: "A", startsAt: "2026-12-19T06:30:00.000Z" })];
+  assertEquals(findDuplicate(rows, "鮨さいとう", "2026-12-19T15:00:00+09:00"), null);
+  assertEquals(findSameDay(rows, "鮨さいとう", "2026-12-19T15:00:00+09:00")?.id, "A");
+  // Late evening JST is still that JST day, not the next UTC one.
+  assertEquals(findSameDay(rows, "鮨 さいとう", "2026-12-19T23:30:00+09:00")?.id, "A");
+  assertEquals(findSameDay(rows, "鮨さいとう", "2026-12-20T15:00:00+09:00"), null);
+  assertEquals(findSameDay(rows, "別の店", "2026-12-19T15:00:00+09:00"), null);
 });

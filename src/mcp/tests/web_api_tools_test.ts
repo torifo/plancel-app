@@ -548,3 +548,38 @@ Deno.test("web-api MCP: descriptions say how stages, plans and 要キャンセ�
     assertStringIncludes(confirm, "cancel_reservation");
   });
 });
+
+Deno.test("web-api MCP: a same-day booking at the same place is held back as a possible duplicate", async () => {
+  const { calls, fetchFn } = scriptedApi((method) =>
+    method === "GET"
+      ? { status: 200, json: { reservations: [ROW] } }
+      : { status: 201, json: { reservation: { ...ROW, id: "R2" }, policySource: "explicit" } }
+  );
+  await withClient(fetchFn, async (client) => {
+    // ROW is 12/20 19:00; the same place at 18:00 that day.
+    const held = parsed(
+      await client.callTool({
+        name: "create_reservation",
+        arguments: { service: "鮨さいとう", startsAt: "2026-12-20T18:00:00+09:00" },
+      }),
+    );
+    assertEquals(held.created, false);
+    assertEquals(held.warning, "possible_duplicate");
+    assertEquals(held.reservation.id, "R1");
+    assertStringIncludes(held.hint, "update_reservation");
+    assertEquals(calls.filter((c) => c.method === "POST").length, 0);
+  });
+});
+
+Deno.test("web-api MCP: endsAt says a date alone is enough", async () => {
+  const { fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    const { tools } = await client.listTools();
+    for (const name of ["create_reservation", "update_reservation"]) {
+      const props = tools.find((t: { name: string }) => t.name === name)!.inputSchema
+        .properties as Record<string, { description: string }>;
+      assertStringIncludes(props.endsAt!.description, "日付だけ");
+      assertStringIncludes(props.endsAt!.description, "2026-12-20");
+    }
+  });
+});

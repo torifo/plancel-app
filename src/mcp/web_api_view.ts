@@ -274,6 +274,28 @@ export function findDuplicate(
   ) ?? null;
 }
 
+/**
+ * The live row for the same place on the same JST day, whatever the time. A
+ * check-in filed with a tentative time and filed again with the real one is the
+ * same stay; the exact-instant check above cannot see that (first real Codex
+ * run, 2026-11-12).
+ */
+export function findSameDay(
+  rows: ApiReservation[],
+  service: string,
+  startsAt: string,
+): ApiReservation | null {
+  const at = toInstantOrNull(startsAt)?.epochMilliseconds;
+  if (at === undefined) return null;
+  const day = endOfJstDay(at);
+  const name = foldName(service);
+  return rows.find((r) => {
+    const start = toInstantOrNull(r.startsAt)?.epochMilliseconds;
+    return r.shared === undefined && r.status !== "cancelled" && foldName(r.service) === name &&
+      start !== undefined && endOfJstDay(start) === day;
+  }) ?? null;
+}
+
 /** Next steps for the API's error codes, for a caller with no table of its own. */
 export const API_ERROR_HINTS: Record<string, string> = {
   "not found": "その予約IDは台帳にありません。list_reservations で確認してください。",
