@@ -53,6 +53,7 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
       "create_reservation",
       "delete_policy_template",
       "delete_reservation",
+      "drop_reservation",
       "list_policy_templates",
       "list_reservation_members",
       "list_reservations",
@@ -64,6 +65,7 @@ Deno.test("web-api MCP tools call the reservation API with the personal token", 
       "restore_reservation",
       "save_policy_template",
       "set_member_role",
+      "set_trip_people",
       "share_reservation",
       "suggest_to_owner",
       "unpair_plancel",
@@ -687,5 +689,31 @@ Deno.test("web-api MCP: suggest_to_owner proposes to the owner, or withdraws", a
     assertStringIncludes(d, "持ち主");
     const u = tools.find((t: { name: string }) => t.name === "update_reservation")!;
     assertStringIncludes(JSON.stringify(u.inputSchema), "希望順");
+  });
+});
+
+Deno.test("web-api MCP: set_trip_people and drop_reservation reach the API", async () => {
+  const { calls, fetchFn } = scriptedApi(() => ({ status: 200, json: { ok: true } }));
+  await withClient(fetchFn, async (client) => {
+    await client.callTool({ name: "set_trip_people", arguments: { trip: "別府 旅行", people: 4 } });
+    await client.callTool({
+      name: "set_trip_people",
+      arguments: { trip: "別府 旅行", people: null },
+    });
+    await client.callTool({ name: "drop_reservation", arguments: { id: "R1" } });
+    assertEquals(calls.map((c) => [c.method, c.url, c.body]), [
+      ["PUT", "https://plancel.test/api/trips/%E5%88%A5%E5%BA%9C%20%E6%97%85%E8%A1%8C", {
+        people: 4,
+      }],
+      ["PUT", "https://plancel.test/api/trips/%E5%88%A5%E5%BA%9C%20%E6%97%85%E8%A1%8C", {
+        people: null,
+      }],
+      ["POST", "https://plancel.test/api/reservations/R1/drop", undefined],
+    ]);
+    const { tools } = await client.listTools();
+    const create = tools.find((t: { name: string }) => t.name === "create_reservation")!;
+    assertStringIncludes(JSON.stringify(create.inputSchema), "何人分");
+    const list = tools.find((t: { name: string }) => t.name === "list_reservations")!.description!;
+    assertStringIncludes(list, "split");
   });
 });

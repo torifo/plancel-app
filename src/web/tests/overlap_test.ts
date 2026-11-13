@@ -1,5 +1,13 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { findOverlaps, nightsOf, type OverlapRow, parkingDaysOf, rideSpanOf } from "../overlap.ts";
+import {
+  classifyAlternatives,
+  findOverlaps,
+  nightsOf,
+  type OverlapRow,
+  parkingDaysOf,
+  partySize,
+  rideSpanOf,
+} from "../overlap.ts";
 
 const row = (o: Partial<OverlapRow> & { id: string }): OverlapRow => ({
   service: o.id,
@@ -257,4 +265,35 @@ Deno.test("overlap: parking of one plan, or the same name on the same day, is le
   none({ plan: "駐車場" }, { plan: "駐車場" });
   none({ service: "羽田 P2" }, { service: "羽田　p2" });
   none({}, { status: "to_cancel" });
+});
+
+Deno.test("party: the trip's count wins, else the largest booking in the trip, else unknown", () => {
+  const live = (id: string, people: number | null, status = "confirmed") => ({
+    id,
+    status,
+    people,
+  });
+  assertEquals(partySize(4, [live("A", 2)]), { party: 4, inferred: false });
+  assertEquals(partySize(null, [live("INN", 4), live("F1", 2), live("X", 6, "to_cancel")]), {
+    party: 4,
+    inferred: true,
+  });
+  assertEquals(partySize(undefined, [live("A", null)]), { party: null, inferred: false });
+});
+
+Deno.test("party: two halves of a party are both used, more seats than people are over, unknown is choose", () => {
+  const r = (id: string, people: number | null) => ({ id, status: "candidate", people });
+  // Four people, two 2-seat bookings of the same hours: split, both used.
+  assertEquals(classifyAlternatives([r("JAL", 2), r("ANA", 2)], 4), { mode: "split", total: 4 });
+  // Four people, two 4-seat bookings: one is extra.
+  assertEquals(classifyAlternatives([r("JAL", 4), r("ANA", 4)], 4), { mode: "over", total: 8 });
+  // A booking that does not say how many it is for: one of them, as before.
+  assertEquals(classifyAlternatives([r("JAL", 2), r("ANA", null)], 4), {
+    mode: "choose",
+    total: null,
+  });
+  assertEquals(classifyAlternatives([r("JAL", 2), r("ANA", 2)], null), {
+    mode: "choose",
+    total: null,
+  });
 });

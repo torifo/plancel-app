@@ -29,6 +29,7 @@ import {
   presentList,
   presentReservation,
   presentResponse,
+  type TripMetaInput,
 } from "./web_api_view.ts";
 import { webPolicyInputSchema } from "../web/policy.ts";
 import { webKindSchema } from "../web/store.ts";
@@ -121,6 +122,11 @@ const TO_DESC = "到着地（交通）／返す場所（車）。到着時刻が
 const BOOKED_BY_DESC =
   "実際に予約を取った人（例「母」。ユーザー自身なら「自分」）。誰に確認やキャンセルを頼めばよいかが分かる。任意";
 
+const PEOPLE_DESC =
+  "この予約で何人分か（任意）。家族4人で行くが2人ずつしか買えなかった便なら、それぞれ 2。宿に家族全員で泊まるなら 4。" +
+  "旅行の人数（set_trip_people）と合わせて、同じ時間帯の予約が「分けて取った（全部使う）」のか「人数より多い" +
+  "（外すものがある）」のかを見分ける。入れないと全員分とみなし、重なる予約は「どれか1つ」として扱う";
+
 const createInput = z.object({
   service: z.string().min(1).describe(SERVICE_DESC),
   kind: webKindSchema.nullable().default(null).describe(KIND_DESC),
@@ -129,6 +135,7 @@ const createInput = z.object({
   from: z.string().max(100).nullable().default(null).describe(FROM_DESC),
   to: z.string().max(100).nullable().default(null).describe(TO_DESC),
   bookedBy: z.string().max(40).nullable().default(null).describe(BOOKED_BY_DESC),
+  people: z.number().int().min(1).max(99).nullable().default(null).describe(PEOPLE_DESC),
   plan: z.string().nullable().default(null).describe(
     "プラン名（画面では「候補グループ」と呼ぶ）。同じ予定の候補（どちらにするか迷っている店・宿）を束ねる名前で、" +
       "同じプラン名の中で確定できるのは1件、1件確定すると残りは要キャンセルになる。宿の「夕朝食付きプラン」のような" +
@@ -171,6 +178,7 @@ const patchInput = z.object({
   from: z.string().max(100).nullable().optional().describe(FROM_DESC),
   to: z.string().max(100).nullable().optional().describe(TO_DESC),
   bookedBy: z.string().max(40).nullable().optional().describe(BOOKED_BY_DESC),
+  people: z.number().int().min(1).max(99).nullable().optional().describe(PEOPLE_DESC),
   startsAt: readableInstantSchema.optional().describe(STARTS_AT_DESC),
   endsAt: readableInstantSchema.nullable().optional().describe(ENDS_AT_DESC + "。null で消す"),
   plan: z.string().nullable().optional().describe(
@@ -339,12 +347,22 @@ async function request(
 }
 
 /** Every row of the ledger, or the stand-in reply when the API could not answer. */
-async function fetchRows(cfg: WebApiConfig): Promise<ApiReservation[] | McpTextResult> {
+async function fetchLedger(
+  cfg: WebApiConfig,
+): Promise<{ rows: ApiReservation[]; trips: TripMetaInput[] } | McpTextResult> {
   const r = await request(cfg, "GET", "/api/reservations");
   if (!("res" in r)) return r;
   if (!r.res.ok) return finish(cfg, r.res, r.text);
-  const body = parseJson(r.text) as { reservations?: ApiReservation[] };
-  return Array.isArray(body?.reservations) ? body.reservations : [];
+  const body = parseJson(r.text) as { reservations?: ApiReservation[]; trips?: TripMetaInput[] };
+  return {
+    rows: Array.isArray(body?.reservations) ? body.reservations : [],
+    trips: Array.isArray(body?.trips) ? body.trips : [],
+  };
+}
+
+async function fetchRows(cfg: WebApiConfig): Promise<ApiReservation[] | McpTextResult> {
+  const ledger = await fetchLedger(cfg);
+  return "rows" in ledger ? ledger.rows : ledger;
 }
 
 /** Bad tool arguments: reported to the caller instead of hitting the API. */
@@ -372,16 +390,21 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       "金額と freeUntil、reservations の同じ id にある feeSchedule を並べてユーザーに見せ、どちらにするか聞く。" +
       "owner は共有してくれた持ち主の名前で、null は自分の予約。decideBy は組の中でいちばん早い freeUntil で、" +
       "それまでに決めればどちらを外しても無料（残す方が決まっているなら、外す方の freeUntil が実際の期限）。" +
-      "決まったら choose_reservation）。" +
+      "決まったら choose_reservation）。overlaps の mode は、旅行の人数（party）と各予約の people から: " +
+      '"choose"＝どれか1つ（人数が分からない予約がある）、"split"＝人数を分けて取った予約で全部使う（決めることは無い。' +
+      '外さない）、"over"＝人数より席が多い（peopleTotal − party 人分を drop_reservation で外す）。' +
+      "trips の people は旅行の人数（peopleInferred は予約から推定）。" +
       "needsCheck は各予約でまだ決まっていない・確かめていないこと（要キャンセルの予約には「取り消しの連絡が要る」が出る）、trips は旅行ごとの日程と費用" +
       "（confirmedYen＝確定の合計、expectedYen＝未確定を含む見込みの最大）",
     inputSchema: listFilterSchema.passthrough(),
   }, async (args: unknown) => {
     const filter = listFilterSchema.safeParse(args ?? {});
     if (!filter.success) return invalidArgs(filter.error.issues);
-    const rows = await fetchRows(cfg);
-    if (!Array.isArray(rows)) return rows;
-    return textResult(JSON.stringify(presentList(rows, filter.data, nowMsOf(cfg))));
+    const ledger = await fetchLedger(cfg);
+    if (!("rows" in ledger)) return ledger;
+    return textResult(
+      JSON.stringify(presentList(ledger.rows, filter.data, nowMsOf(cfg), ledger.trips)),
+    );
   });
 
   server.registerTool(
@@ -426,7 +449,8 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
         hint: [
           shown.hint,
           note +
-          "今回の分も登録しました。意図した別の予約ならそのままでよく、同じ予約の入れ直しなら、" +
+          "今回の分も登録しました。意図した別の予約ならそのままでよく（人数を分けて取った同じ便なら、" +
+          "それぞれに people を入れればまとめずに済む）、同じ予約の入れ直しなら、" +
           "ユーザーに確かめてから merge_reservations で1件にまとめてください（similar が既存の方）。",
         ].filter((h) => typeof h === "string").join(" "),
       }));
@@ -690,7 +714,8 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
         " confirm なら確定、cancel なら取り消しの提案で、suggested: true なら持ち主に知らせが届く）。" +
         "要キャンセルになった予約の取り消しの連絡はユーザー自身が行い、無料で取り消せる期限は一覧の" +
         "その予約の freeUntil。affected と needsOwner を" +
-        "必ずユーザーに伝える。どちらにするかはユーザーが決めることなので、聞かずに呼ばない",
+        "必ずユーザーに伝える。どちらにするかはユーザーが決めることなので、聞かずに呼ばない。" +
+        'overlaps の mode が "split"（分けて取った予約）の組には使わない（全部使う予約を要キャンセルにしてしまう）',
       inputSchema: chooseInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     (args: any) => {
@@ -724,6 +749,42 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       return parsed.data.action === "withdraw"
         ? callApi(cfg, "DELETE", path)
         : callApi(cfg, "POST", path, { action: parsed.data.action });
+    },
+  );
+  const tripPeopleInput = z.object({
+    trip: z.string().min(1).max(60).describe("旅行名（予約の trip と同じ名前）"),
+    people: z.number().int().min(1).max(99).nullable().describe("何人で行くか。null で消す"),
+  });
+  server.registerTool(
+    "set_trip_people",
+    {
+      description:
+        "旅行の人数（何人で行くか）を入れる。同じ時間帯に重なる予約が、人数を分けて取ったもの（全部使う）か、" +
+        "人数より多いもの（外すものがある）かを見分けるのに使う。入れないと、旅行の予約の people の最大から推定する",
+      inputSchema: tripPeopleInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = tripPeopleInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      return callApi(cfg, "PUT", `/api/trips/${encodeURIComponent(parsed.data.trip)}`, {
+        people: parsed.data.people,
+      });
+    },
+  );
+  server.registerTool(
+    "drop_reservation",
+    {
+      description:
+        '人数より多く取ってある予約のうち1件を外す（一覧の overlaps の mode が "over" のとき）。自分の予約は' +
+        "要キャンセル（まだ予約していない案なら見送り）になり、取り消しの連絡はユーザー自身が行う。共有された" +
+        "予約は持ち主への取り消しの提案になる（応答の suggested: true）。どれを外すかはユーザーが決めることなので、" +
+        "聞かずに呼ばない",
+      inputSchema: idInput.passthrough(),
+    }, // deno-lint-ignore no-explicit-any
+    (args: any) => {
+      const parsed = idInput.safeParse(args ?? {});
+      if (!parsed.success) return invalidArgs(parsed.error.issues);
+      return callApi(cfg, "POST", `/api/reservations/${parsed.data.id}/drop`);
     },
   );
   server.registerTool("open_in_browser", {

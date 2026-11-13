@@ -145,3 +145,50 @@ export function findOverlaps(rows: OverlapRow[]): OverlapGroup[] {
     ...group("parking", parkingDaysOf, (n) => n, true),
   ];
 }
+
+/**
+ * Party size: who goes, set by the family or worked out (owner 2026-11-13:
+ * 「招待した人数以上の予約があるパターンもある」「4人でいって２人ずつしか買え
+ * ないこともある」). Bookings that overlap are not always alternatives: four
+ * people on two 2-seat bookings of the same hours use both. A group is read
+ * against the party:
+ *   split  — the seats add up to the party or fewer: halves of one party, all used
+ *   over   — more seats than people: some are to be dropped (`total - party` of them)
+ *   choose — a booking does not say how many it is for: one of them, as before
+ */
+export type OverlapMode = "choose" | "split" | "over";
+
+export interface PartyRow {
+  id: string;
+  status: string;
+  people?: number | null;
+}
+
+/**
+ * How many go: the trip's explicit count when set, else the largest `people`
+ * among the trip's live bookings (the inn booked for the family), else null.
+ */
+export function partySize(
+  explicit: number | null | undefined,
+  tripRows: PartyRow[],
+): { party: number | null; inferred: boolean } {
+  if (explicit != null) return { party: explicit, inferred: false };
+  const counts = tripRows
+    .filter((r) => r.status === "candidate" || r.status === "confirmed")
+    .map((r) => r.people)
+    .filter((n): n is number => n != null);
+  return counts.length > 0
+    ? { party: Math.max(...counts), inferred: true }
+    : { party: null, inferred: false };
+}
+
+export function classifyAlternatives(
+  live: PartyRow[],
+  party: number | null,
+): { mode: OverlapMode; total: number | null } {
+  if (party === null || live.length === 0 || live.some((r) => r.people == null)) {
+    return { mode: "choose", total: null };
+  }
+  const total = live.reduce((n, r) => n + (r.people as number), 0);
+  return { mode: total <= party ? "split" : "over", total };
+}

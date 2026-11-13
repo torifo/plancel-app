@@ -7,11 +7,23 @@
  * text and run with `new Function`.
  */
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { findOverlaps, type OverlapRow } from "../overlap.ts";
+import { classifyAlternatives, findOverlaps, type OverlapRow, partySize } from "../overlap.ts";
 
 const HTML_URL = new URL("../../../web/index.html", import.meta.url);
 const DRIFT = "重なる宿の判定の二重実装がズレています: src/web/overlap.ts（サーバ・正）と " +
   "web/index.html の `function findOverlaps`。サーバ側を正として写しを合わせてください。";
+
+/** Cuts the `function <anchor>…}` block out of the page and returns it as source. */
+function block(html: string, anchor: string): string {
+  const start = html.indexOf(anchor);
+  if (start < 0) throw new Error(`${DRIFT}\nweb/index.html に \`${anchor}\` が見つかりません。`);
+  let depth = 0;
+  for (let i = html.indexOf("{", start); i < html.length; i++) {
+    if (html[i] === "{") depth++;
+    else if (html[i] === "}" && --depth === 0) return html.slice(start, i + 1);
+  }
+  throw new Error(`${DRIFT}\n\`${anchor}\` の終わりが見つかりません。`);
+}
 
 function clientFindOverlaps(html: string): (rows: OverlapRow[]) => unknown {
   const anchor = "function findOverlaps(rows)";
@@ -166,4 +178,38 @@ Deno.test("mirror: the page names the same overlapping stays as the server", asy
     findOverlaps(CASES["parking days apart, no exit, and one plan"]!).map((g) => g.ids),
     [["E", "F"]],
   );
+});
+
+Deno.test("mirror: the page reads a party the way the server does", async () => {
+  const html = await Deno.readTextFile(HTML_URL);
+  const client = new Function(
+    `${block(html, "function partySize(explicit, tripRows)")}
+     ${block(html, "function classifyAlternatives(live, party)")}
+     return { partySize, classifyAlternatives };`,
+  )() as { partySize: typeof partySize; classifyAlternatives: typeof classifyAlternatives };
+  const live = (id: string, people: number | null, status = "confirmed") => ({
+    id,
+    status,
+    people,
+  });
+  const trips = [
+    [4, [live("A", 2)]],
+    [null, [live("INN", 4), live("F1", 2), live("X", 6, "to_cancel")]],
+    [undefined, [live("A", null)]],
+    [null, []],
+  ] as const;
+  for (const [explicit, rows] of trips) {
+    assertEquals(client.partySize(explicit, [...rows]), partySize(explicit, [...rows]), DRIFT);
+  }
+  const groups: [ReturnType<typeof live>[], number | null][] = [
+    [[live("JAL", 2), live("ANA", 2)], 4],
+    [[live("JAL", 4), live("ANA", 4)], 4],
+    [[live("JAL", 2), live("ANA", null)], 4],
+    [[live("JAL", 2), live("ANA", 2)], null],
+    [[live("JAL", 3), live("ANA", 1)], 4],
+    [[], 4],
+  ];
+  for (const [g, party] of groups) {
+    assertEquals(client.classifyAlternatives(g, party), classifyAlternatives(g, party), DRIFT);
+  }
 });

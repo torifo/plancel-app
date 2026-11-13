@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { readableInstantSchema, toInstantOrNull } from "../web/instant.ts";
 import { isFinished } from "../web/lifecycle.ts";
-import { findOverlaps } from "../web/overlap.ts";
+import { classifyAlternatives, findOverlaps, type OverlapMode, partySize } from "../web/overlap.ts";
 import {
   boundaryMs,
   describePolicy,
@@ -42,6 +42,7 @@ export interface ApiReservation {
   to?: string | null;
   bookedBy?: string | null;
   rank?: number | null;
+  people?: number | null;
   suggestion?: { action: "cancel" | "confirm"; byName: string; at: string } | null;
   policy: WebPolicy;
   status: WebStatus;
@@ -77,6 +78,8 @@ export interface ModelReservation {
   bookedBy: string | null;
   /** Place in the family's order of preference among alternatives (1 = most wanted), or null. */
   rank: number | null;
+  /** How many people this booking is for, or null (not said: read as the whole party). */
+  people: number | null;
   /** A member's open proposal to the owner (cancel / confirm), or null. */
   suggestion: { action: "cancel" | "confirm"; by: string; at: string } | null;
   /** What is still unsettled about this reservation, in words to relay. Empty when nothing is. */
@@ -220,6 +223,9 @@ function needsCheck(r: ApiReservation, booked: boolean): string[] {
 
 export interface TripSummary {
   trip: string;
+  /** How many go: set by the family (set_trip_people), or worked out from the bookings (peopleInferred). */
+  people: number | null;
+  peopleInferred: boolean;
   count: number;
   /** First and last day of the trip's reservations (JST dates). */
   from: string | null;
@@ -234,7 +240,10 @@ export interface TripSummary {
 }
 
 /** Sums up each trip among `rows` (cancelled and to-be-cancelled rows left out). */
-export function summarizeTrips(rows: ApiReservation[]): TripSummary[] {
+export function summarizeTrips(
+  rows: ApiReservation[],
+  tripMeta: TripMetaInput[] = [],
+): TripSummary[] {
   const byTrip = new Map<string, ApiReservation[]>();
   for (const r of rows) {
     if (r.trip == null || r.status === "cancelled" || r.status === "to_cancel") continue;
@@ -262,8 +271,11 @@ export function summarizeTrips(rows: ApiReservation[]): TripSummary[] {
         dearest.set(r.plan, Math.max(dearest.get(r.plan) ?? 0, r.amount ?? 0));
       }
     }
+    const { party, inferred } = partyOfTrip(rs[0]!.trip!, rows, tripMeta);
     return {
       trip: rs[0]!.trip!,
+      people: party,
+      peopleInferred: inferred,
       count: rs.length,
       from: days.length ? day(Math.min(...days)) : null,
       to: days.length ? day(Math.max(...days)) : null,
@@ -308,12 +320,25 @@ export function findPossibleDuplicates(rows: ApiReservation[]): PossibleDuplicat
 export interface OverlapSummary {
   /** `stay`: inns for the same night. `transport`: rides for the same hours. `parking`: parking for the same days. */
   kind: "stay" | "transport" | "parking";
+  /**
+   * How to read the group against the party (src/web/overlap.ts):
+   * "choose" — one of them is used (a booking does not say how many it is for);
+   * "split"  — halves of one party, all used (seats add up to the party or fewer);
+   * "over"   — more seats than people: drop until peopleTotal ≤ party.
+   */
+  mode: OverlapMode;
+  /** How many go on the trip, or null; partyInferred when worked out from its bookings. */
+  party: number | null;
+  partyInferred: boolean;
+  /** Seats the live bookings add up to, or null when one does not say. */
+  peopleTotal: number | null;
   /** Stay: first night and the morning it ends. Transport: the day(s) of the rides. Parking: first entry day and last exit day. JST dates. */
   from: string;
   to: string;
   /**
    * The earliest free-cancellation deadline still ahead among them: decide by
-   * then and whichever is dropped costs nothing. Null when none is ahead.
+   * then and whichever is dropped costs nothing. Null when none is ahead, and
+   * for a "split" group (nothing to decide).
    */
   decideBy: string | null;
   reservations: {
@@ -322,6 +347,8 @@ export interface OverlapSummary {
     status: WebStatus;
     /** Place in the order of preference (1 = most wanted), or null. */
     rank: number | null;
+    /** How many people this booking is for, or null. */
+    people: number | null;
     amount: number | null;
     freeUntil: string | null;
     /** Whose it is when it is only shared with this user; null for their own. */
@@ -329,8 +356,30 @@ export interface OverlapSummary {
   }[];
 }
 
+/** What the ledger says about a trip (src/web/trips.ts): how many people go. */
+export interface TripMetaInput {
+  name: string;
+  people: number | null;
+}
+
+/** The party of the trip `trip` among `rows`: set by the family, or worked out from its bookings. */
+export function partyOfTrip(
+  trip: string | null,
+  rows: ApiReservation[],
+  trips: TripMetaInput[],
+): { party: number | null; inferred: boolean } {
+  if (trip === null) return { party: null, inferred: false };
+  const key = foldName(trip);
+  const explicit = trips.find((t) => foldName(t.name) === key)?.people ?? null;
+  return partySize(explicit, rows.filter((r) => r.trip != null && foldName(r.trip) === key));
+}
+
 /** Stays for the same night and rides for the same hours among the shown rows (see src/web/overlap.ts). */
-export function summarizeOverlaps(rows: ApiReservation[], nowMs: number): OverlapSummary[] {
+export function summarizeOverlaps(
+  rows: ApiReservation[],
+  nowMs: number,
+  trips: TripMetaInput[] = [],
+): OverlapSummary[] {
   const live = rows.filter((r) => !isFinished(r, nowMs));
   return findOverlaps(live).map((g) => {
     // In the family's order of preference when one is set (rank 1 first), else by time.
@@ -342,11 +391,22 @@ export function summarizeOverlaps(rows: ApiReservation[], nowMs: number): Overla
     const deadlines = members
       .map((r) => r.booked === false ? null : freeDeadlineMs(r.policy, r.startsAt))
       .filter((d): d is number => d !== null && d > nowMs);
+    const trip = members.find((r) => r.trip != null)?.trip ?? null;
+    const { party, inferred } = partyOfTrip(trip, live, trips);
+    const { mode, total } = classifyAlternatives(members, party);
     return {
       kind: g.kind,
+      mode,
+      party,
+      partyInferred: inferred,
+      peopleTotal: total,
       from: g.from,
       to: g.to,
-      decideBy: deadlines.length > 0 ? jstOfMs(Math.min(...deadlines)) : null,
+      decideBy: mode === "split"
+        ? null
+        : deadlines.length > 0
+        ? jstOfMs(Math.min(...deadlines))
+        : null,
       reservations: members.map((r) => {
         const d = r.booked === false ? null : freeDeadlineMs(r.policy, r.startsAt);
         return {
@@ -354,6 +414,7 @@ export function summarizeOverlaps(rows: ApiReservation[], nowMs: number): Overla
           service: r.service,
           status: r.status,
           rank: r.rank ?? null,
+          people: r.people ?? null,
           amount: r.amount,
           freeUntil: d === null ? null : jstOfMs(d),
           owner: r.shared?.ownerDisplayName ?? null,
@@ -389,6 +450,7 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     to: r.to ?? null,
     bookedBy: r.bookedBy ?? null,
     rank: r.rank ?? null,
+    people: r.people ?? null,
     suggestion: r.suggestion
       ? { action: r.suggestion.action, by: r.suggestion.byName, at: jst(r.suggestion.at) }
       : null,
@@ -464,7 +526,12 @@ export const foldName = (s: string): string =>
 const msOf = (value: string | undefined): number | null =>
   value === undefined ? null : toInstantOrNull(value)?.epochMilliseconds ?? null;
 
-export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number): ModelList {
+export function presentList(
+  rows: ApiReservation[],
+  f: ListFilter,
+  nowMs: number,
+  tripMeta: TripMetaInput[] = [],
+): ModelList {
   const fromMs = msOf(f.from);
   const toRaw = msOf(f.to);
   // A date-only `to` means the whole of that day.
@@ -526,9 +593,15 @@ export function presentList(rows: ApiReservation[], f: ListFilter, nowMs: number
       : startKey(a) - startKey(b) || a.id.localeCompare(b.id)
   );
   const limited = out.slice(0, f.limit);
-  const trips = summarizeTrips(shownRows);
-  const duplicates = findPossibleDuplicates(shownRows);
-  const overlaps = summarizeOverlaps(shownRows, nowMs);
+  const trips = summarizeTrips(shownRows, tripMeta);
+  // The same flight bought twice for two halves of the party is not a duplicate.
+  const duplicates = findPossibleDuplicates(shownRows).filter((d) => {
+    const members = d.ids.map((id) => shownRows.find((r) => r.id === id)!);
+    const trip = members.find((r) => r.trip != null)?.trip ?? null;
+    const { party } = partyOfTrip(trip, shownRows, tripMeta);
+    return classifyAlternatives(members, party).mode !== "split";
+  });
+  const overlaps = summarizeOverlaps(shownRows, nowMs, tripMeta);
   return {
     total: rows.length,
     count: limited.length,

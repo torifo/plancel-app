@@ -34,6 +34,7 @@ function row(over: Partial<WebReservation> = {}): WebReservation {
     to: null,
     bookedBy: null,
     rank: null,
+    people: null,
     suggestion: null,
     policy: "staged",
     status: "candidate",
@@ -328,6 +329,8 @@ Deno.test("view: a trip is summed up, and each row says what is still to be chec
   // Confirmed money, and the most the undecided rest could add (one per plan).
   assertEquals(out.trips, [{
     trip: "別府旅行",
+    people: null,
+    peopleInferred: false,
     count: 4,
     from: "2026-12-19",
     to: "2026-12-20",
@@ -410,6 +413,11 @@ Deno.test("view: the list lines up different stays held for the same night, with
   const out = presentList([mine, hers, row({ id: "DINNER" })], listFilterSchema.parse({}), NOW);
   assertEquals(out.overlaps, [{
     kind: "stay",
+    // Neither says how many it is for, and no trip says how many go: one of them.
+    mode: "choose",
+    party: null,
+    partyInferred: false,
+    peopleTotal: null,
     from: "2026-12-19",
     to: "2026-12-20",
     // Hers closes first (8 days before): by then, dropping either is free.
@@ -420,6 +428,7 @@ Deno.test("view: the list lines up different stays held for the same night, with
         service: "ホテル白菊",
         status: "candidate",
         rank: null,
+        people: null,
         amount: 75768,
         freeUntil: "2026-12-11T23:59:59+09:00",
         owner: "母",
@@ -429,6 +438,7 @@ Deno.test("view: the list lines up different stays held for the same night, with
         service: "おにやまホテル",
         status: "confirmed",
         rank: null,
+        people: null,
         amount: 65472,
         freeUntil: "2026-12-15T23:59:59+09:00",
         owner: null,
@@ -514,4 +524,60 @@ Deno.test("view: the order of preference and an open proposal go out with the ro
   assertEquals(owner.needsCheck.includes("@toriforiumu さんから取り消しの提案がある"), true);
   const plain = presentReservation(row(), NOW);
   assertEquals([plain.rank, plain.suggestion], [null, null]);
+});
+
+Deno.test("view: overlaps are read against the party — split, over, or choose", () => {
+  const flight = (id: string, people: number | null, at = "2026-12-18T23:00:00.000Z") =>
+    row({
+      id,
+      service: id,
+      kind: "flight",
+      trip: "別府",
+      startsAt: at,
+      endsAt: "2026-12-19T00:45:00.000Z",
+      people,
+    });
+  const modeOf = (
+    rows: WebReservation[],
+    trips = [] as { name: string; people: number | null }[],
+  ) => {
+    const out = presentList(rows, listFilterSchema.parse({}), NOW, trips);
+    return (out.overlaps ?? []).map((o) => [o.mode, o.party, o.partyInferred, o.peopleTotal]);
+  };
+  // Four go, two 2-seat flights at the same hours: both used.
+  assertEquals(modeOf([flight("JAL", 2), flight("ANA", 2)], [{ name: "別府", people: 4 }]), [
+    ["split", 4, false, 4],
+  ]);
+  // Two 4-seat flights for four: one is extra.
+  assertEquals(modeOf([flight("JAL", 4), flight("ANA", 4)], [{ name: "別府", people: 4 }]), [
+    ["over", 4, false, 8],
+  ]);
+  // The party worked out from the inn when the trip has no count.
+  const inn = row({
+    id: "INN",
+    service: "宿",
+    kind: "stay",
+    trip: "別府",
+    startsAt: "2026-12-19T06:00:00.000Z",
+    endsAt: "2026-12-20T01:00:00.000Z",
+    people: 4,
+  });
+  assertEquals(modeOf([flight("JAL", 2), flight("ANA", 2), inn]), [["split", 4, true, 4]]);
+  // A booking that does not say how many: one of them, as before.
+  assertEquals(modeOf([flight("JAL", 2), flight("ANA", null)]), [["choose", 2, true, null]]);
+  // The same flight bought twice for two halves is not a duplicate.
+  const same = [flight("JAL", 2), { ...flight("JAL", 2), id: "JAL2" }];
+  assertEquals(
+    presentList(same, listFilterSchema.parse({}), NOW, [{ name: "別府", people: 4 }])
+      .possibleDuplicates,
+    undefined,
+  );
+  assertEquals(
+    presentList(same, listFilterSchema.parse({}), NOW, [{ name: "別府", people: 2 }])
+      .possibleDuplicates?.length,
+    1,
+  );
+  // Trips say how many go.
+  const t = presentList([inn], listFilterSchema.parse({}), NOW).trips![0]!;
+  assertEquals([t.people, t.peopleInferred], [4, true]);
 });

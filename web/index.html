@@ -2429,6 +2429,11 @@
       border-style: solid;
       border-color: var(--line);
     }
+    /* 分けて取った予約（全部使う）: 決めることではないので、破線にしない */
+    .alt.together {
+      border-style: solid;
+      border-color: var(--safe);
+    }
     .alt-head {
       display: flex;
       align-items: center;
@@ -3296,6 +3301,9 @@
           <div class="fsec-title">料金とキャンセル</div>
           <label for="f_amount">金額（円）</label>
           <input id="f_amount" type="number" min="0" step="1" inputmode="numeric" placeholder="例: 18000">
+          <label for="f_people">人数（この予約で何人分・任意）</label>
+          <input id="f_people" type="number" min="1" max="99" step="1" inputmode="numeric" placeholder="例: 4">
+          <div class="hint" style="margin:4px 0 0">4人で行って2人ずつしか取れなかった便なら、それぞれ 2。空なら全員分とみなします。</div>
         <label>キャンセル料</label>
         <div class="pol-modes" id="polModes">
           <button type="button" class="pol-mode" data-pol="unknown">不明（あとで）</button>
@@ -3691,6 +3699,8 @@
       return res.json();
     }
     let data = [];
+    // 旅行の人数（何人で行くか。/api/reservations の trips）。src/web/trips.ts。
+    let tripMeta = [];
     let editingId = null;
     // 編集中の予約が持っていた終了時刻（"HH:MM"）。フォームは終了「日」しか見せない
     // ので、読み取れていた時刻をここに退避して保存時に戻す。
@@ -4018,10 +4028,19 @@
         if (k) (lookAlikes[k] = lookAlikes[k] || []).push(r);
       }
     }
+    // 同じ名前・同じ日でも、人数を分けて取ったもの（4人を2人ずつ）は二重登録ではない。
+    function looksDuplicated(r) {
+      const k = lookKey(r);
+      const same = (k && lookAlikes[k]) || [];
+      if (!same.some((x) => x.id !== r.id)) return false;
+      const live = same.filter((x) => x.status === "candidate" || x.status === "confirmed");
+      const trip = (same.find((x) => x.trip) || {}).trip || null;
+      return classifyAlternatives(live, tripParty(trip, data).party).mode !== "split";
+    }
     function lookAlikeHtml(r) {
       const k = lookKey(r);
       const others = ((k && lookAlikes[k]) || []).filter((x) => x.id !== r.id);
-      if (others.length === 0) return "";
+      if (others.length === 0 || !looksDuplicated(r)) return "";
       const owners = [...new Set(others.filter((x) => x.shared).map((x) => x.shared.ownerDisplayName))];
       const who = owners.length ? `（共有: ${owners.map(esc).join("・")}）` : "";
       // こちらを残してまとめられるのは、消す側が自分の予約で、残す側を自分が書き換え
@@ -4121,6 +4140,33 @@
         ...group("parking", parkSpanOf, (n) => n, true),
       ];
     }
+    // 旅行の人数と、重なる予約の読み方（split＝分けて取った・全部使う／over＝人数より
+    // 多い／choose＝どれか1つ）。src/web/overlap.ts の写し — overlap_mirror_test.ts。
+    function partySize(explicit, tripRows) {
+      if (explicit != null) return { party: explicit, inferred: false };
+      const counts = tripRows
+        .filter((r) => r.status === "candidate" || r.status === "confirmed")
+        .map((r) => r.people)
+        .filter((n) => n != null);
+      return counts.length > 0
+        ? { party: Math.max(...counts), inferred: true }
+        : { party: null, inferred: false };
+    }
+    function classifyAlternatives(live, party) {
+      if (party === null || live.length === 0 || live.some((r) => r.people == null)) {
+        return { mode: "choose", total: null };
+      }
+      const total = live.reduce((n, r) => n + r.people, 0);
+      return { mode: total <= party ? "split" : "over", total };
+    }
+    const foldTrip = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+    // 旅行 `trip` の人数: 家族が入れた数、無ければその旅行の予約の人数の最大。
+    function tripParty(trip, rows) {
+      if (!trip) return { party: null, inferred: false };
+      const k = foldTrip(trip);
+      const meta = tripMeta.find((t) => foldTrip(t.name) === k);
+      return partySize(meta ? meta.people : null, rows.filter((r) => r.trip && foldTrip(r.trip) === k));
+    }
     // 一覧の単位（render() が毎回作り直し、一覧・今日やること・比べる画面が読む）。
     // どれか1つにする組（同じ夜の宿・同じ時間帯の便・同じ期間の駐車場）と、2件以上の
     // プランは「alt」の1単位にまとめ、それ以外は1件ずつ。組に入った予約のプランの
@@ -4184,16 +4230,31 @@
           );
         }
         u.live = u.rows.filter(isLive);
+        // 人数で読む（オーナー 2026-11-13「4人でいって２人ずつしか買えないこともある」）。
+        // プランは家族が「どれか1つ」と決めた束なので、そのまま。
+        u.mode = "choose";
+        u.party = null;
+        u.partyInferred = false;
+        u.total = null;
+        if (u.type === "alt" && u.kind !== "plan") {
+          const p = tripParty(u.trip, rows);
+          const c = classifyAlternatives(u.live, p.party);
+          u.mode = c.mode;
+          u.total = c.total;
+          u.party = p.party;
+          u.partyInferred = p.inferred;
+        }
         // 並べ替えられるのは、囲みの生きている予約を全部書き換えられるときだけ
         // （自分の予約か、編集を許可された共有）。順は予約そのものに書くので、
         // 共有している人にも同じ順で見える。
-        u.sortable = u.type === "alt" && u.live.length >= 2 && !viewingDemo &&
+        u.sortable = u.type === "alt" && u.mode !== "split" && u.live.length >= 2 && !viewingDemo &&
           !(ME && ME.viewOnly) && u.live.every((r) => !r.shared || r.shared.role === "editor");
       }
       units.sort((x, y) => x.start - y.start);
     }
     // まだ決まっていない組（使えるのは1つなのに、生きている予約が2件以上ある）。
-    const undecided = (u) => u.type === "alt" && u.live.length >= 2;
+    // 分けて取った予約（split）は全部使うので、決めることではない。
+    const undecided = (u) => u.type === "alt" && u.live.length >= 2 && u.mode !== "split";
     // 組の決めどき: 生きている予約のうち、いちばん早い無料期限（過ぎたものは除く）。
     const unitDeadline = (u, now) =>
       u.live.filter((r) => !unbooked(r)).map(freeDeadline).filter((d) => d && d > now)
@@ -4305,7 +4366,16 @@
         r.status === "confirmed"
           ? (unbooked(r) ? "これに決定（未予約）" : "確定済み")
           : (unbooked(r) ? "候補（未予約）" : "候補");
+      // 人数より多い組（over）は「1つに決める」のではなく、多い分を1件ずつ外す。
+      const over = g.mode === "over";
       const foot = members.map((r) => {
+        if (over) {
+          if (viewingDemo) return cell("foot", "");
+          return cell(
+            "foot",
+            `<button class="rowbtn" data-drop="${r.id}">${r.shared ? "取り消しを提案" : "これを外す"}</button>`,
+          );
+        }
         const fx = chooseEffects(r, members.filter((x) => x.id !== r.id), w.call);
         if (fx.changes === 0) {
           // 押しても変わらない列: いまの状態と、誰に何を頼むかだけを短く言う。
@@ -4348,7 +4418,13 @@
         (lastEnd && lastEnd !== fmtDate(Math.min(...ms)) ? `〜${lastEnd}` : "");
       const shared = members.some((r) => r.shared);
       q("#cmpBody").innerHTML =
-        `<p class="hint" style="margin-bottom:0">${span} に${w.count}が${members.length}件あります。</p>${decide}` +
+        `<p class="hint" style="margin-bottom:0">${span} に${w.count}が${members.length}件あります。${
+          over
+            ? ` ${g.party}人${g.partyInferred ? "（推定）" : ""}に対して${g.total}人分あるので、${
+              g.total - g.party
+            }人分を外します。`
+            : ""
+        }</p>${decide}` +
         `<div class="cmp" style="--n:${members.length}">` +
         members.map((r) =>
           cell(
@@ -4375,6 +4451,9 @@
             )
           ),
         ) +
+        (members.some((r) => r.people)
+          ? line("人数", members.map((r) => cell("", r.people ? `${r.people}人` : "—")))
+          : "") +
         line("無料で取り消せる期限", members.map((r) => cell("", freeText(r)))) +
         line("いま取り消すと", members.map((r) => cell("", feeNowText(r)))) +
         line(
@@ -4395,6 +4474,22 @@
         (shared
           ? `<p class="hint" style="margin:12px 0 0">確定と取り消しは、それぞれの予約の持ち主が行います。共有された予約はこの画面からは変わりません。</p>`
           : "");
+      q("#cmpBody").querySelectorAll("[data-drop]").forEach((b) =>
+        b.onclick = () => {
+          const r = members.find((x) => x.id === b.dataset.drop);
+          if (!r) return;
+          const ok = confirm(
+            r.shared
+              ? `「${r.service}」の取り消しを ${r.shared.ownerDisplayName} さんに提案します（${r.shared.ownerDisplayName} さんに届きます）。よろしいですか？`
+              : unbooked(r)
+              ? `「${r.service}」を見送りにします。よろしいですか？`
+              : `「${r.service}」を外して「要キャンセル」にします。取り消しの連絡はご自分でお願いします。よろしいですか？`,
+          );
+          if (!ok) return;
+          closeAll();
+          act("POST", `/api/reservations/${r.id}/drop`);
+        }
+      );
       q("#cmpBody").querySelectorAll("[data-choose]").forEach((b) =>
         b.onclick = () => {
           const win = members.find((r) => r.id === b.dataset.choose);
@@ -4576,6 +4671,7 @@
       try {
         const j = await api("GET", "/api/reservations");
         data = j.reservations;
+        tripMeta = Array.isArray(j.trips) ? j.trips : [];
         dataLoaded = true;
         loadError = null;
       } catch (e) {
@@ -4690,14 +4786,27 @@
       const altHtml = (u) => {
         const open = undecided(u);
         const dl = unitDeadline(u, now);
-        const note = open
-          ? `${u.live.length}件 · どれか1つに${dl ? ` · 決めどき ${fmtDate(dl)}` : ""}`
+        const inf = u.partyInferred ? "（推定）" : "";
+        const by = dl ? ` · 決めどき ${fmtDate(dl)}` : "";
+        const note = u.mode === "split"
+          ? `${u.party}人${inf}を${u.live.length}件に分けて予約（${
+            u.live.map((r) => r.people + "人").join("＋")
+          }）· 全部使う`
+          : u.mode === "over" && open
+          ? `${u.party}人${inf}に${u.total}人分 · ${u.total - u.party}人分多い${by}`
+          : open
+          ? `${u.live.length}件 · どれか1つに${by}`
           : [
             u.rows.some((r) => r.status === "confirmed") ? "決定済み" : `${u.rows.length}件`,
             u.rows.some((r) => r.status === "to_cancel" && !r.shared) ? "取り消しの連絡が残っています" : "",
           ].filter(Boolean).join(" · ");
         const btn = open ? `<button class="rowbtn" data-compare="${u.key}">比べる</button>` : "";
-        const hint = u.sortable ? `<span class="alt-note">上ほど希望が高い · つまみで並べ替え</span>` : "";
+        const hint = (u.sortable ? `<span class="alt-note">上ほど希望が高い · つまみで並べ替え</span>` : "") +
+          // 人数が分からないと「どれか1つ」と読むしかない。分けて取った宿や便なら、人数で見分けられる。
+          (u.mode === "choose" && open && (u.kind === "stay" || u.kind === "transport") &&
+              u.live.some((r) => r.people == null)
+            ? `<span class="alt-note">分けて取った予約なら、それぞれの人数を入れると全部使う予約として扱います</span>`
+            : "");
         const rows = u.rows.map((r) => {
           const live = u.live.includes(r);
           const grip = u.sortable && live
@@ -4709,7 +4818,7 @@
             itemHtml(r, true)
           }</div>`;
         }).join("");
-        return `<div class="alt${open ? "" : " settled"}"><div class="alt-head"><div class="alt-text"><span class="alt-title">${
+        return `<div class="alt${open ? "" : " settled"}${u.mode === "split" ? " together" : ""}"><div class="alt-head"><div class="alt-text"><span class="alt-title">${
           esc(u.title)
         }</span><span class="alt-note">${note}</span>${hint}</div>${btn}</div><div class="alt-rows" data-unit="${u.key}">${rows}</div></div>`;
       };
@@ -4753,8 +4862,13 @@
           const conf = u.rows.filter((r) => r.status === "confirmed");
           confirmedYen += conf.reduce((n, r) => n + (r.amount || 0), 0);
           const cands = u.rows.filter((r) => r.status === "candidate");
-          if (u.type === "single") expectYen += cands.reduce((n, r) => n + (r.amount || 0), 0);
-          else if (!conf.length && cands.length) expectYen += Math.max(...cands.map((r) => r.amount || 0));
+          // 分けて取った予約と、人数より多い予約は、いま持っている分を全部足す。
+          if (u.type === "single" || u.mode === "split" || u.mode === "over") {
+            expectYen += cands.reduce((n, r) => n + (r.amount || 0), 0);
+          }
+          else if (!conf.length && cands.length) {
+            expectYen += Math.max(...cands.map((r) => r.amount || 0));
+          }
         }
         expectYen += confirmedYen;
         const money = `確定 ${yen(confirmedYen)}` +
@@ -4766,9 +4880,12 @@
           open.length ? `決めること ${open.length}件${dls.length ? `（決めどき ${fmtDate(dls[0])}）` : ""}` : "",
           calls ? `取り消しの連絡 ${calls}件` : "",
         ].filter(Boolean).join(" · ");
+        const tp = tripParty(t, rows);
+        const who = tp.party === null ? "人数未設定" : `${tp.party}人${tp.inferred ? "（推定）" : ""}`;
+        const whoBtn = viewingDemo ? "" : `<button class="rowbtn" data-trip-people="${esc(t)}">人数</button>`;
         return `<div class="trip-head"><div class="trip-line"><span class="trip-label">旅行</span><span class="trip-title">${
           esc(t)
-        }</span></div><div class="trip-note">${span ? span + " · " : ""}${rows.length}件 · ${money}</div>${
+        }</span>${whoBtn}</div><div class="trip-note">${span ? span + " · " : ""}${who} · ${rows.length}件 · ${money}</div>${
           todo ? `<div class="trip-todo">${todo}</div>` : ""
         }</div>`;
       };
@@ -4839,6 +4956,24 @@
       );
       document.querySelectorAll("[data-compare]").forEach((b) =>
         b.onclick = () => openCompare(b.dataset.compare)
+      );
+      document.querySelectorAll("[data-trip-people]").forEach((b) =>
+        b.onclick = async () => {
+          const name = b.dataset.tripPeople;
+          const cur = tripParty(name, data);
+          const ans = prompt(
+            `「${name}」は何人で行きますか？（空にすると、予約の人数から推定します）`,
+            cur.party != null && !cur.inferred ? String(cur.party) : "",
+          );
+          if (ans === null) return;
+          const t = ans.trim();
+          const n = t === "" ? null : Number(t.normalize("NFKC"));
+          if (n !== null && !(Number.isInteger(n) && n >= 1 && n <= 99)) {
+            alert("人数は 1〜99 の整数で入れてください。");
+            return;
+          }
+          act("PUT", `/api/trips/${encodeURIComponent(name)}`, { people: n });
+        }
       );
       document.querySelectorAll("[data-suggest]").forEach((b) =>
         b.onclick = () => {
@@ -5054,9 +5189,9 @@
         items.push(
           `<div class="rail-item${soon ? "" : " soft"}"><div class="lb${soon ? "" : " lamp"}">${
             dl ? `◆${fmtDate(dl)} まで` : "いつでも"
-          }</div><div class="tt"><b>${
-            esc(u.title)
-          } を決める</b></div><div class="ds">${names} から1つに</div><div class="btns"><button class="rowbtn" data-compare="${u.key}">比べる</button></div></div>`,
+          }</div><div class="tt"><b>${esc(u.title)} ${
+            u.mode === "over" ? `が${u.total - u.party}人分多い` : "を決める"
+          }</b></div><div class="ds">${names} ${u.mode === "over" ? "からどれを外すか" : "から1つに"}</div><div class="btns"><button class="rowbtn" data-compare="${u.key}">比べる</button></div></div>`,
         );
       }
       for (const r of active) {
@@ -5298,6 +5433,7 @@
         !bad && !Number.isNaN(endMsV) && fmtDate(endMsV) !== fmtDate(start) ? `〜${fmtDate(endMsV)}` : "",
         routeText(r),
         r.amount ? yen(r.amount) : "金額未定",
+        r.people ? `${r.people}人` : "",
         !inAlt && r.plan ? `候補グループ: ${esc(r.plan)}` : "",
         r.shared ? `共有: ${esc(r.shared.ownerDisplayName)}` : "",
       ].filter(Boolean).join(" · ");
@@ -5317,10 +5453,7 @@
         dlText = r.status === "to_cancel" ? `◆${fmtDate(dl)}までに連絡で無料` : `◆${fmtDate(dl)}まで無料`;
       }
       else [dlText, dlCls] = ["無料期間は終了", " warn"];
-      const k = lookKey(r);
-      const dup = k && (lookAlikes[k] || []).some((x) => x.id !== r.id)
-        ? `<span class="i-flag">同じ予約かも</span>`
-        : "";
+      const dup = looksDuplicated(r) ? `<span class="i-flag">同じ予約かも</span>` : "";
       const rank = inAlt && r.rank != null && (r.status === "candidate" || r.status === "confirmed")
         ? `<span class="i-rank">第${r.rank}希望</span>`
         : "";
@@ -5876,6 +6009,7 @@
       q("#f_unbooked").checked = !!(r && r.booked === false);
       q("#f_kind").value = (r && r.kind) ? r.kind : "";
       q("#f_bookedBy").value = (r && r.bookedBy) ? r.bookedBy : "";
+      q("#f_people").value = (r && r.people) ? r.people : "";
       q("#f_from").value = (r && r.from) ? r.from : "";
       q("#f_to").value = (r && r.to) ? r.to : "";
       syncRouteRow();
@@ -6052,6 +6186,12 @@
       const booked = !q("#f_unbooked").checked;
       const kind = q("#f_kind").value || null;
       const bookedBy = q("#f_bookedBy").value.trim() || null;
+      const peopleRaw = q("#f_people").value.trim();
+      const people = peopleRaw === "" ? null : Number(peopleRaw);
+      if (people !== null && !(Number.isInteger(people) && people >= 1 && people <= 99)) {
+        alert("人数は 1〜99 の整数で入れてください。");
+        return;
+      }
       // 区間は交通・車のときだけ出している欄。隠れているときの残り値は送らない。
       const routeOn = q("#routeRow").style.display !== "none";
       const from = routeOn ? (q("#f_from").value.trim() || null) : null;
@@ -6078,6 +6218,7 @@
             from,
             to,
             bookedBy,
+            people,
             policy,
           });
           if (wasCancelled) await api("POST", `/api/reservations/${editingId}/restore`);
@@ -6100,6 +6241,7 @@
             from,
             to,
             bookedBy,
+            people,
             policy,
             confirmed,
           });

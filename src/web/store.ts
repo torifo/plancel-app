@@ -105,6 +105,14 @@ export const webReservationSchema = z.object({
    */
   rank: z.number().int().min(1).max(99).nullable().default(null),
   /**
+   * How many people this booking is for (owner 2026-11-13: 「4人でいって２人ずつ
+   * しか買えないこともある」). Null = not said, read as "the whole party" — the
+   * meaning every booking had before. With the trip's party size it tells two
+   * bookings for the same hours apart: halves of one party (both used), or
+   * more seats than people (some to drop). See ./overlap.ts.
+   */
+  people: z.number().int().min(1).max(99).nullable().default(null),
+  /**
    * A member's proposal to the owner — cancel it, or confirm it (owner
    * 2026-11-13: how to recommend cancelling a booking someone invited you to).
    * Settling stays the owner's: a proposal changes nothing by itself, it is
@@ -171,6 +179,7 @@ export const webCreateSchema = z.object({
   from: placeSchema.default(null),
   to: placeSchema.default(null),
   bookedBy: personSchema.default(null),
+  people: z.number().int().min(1).max(99).nullable().default(null),
   policy: webPolicySchema.default("unknown"),
   confirmed: z.boolean().default(false),
 });
@@ -191,6 +200,7 @@ export const webPatchSchema = z.object({
   from: placeSchema.optional(),
   to: placeSchema.optional(),
   bookedBy: personSchema.optional(),
+  people: z.number().int().min(1).max(99).nullable().optional(),
   rank: z.number().int().min(1).max(99).nullable().optional(),
   policy: webPolicySchema.optional(),
 });
@@ -342,7 +352,8 @@ type OptionalCreateField =
   | "kind"
   | "from"
   | "to"
-  | "bookedBy";
+  | "bookedBy"
+  | "people";
 
 export async function createReservation(
   kv: Deno.Kv,
@@ -391,6 +402,7 @@ export async function createReservationWithEffects(
     from: input.from ?? null,
     to: input.to ?? null,
     bookedBy: input.bookedBy ?? null,
+    people: input.people ?? null,
     rank: null,
     suggestion: null,
     policy,
@@ -461,6 +473,7 @@ export async function patchReservation(
     ...(patch.bookedBy !== undefined ? { bookedBy: patch.bookedBy } : {}),
     ...(patch.policy !== undefined ? { policy: patch.policy } : {}),
     ...(patch.rank !== undefined ? { rank: patch.rank } : {}),
+    ...(patch.people !== undefined ? { people: patch.people } : {}),
     updated_at: ids.nowIso(),
     updated_by: actor,
   };

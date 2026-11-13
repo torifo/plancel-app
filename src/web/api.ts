@@ -33,6 +33,7 @@
  *
  * Policy templates (施設の既定規定, see policy-template.ts) — private to
  * the acting ledger, no calendar side effects, so no `mutated()` hook:
+ *   PUT    /api/trips/<name>                  {people} how many go (null clears)
  *   GET    /api/policy-templates                       list
  *   PUT    /api/policy-templates/<facility>   {policy} save/overwrite
  *   DELETE /api/policy-templates/<facility>            delete (204, idempotent)
@@ -69,6 +70,7 @@ import {
   WebTransitionError,
 } from "./store.ts";
 import { getUser, type WebUser } from "./users.ts";
+import { listTrips, setTripPeople } from "./trips.ts";
 import {
   addMember,
   cleanupReservationShares,
@@ -105,7 +107,8 @@ const memberView = (u: WebUser, role: MemberRole) => ({
 /** True if this request targets a route `handleWebApi` serves. */
 export function isApiPath(pathname: string): boolean {
   return pathname === "/api/reservations" || pathname.startsWith("/api/reservations/") ||
-    pathname === "/api/policy-templates" || pathname.startsWith("/api/policy-templates/");
+    pathname === "/api/policy-templates" || pathname.startsWith("/api/policy-templates/") ||
+    pathname.startsWith("/api/trips/");
 }
 
 /**
@@ -142,6 +145,7 @@ const confirmOptsSchema = z.object({ replace: z.boolean().default(false) });
 const mergeSchema = z.object({ from: z.string().min(1) });
 const chooseSchema = z.object({ over: z.array(z.string().min(1)).min(1).max(10) });
 const suggestSchema = z.object({ action: z.enum(["cancel", "confirm"]) });
+const tripPeopleSchema = z.object({ people: z.number().int().min(1).max(99).nullable() });
 
 /** 409 for a refused transition: the stable message, plus the next step. */
 function transitionRefused(error: WebTransitionError): Response {
@@ -286,6 +290,27 @@ export async function handleWebApi(
   // Policy templates are keyed by the ACTING ledger, so ownership needs no
   // extra check: a shared-reservation member calls with their own token and
   // reaches their own templates, never the owner's.
+  // Trips: PUT /api/trips/:name {people} — how many people go (null clears).
+  // Listed with the reservations (GET /api/reservations → `trips`).
+  if (parts[1] === "trips") {
+    if (parts.length !== 3 || req.method !== "PUT") {
+      return json({ error: "method not allowed" }, 405);
+    }
+    let name: string;
+    try {
+      name = decodeURIComponent(parts[2]!).trim();
+    } catch {
+      return json({ error: "invalid", message: "旅行名が読めません" }, 400);
+    }
+    if (name === "" || name.length > 60) {
+      return json({ error: "invalid", message: "旅行名は1〜60文字" }, 400);
+    }
+    const parsed = tripPeopleSchema.safeParse(await readJson(req));
+    if (!parsed.success) return json({ error: "invalid", issues: parsed.error.issues }, 400);
+    const trip = await setTripPeople(kv, token, name, parsed.data.people, ids.nowIso());
+    return json({ trip: trip ?? { name, people: null } });
+  }
+
   if (parts[1] === "policy-templates") {
     // A facility has no sub-resources, so a deeper path is not a route.
     if (parts.length > 3) return json({ error: "not found" }, 404);
@@ -323,9 +348,12 @@ export async function handleWebApi(
           ...withSuggestion(s.reservation),
           shared: { ownerDisplayName: s.ownerDisplayName, role: s.role },
         }));
-        return json({ reservations: [...own.map(withSuggestion), ...shared] });
+        return json({
+          reservations: [...own.map(withSuggestion), ...shared],
+          trips: await listTrips(kv, token),
+        });
       }
-      return json({ reservations: own.map(withSuggestion) });
+      return json({ reservations: own.map(withSuggestion), trips: await listTrips(kv, token) });
     }
     if (req.method === "POST") {
       const raw = await readJson(req);
@@ -521,6 +549,34 @@ export async function handleWebApi(
     mutated(from);
     mutated(id, ledgerOwner);
     return json(outcome);
+  }
+
+  // Drop: POST /api/reservations/:id/drop — step one booking down when more is
+  // held than will be used (two flights of 2 seats for a party of 2). Own:
+  // to_cancel (or simply out, if never booked), the call to the place stays the
+  // user's. Shared: proposed to the owner, as everywhere else.
+  if (action === "drop" && req.method === "POST") {
+    const own = await getReservation(kv, token, id);
+    if (own !== null) {
+      const affected = await markLost(kv, token, [id], ids, actor);
+      mutated(id);
+      return json({ reservation: await getReservation(kv, token, id), affected });
+    }
+    const share = user === null ? null : await findShare(kv, user.id, id);
+    const ownerUser = share === null ? null : await getUser(kv, share.ownerUserId);
+    if (share === null || ownerUser === null || user === null) {
+      return json({ error: "not found" }, 404);
+    }
+    const r = await setSuggestion(kv, ownerUser.ledgerId, id, {
+      action: "cancel",
+      byUserId: user.id,
+      byName: displayLabel(user),
+      at: ids.nowIso(),
+      notifiedAt: null,
+    });
+    if (r === null) return json({ error: "not found" }, 404);
+    mutated(id, ownerUser);
+    return json({ suggested: true, owner: displayLabel(ownerUser) });
   }
 
   // Proposals (owner 2026-11-13): a member cannot settle a booking someone

@@ -868,3 +868,68 @@ Deno.test("list: a shared row written before proposals existed still loads (no s
     assertEquals((await asUser(kv, ids, mom, "GET", BASE)).status, 200);
   });
 });
+
+Deno.test("party: bookings say how many they are for, trips how many go, and over-held seats are dropped", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const mom = await getOrCreateUserByEmail(kv, "mom@x.jp", ids);
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const mk = async (user: typeof me, body: Record<string, unknown>) =>
+      (await (await asUser(kv, ids, user, "POST", BASE, {
+        startsAt: "2026-12-19T08:00:00+09:00",
+        trip: "別府",
+        ...body,
+      })).json()).reservation;
+    const jal = await mk(me, { service: "JAL661", kind: "flight", people: 2 });
+    assertEquals(jal.people, 2);
+    const ana = await mk(me, { service: "ANA795", kind: "flight" });
+    assertEquals(ana.people, null);
+    assertEquals(
+      (await asUser(kv, ids, me, "PATCH", `${BASE}/${ana.id}`, { people: 2 })).status,
+      200,
+    );
+    assertEquals(
+      (await asUser(kv, ids, me, "PATCH", `${BASE}/${ana.id}`, { people: 0 })).status,
+      400,
+    );
+
+    // How many go on the trip: set, listed with the reservations, cleared.
+    const put = await asUser(kv, ids, me, "PUT", "/api/trips/%E5%88%A5%E5%BA%9C", { people: 4 });
+    assertEquals(put.status, 200);
+    let list = await (await asUser(kv, ids, me, "GET", BASE)).json();
+    assertEquals(list.trips.map((t: { name: string; people: number }) => [t.name, t.people]), [
+      ["別府", 4],
+    ]);
+    assertEquals(
+      (await asUser(kv, ids, me, "PUT", "/api/trips/%E5%88%A5%E5%BA%9C", { people: 0 })).status,
+      400,
+    );
+    await asUser(kv, ids, me, "PUT", "/api/trips/%E5%88%A5%E5%BA%9C", { people: null });
+    list = await (await asUser(kv, ids, me, "GET", BASE)).json();
+    assertEquals(list.trips, []);
+    // Each ledger keeps its own: hers is untouched.
+    assertEquals((await (await asUser(kv, ids, mom, "GET", BASE)).json()).trips, []);
+
+    // Drop: mine steps down (to_cancel; an idea is simply out); hers becomes a proposal.
+    const idea = await mk(me, { service: "案の便", kind: "flight", booked: false });
+    assertEquals((await asUser(kv, ids, me, "POST", `${BASE}/${jal.id}/drop`)).status, 200);
+    assertEquals((await asUser(kv, ids, me, "POST", `${BASE}/${idea.id}/drop`)).status, 200);
+    const mine = Object.fromEntries(
+      (await listReservations(kv, me.ledgerId)).map((r) => [r.service, r.status]),
+    );
+    assertEquals([mine["JAL661"], mine["案の便"], mine["ANA795"]], [
+      "to_cancel",
+      "cancelled",
+      "candidate",
+    ]);
+    const hers = await mk(mom, { service: "母の便", kind: "flight", people: 2 });
+    await asUser(kv, ids, mom, "POST", `${BASE}/${hers.id}/members`, { q: "me@x.jp" });
+    const proposed = await (await asUser(kv, ids, me, "POST", `${BASE}/${hers.id}/drop`)).json();
+    assertEquals(proposed.suggested, true);
+    const row = (await listReservations(kv, mom.ledgerId))[0]!;
+    assertEquals([row.status, row.suggestion?.action], ["candidate", "cancel"]);
+    // Someone it is not shared with cannot.
+    const stranger = await getOrCreateUserByEmail(kv, "x@x.jp", ids);
+    assertEquals((await asUser(kv, ids, stranger, "POST", `${BASE}/${hers.id}/drop`)).status, 404);
+  });
+});
