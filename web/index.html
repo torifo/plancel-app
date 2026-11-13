@@ -2090,7 +2090,18 @@
       justify-content: center;
       gap: 3px;
       min-height: 12px;
-      flex-wrap: wrap;
+      /* 1段だけ（印の数は renderCalendar が3つまでに抑える）。折れるとその週だけ高くなる。 */
+      flex-wrap: nowrap;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    .cal-more {
+      font-size: calc(10.5px * var(--fs));
+      font-weight: 700;
+      line-height: 1;
+      color: var(--ink-2);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
     .cal-dot {
       display: inline-block;
@@ -3402,6 +3413,7 @@
             <span><i class="cal-dot candidate"></i>候補</span>
             <span><i class="cal-dot to_cancel"></i>要キャンセル</span>
             <span><span class="cal-dl">◆</span>無料キャンセル期限</span>
+            <span><span class="cal-more">+2</span>ほかにも予約（日を押すと全部）</span>
           </div>
         </div>
         <div class="pagecard cal-card" id="calDay"></div>
@@ -8304,9 +8316,19 @@
         const list = ev[k] || [];
         const resv = list.filter((x) => x.kind !== "deadline");
         const hasDl = list.some((x) => x.kind === "deadline");
-        const dots = resv.slice(0, 3).map((x) =>
+        // 印は1段に3つまで（360px・大きい文字でもマスの幅に収まる数）。◆があれば1つ使い、
+        // 予約が入りきらなければ最後の1つを「+n」にする。前は点を3つで切って ◆ を足して
+        // いたので、4件目からは黙って消え、狭い画面では2段に折れてその週だけ高くなった。
+        // 並びは、連絡の要るもの（要キャンセル）→ その日に始まるもの → 滞在中。
+        const rank = (x) => (x.r.status === "to_cancel" ? 0 : 1) * 2 + (x.kind === "stay" ? 1 : 0);
+        const shown = [...resv].sort((a, b) => rank(a) - rank(b));
+        const slots = hasDl ? 2 : 3;
+        const fits = shown.length <= slots;
+        // 10件を超える日は「+12」が2桁になって幅を取るので、点を出さずに件数だけにする。
+        const keep = fits ? shown.length : (shown.length - (slots - 1) >= 10 ? 0 : slots - 1);
+        const dots = shown.slice(0, keep).map((x) =>
           `<i class="cal-dot ${x.r.status}${x.kind === "stay" ? " stay" : ""}"></i>`
-        ).join("");
+        ).join("") + (fits ? "" : `<span class="cal-more">+${shown.length - keep}</span>`);
         const cls = [
           "cal-cell",
           list.length ? "has" : "",
