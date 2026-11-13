@@ -2718,6 +2718,18 @@
       margin-top: 8px;
       min-height: var(--btn-h);
     }
+    /* 取り込みを旅行から開いたとき: 旅行に関係する入口だけ */
+    .import-opt.trip-only {
+      display: none;
+    }
+    #importOverlay.in-trip .import-opt.trip-only {
+      display: block;
+    }
+    #importOverlay.in-trip [data-imp="forward"],
+    #importOverlay.in-trip [data-imp="ics"],
+    #importOverlay.in-trip [data-imp="cal-sync"] {
+      display: none !important;
+    }
     /* 旅行の「予約がまだ」（決めたけれど、まだ予約していないもの） */
     .trip-tobook {
       margin-top: 8px;
@@ -3476,7 +3488,7 @@
               <li><b>✎ 手動で追加</b>：「＋手動で追加」から1件ずつ。読み取りが難しいときの最後の手段です。</li>
             </ul>
             <p class="help-p">4人で行くのに2人ずつしか取れなかった便のように、1つの便や宿を分けて予約したときは、追加・編集画面の「予約と料金」で「＋別に取った予約を足す」を押し、予約ごとに人数・金額・予約番号を入れます。台帳では1つの便の下に予約が並びます。旅行の人数より多いときや、同じ時間帯に別の便があるときは、警告つきの「比べる」囲みになります。人数・金額・予約番号・運賃は、メモに書かずにそれぞれの欄へ入れてください。</p>
-            <p class="help-p">旅行は決めたけれど、まだ予約していないもの（レンタカー・駐車場・お店など）は、旅行の見出しの「＋予約することを足す」から、名前と種類だけで足せます（日付は旅行の初日・時刻は未定で始まります）。旅行の「予約がまだ」と「今日やること」に並ぶので、取ったら「予約した」を押し、金額と規定を入れてください。</p>
+            <p class="help-p">旅行は決めたけれど、まだ予約していないもの（レンタカー・駐車場・お店など）は、旅行の見出しの「＋予約項目を追加」→「まだ予約していないものを足す」から、名前と種類だけで足せます（日付は旅行の初日・時刻は未定で始まります）。同じボタンから、予約確認メールの貼り付けやスクショ・写真の読み取りでも、その旅行に入れられます。旅行の「予約がまだ」と「今日やること」に並ぶので、取ったら「予約した」を押し、金額と規定を入れてください。</p>
             <p class="help-p">貼り付け・スクショ・.ics・手動は、登録の前に確認画面が出ます。読み取りが外れていたら、その場で直してから登録してください。</p>
             <p class="help-p" id="helpWayMailNote" style="display:none"><b>転送だけは確認画面がありません。</b>メールが届いた時点で候補として並ぶので、あとから台帳で見て直してください。</p>
             <p class="help-p">このほか、LINEのトークにメール本文やスクリーンショットを送っても同じように読み取れます（→6）。</p>
@@ -3691,7 +3703,7 @@
     <!-- Import chooser -->
     <div class="overlay" id="importOverlay">
       <div class="modal">
-        <div class="modal-head"><h3>予約を取り込む</h3><button class="x" data-close>×</button></div>
+        <div class="modal-head"><h3 id="importTitle">予約を取り込む</h3><button class="x" data-close>×</button></div>
         <p class="hint"
           style="margin-bottom:14px">お持ちの予約情報をそのまま使えます。手入力は最後の手段です。</p>
         <div class="import-opt" data-imp="mail">
@@ -3727,6 +3739,12 @@
           <div class="t">📷 スクショ・写真から読み取り</div>
           <div
             class="d">予約画面やカレンダー画面のスクリーンショットを AI（vision）が読み取り、確認してから登録します。</div>
+        </div>
+        <!-- 旅行の「＋予約項目を追加」から開いたときだけ出す（#importOverlay.in-trip）。 -->
+        <div class="import-opt trip-only" data-imp="tobook">
+          <div class="t">まだ予約していないものを足す（やること）</div>
+          <div
+            class="d">レンタカー・駐車場・お店など、決めたけれどまだ予約していないものを、名前と種類だけで足します。旅行の「予約がまだ」に並びます。</div>
         </div>
         <div class="import-opt" data-imp="cal-sync">
           <div class="t">🔄 カレンダーと自動連携（逆方向）</div>
@@ -5375,7 +5393,7 @@
               }</ul>`
               : ""
           }${
-            canAdd ? `<button class="rowbtn tb-add" data-trip-tobook="${esc(t)}">＋予約することを足す</button>` : ""
+            canAdd ? `<button class="rowbtn tb-add" data-trip-add="${esc(t)}">＋予約項目を追加</button>` : ""
           }</div>`
           : "";
         return `<div class="trip-head"><div class="trip-line"><span class="trip-label">旅行</span><span class="trip-title">${
@@ -5452,18 +5470,9 @@
       document.querySelectorAll("[data-compare]").forEach((b) =>
         b.onclick = () => openCompare(b.dataset.compare)
       );
-      // 予約することを足す: その旅行の、決めたけれどまだ予約していない予約として開く
-      // （日付は旅行の初日・時刻は未定。名前と種類を入れれば足りる）。
-      document.querySelectorAll("[data-trip-tobook]").forEach((b) =>
-        b.onclick = () => {
-          const name = b.dataset.tripTobook;
-          const k = foldTrip(name);
-          const first = data.filter((r) => r.trip && foldTrip(r.trip) === k).map(startMs)
-            .filter((n) => !Number.isNaN(n)).sort((x, y) => x - y)[0];
-          const d = new Date(Number.isFinite(first) ? first : Date.now() + 7 * DAY);
-          const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-          openAdd({ trip: name, booked: false, startsAt: day, timeTentative: true, _decided: true });
-        }
+      // 予約項目を追加: その旅行の名前を持って取り込みの選び方を開く（メール・画像・やること・手入力）。
+      document.querySelectorAll("[data-trip-add]").forEach((b) =>
+        b.onclick = () => openImport(b.dataset.tripAdd)
       );
       document.querySelectorAll("[data-trip-people]").forEach((b) =>
         b.onclick = async () => {
@@ -6750,7 +6759,7 @@
         ? (siblings.length || (r && r._addBooking)
           ? `${r.kind === "stay" ? "宿" : r.kind === "parking" ? "駐車場" : "便"}と予約を編集`
           : "予約を編集")
-        : (isPrefill ? "読み取り結果の確認" : (r && r._decided ? "予約することを足す" : "予約を追加"));
+        : (isPrefill ? "読み取り結果の確認" : (r && r._inTrip ? "予約項目を追加" : "予約を追加"));
       q("#parseNote").style.display = isPrefill ? "block" : "none";
       q("#f_submit").textContent = isEdit ? "更新する" : "登録する";
       q("#kindRow").style.display = isEdit ? "none" : "flex";
@@ -6839,8 +6848,18 @@
       el.classList.toggle("over", n > NOTES_MAX);
     }
     q("#f_notes").addEventListener("input", syncNotesCount);
-    function openImport() {
-      q("#importOverlay").classList.add("on");
+    // 取り込みの入口。旅行の「＋予約項目を追加」からは、その旅行の名前を持って開く
+    // （オーナー 2026-11-13「追加する方法もメールと画像はいるよね」）。読み取り結果・
+    // 手入力・やることのどれにも旅行名が入る。旅行と関係のない転送・.ics・カレンダー
+    // 連携は隠す。下の「＋」（取り込む）からは今までどおり旅行なしで開く。
+    let importTrip = null;
+    function openImport(trip) {
+      importTrip = typeof trip === "string" && trip ? trip : null;
+      const ov = q("#importOverlay");
+      ov.classList.toggle("in-trip", importTrip !== null);
+      q("#importTitle").textContent = importTrip ? "予約項目を追加" : "予約を取り込む";
+      q("#manualLink").textContent = importTrip ? "✎ 手で入力する" : "✎ 手動でまとめて入力する（最後の手段）";
+      ov.classList.add("on");
     }
     function closeAll() {
       // 失敗の知らせを閉じたら、その先へ（読み取り失敗なら手動追加の画面を開く）。
@@ -7207,6 +7226,7 @@
         location: f.location || null,
         policy: f.policy || "unknown",
         plan: null,
+        trip: importTrip,
         _prefill: true,
       });
     }
@@ -7458,7 +7478,21 @@
     // manual (last resort)
     q("#manualLink").onclick = () => {
       closeAll();
-      openAdd();
+      if (importTrip) openAdd({ trip: importTrip, _inTrip: true });
+      else openAdd();
+    };
+    // まだ予約していないもの（やること）: 旅行・これに決めた・まだ予約していない・旅行の初日・
+    // 時刻未定でフォームを開く。名前と種類を入れれば足りる。
+    document.querySelector('[data-imp="tobook"]').onclick = () => {
+      const name = importTrip;
+      closeAll();
+      if (!name) return;
+      const k = foldTrip(name);
+      const first = data.filter((r) => r.trip && foldTrip(r.trip) === k).map(startMs)
+        .filter((n) => !Number.isNaN(n)).sort((x, y) => x - y)[0];
+      const d = new Date(Number.isFinite(first) ? first : Date.now() + 7 * DAY);
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      openAdd({ trip: name, booked: false, startsAt: day, timeTentative: true, _decided: true, _inTrip: true });
     };
 
     // ---- login / account (login is the only way in; spec 2026-07-21) ----
