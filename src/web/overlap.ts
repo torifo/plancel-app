@@ -162,23 +162,34 @@ export interface PartyRow {
   id: string;
   status: string;
   people?: number | null;
+  service?: string;
+  startsAt?: string;
 }
 
 /**
- * How many go: the trip's explicit count when set, else the largest `people`
- * among the trip's live bookings (the inn booked for the family), else null.
+ * How many go: the trip's explicit count when set, else worked out from the
+ * trip's live bookings — the largest number of seats one booking holds, where
+ * the same thing booked more than once on one day counts as one (JAL665 bought
+ * as 2 + 2 seats is four people, not two). Null when no booking says.
  */
 export function partySize(
   explicit: number | null | undefined,
   tripRows: PartyRow[],
 ): { party: number | null; inferred: boolean } {
   if (explicit != null) return { party: explicit, inferred: false };
-  const counts = tripRows
-    .filter((r) => r.status === "candidate" || r.status === "confirmed")
-    .map((r) => r.people)
-    .filter((n): n is number => n != null);
-  return counts.length > 0
-    ? { party: Math.max(...counts), inferred: true }
+  const slots = new Map<string, number>();
+  for (const r of tripRows) {
+    if ((r.status !== "candidate" && r.status !== "confirmed") || r.people == null) continue;
+    const at = r.startsAt === undefined
+      ? undefined
+      : toInstantOrNull(r.startsAt)?.epochMilliseconds;
+    const key = r.service !== undefined && at !== undefined
+      ? `${fold(r.service)}|${dayOf(at)}`
+      : `#${r.id}`;
+    slots.set(key, (slots.get(key) ?? 0) + r.people);
+  }
+  return slots.size > 0
+    ? { party: Math.max(...slots.values()), inferred: true }
     : { party: null, inferred: false };
 }
 

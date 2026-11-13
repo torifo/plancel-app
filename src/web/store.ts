@@ -113,6 +113,13 @@ export const webReservationSchema = z.object({
    */
   people: z.number().int().min(1).max(99).nullable().default(null),
   /**
+   * The booking reference the place issued (予約番号). Two bookings of one
+   * flight made separately — two seats at one fare, two at another — are two
+   * reservations, and this is what tells them apart (owner 2026-11-13:
+   * 「予約を2つに分けてとったのにひとつにまとまってる」).
+   */
+  ref: z.string().nullable().default(null),
+  /**
    * A member's proposal to the owner — cancel it, or confirm it (owner
    * 2026-11-13: how to recommend cancelling a booking someone invited you to).
    * Settling stays the owner's: a proposal changes nothing by itself, it is
@@ -160,6 +167,7 @@ const notesSchema = textSchema(2000);
 const tripSchema = textSchema(60);
 const placeSchema = textSchema(100);
 const personSchema = textSchema(40);
+const refSchema = textSchema(40);
 
 /** Fields a client may set on create; server owns id/status/timestamps. */
 export const webCreateSchema = z.object({
@@ -180,6 +188,7 @@ export const webCreateSchema = z.object({
   to: placeSchema.default(null),
   bookedBy: personSchema.default(null),
   people: z.number().int().min(1).max(99).nullable().default(null),
+  ref: refSchema.default(null),
   policy: webPolicySchema.default("unknown"),
   confirmed: z.boolean().default(false),
 });
@@ -201,6 +210,7 @@ export const webPatchSchema = z.object({
   to: placeSchema.optional(),
   bookedBy: personSchema.optional(),
   people: z.number().int().min(1).max(99).nullable().optional(),
+  ref: refSchema.optional(),
   rank: z.number().int().min(1).max(99).nullable().optional(),
   policy: webPolicySchema.optional(),
 });
@@ -353,7 +363,8 @@ type OptionalCreateField =
   | "from"
   | "to"
   | "bookedBy"
-  | "people";
+  | "people"
+  | "ref";
 
 export async function createReservation(
   kv: Deno.Kv,
@@ -403,6 +414,7 @@ export async function createReservationWithEffects(
     to: input.to ?? null,
     bookedBy: input.bookedBy ?? null,
     people: input.people ?? null,
+    ref: input.ref ?? null,
     rank: null,
     suggestion: null,
     policy,
@@ -474,6 +486,7 @@ export async function patchReservation(
     ...(patch.policy !== undefined ? { policy: patch.policy } : {}),
     ...(patch.rank !== undefined ? { rank: patch.rank } : {}),
     ...(patch.people !== undefined ? { people: patch.people } : {}),
+    ...(patch.ref !== undefined ? { ref: patch.ref } : {}),
     updated_at: ids.nowIso(),
     updated_by: actor,
   };
@@ -790,6 +803,8 @@ export async function mergeReservations(
     from: take("from"),
     to: take("to"),
     bookedBy: take("bookedBy"),
+    people: take("people"),
+    ref: take("ref"),
     updated_at: ids.nowIso(),
     updated_by: actor,
   };

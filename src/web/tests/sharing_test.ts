@@ -933,3 +933,39 @@ Deno.test("party: bookings say how many they are for, trips how many go, and ove
     assertEquals((await asUser(kv, ids, stranger, "POST", `${BASE}/${hers.id}/drop`)).status, 404);
   });
 });
+
+Deno.test("ref: a booking reference is kept on create and edit, and taken over by a merge", async () => {
+  await withKv(async (kv) => {
+    const ids = makeAuthIds();
+    const me = await getOrCreateUserByEmail(kv, "me@x.jp", ids);
+    const mk = async (body: Record<string, unknown>) =>
+      (await (await asUser(kv, ids, me, "POST", BASE, {
+        service: "JAL665",
+        kind: "flight",
+        startsAt: "2026-12-19T12:05:00+09:00",
+        ...body,
+      })).json()).reservation;
+    // Two bookings of one flight, two seats each at different fares.
+    const a = await mk({ people: 2, amount: 28000, ref: " ABC123 " });
+    const b = await mk({ people: 2, amount: 31960 });
+    assertEquals([a.ref, b.ref], ["ABC123", null]);
+    assertEquals(
+      (await asUser(kv, ids, me, "PATCH", `${BASE}/${b.id}`, { ref: "DEF456" })).status,
+      200,
+    );
+    assertEquals(
+      (await asUser(kv, ids, me, "PATCH", `${BASE}/${b.id}`, { ref: "x".repeat(41) })).status,
+      400,
+    );
+    const rows = await listReservations(kv, me.ledgerId);
+    assertEquals(rows.map((r) => r.ref).sort(), ["ABC123", "DEF456"]);
+    // A copy entered twice by mistake: the merge keeps the reference it lacked.
+    const dup = await mk({ ref: "GHI789" });
+    const keep = await mk({});
+    await asUser(kv, ids, me, "POST", `${BASE}/${keep.id}/merge`, { from: dup.id });
+    assertEquals(
+      (await listReservations(kv, me.ledgerId)).find((r) => r.id === keep.id)?.ref,
+      "GHI789",
+    );
+  });
+});

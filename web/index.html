@@ -3286,6 +3286,7 @@
           class="modal-head"><h3 id="addTitle">予約を追加</h3><button class="x" data-close>×</button></div>
         <div class="parse-note"
           id="parseNote">自動で読み取った内容です。確認・修正して登録してください。</div>
+        <div class="parse-note" id="copyNote"></div>
         <!-- 種類を最初に選ぶ。選んだ種類で、名前・日付・区間の呼び方と例が切り替わる
              （オーナー 2026-11-12「宿か新幹線かとか選択して切り替えられる方が良さそう」）。 -->
         <div class="fsec top">
@@ -3315,6 +3316,8 @@
           </select>
           <label for="f_service"><span id="serviceLabel">お店・宿・サービス名</span> <span class="req">*</span></label>
           <input id="f_service" placeholder="例: 湖畔の湯宿 蛍">
+          <label for="f_ref">予約番号（任意）</label>
+          <input id="f_ref" maxlength="40" autocomplete="off" placeholder="例: ABC123">
           <div class="two" id="routeRow" style="display:none">
             <div><label for="f_from" id="fromLabel">出発地</label><input id="f_from" maxlength="100" placeholder="例: 羽田"></div>
             <div><label for="f_to" id="toLabel">到着地</label><input id="f_to" maxlength="100" placeholder="例: 大分"></div>
@@ -4181,12 +4184,18 @@
     // 多い／choose＝どれか1つ）。src/web/overlap.ts の写し — overlap_mirror_test.ts。
     function partySize(explicit, tripRows) {
       if (explicit != null) return { party: explicit, inferred: false };
-      const counts = tripRows
-        .filter((r) => r.status === "candidate" || r.status === "confirmed")
-        .map((r) => r.people)
-        .filter((n) => n != null);
-      return counts.length > 0
-        ? { party: Math.max(...counts), inferred: true }
+      // 同じ便を同じ日に分けて取った席は1つの一行の分として足す（2人＋2人は4人）。
+      const fold = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+      const dayOf = (ms) => Math.floor((ms + 9 * 3600000) / 86400000);
+      const slots = new Map();
+      for (const r of tripRows) {
+        if ((r.status !== "candidate" && r.status !== "confirmed") || r.people == null) continue;
+        const at = r.startsAt === undefined ? NaN : Date.parse(r.startsAt);
+        const key = r.service !== undefined && !Number.isNaN(at) ? `${fold(r.service)}|${dayOf(at)}` : `#${r.id}`;
+        slots.set(key, (slots.get(key) || 0) + r.people);
+      }
+      return slots.size > 0
+        ? { party: Math.max(...slots.values()), inferred: true }
         : { party: null, inferred: false };
     }
     function classifyAlternatives(live, party) {
@@ -4529,6 +4538,9 @@
         ) +
         (members.some((r) => r.people)
           ? line("人数", members.map((r) => cell("", r.people ? `${r.people}人` : "—")))
+          : "") +
+        (members.some((r) => r.ref)
+          ? line("予約番号", members.map((r) => cell("", r.ref ? esc(r.ref) : "—")))
           : "") +
         line("無料で取り消せる期限", members.map((r) => cell("", freeText(r)))) +
         line("いま取り消すと", members.map((r) => cell("", feeNowText(r)))) +
@@ -5090,6 +5102,29 @@
       document.querySelectorAll("[data-edit]").forEach((b) =>
         b.onclick = () => openAdd(data.find((r) => r.id === b.dataset.edit))
       );
+      document.querySelectorAll("[data-split]").forEach((b) =>
+        b.onclick = () => {
+          const r = data.find((x) => x.id === b.dataset.split);
+          if (!r) return;
+          // 候補グループは写さない（写すと「どれか1つ」の束になり、片方の確定で
+          // もう片方が要キャンセルになる）。メモ・人数・金額・予約番号はその予約のもの。
+          openAdd({
+            service: r.service,
+            kind: r.kind,
+            startsAt: r.startsAt,
+            endsAt: r.endsAt,
+            timeTentative: r.timeTentative,
+            from: r.from,
+            to: r.to,
+            trip: r.trip,
+            location: r.location,
+            bookedBy: r.bookedBy,
+            booked: r.booked,
+            policy: r.policy,
+            _copyOf: r,
+          });
+        }
+      );
       document.querySelectorAll("[data-del]").forEach((b) =>
         b.onclick = () => {
           // キャンセル済みの「完全に削除」と同じハード削除なのに、こちらだけ戻せない
@@ -5527,6 +5562,8 @@
         routeText(r),
         r.amount ? yen(r.amount) : "金額未定",
         r.people ? `${r.people}人` : "",
+        // 同じ便を分けて取った行どうしは、予約番号でしか見分けられないことがある。
+        r.ref ? `予約番号 ${esc(r.ref)}` : "",
         !inAlt && r.plan ? `候補グループ: ${esc(r.plan)}` : "",
         r.shared ? `共有: ${esc(r.shared.ownerDisplayName)}` : "",
       ].filter(Boolean).join(" · ");
@@ -5618,6 +5655,7 @@
       }`;
       const route = inItem ? "" : routeText(r);
       const locLink = (route ? `<div class="sub route">${route}</div>` : "") +
+        (r.ref ? `<div class="sub">予約番号: ${esc(r.ref)}</div>` : "") +
         (r.bookedBy ? `<div class="sub">予約した人: ${esc(r.bookedBy)}</div>` : "") +
         locationHtml(r) +
         (r.notes ? `<div class="note">${esc(r.notes)}</div>` : "");
@@ -5680,7 +5718,13 @@
       const cancelLink = r.status === "confirmed"
         ? ` · <a data-cancel="${r.id}">キャンセルした</a>`
         : "";
-      const tools = `<div class="tools">${inviteLink}<a data-edit="${r.id}">編集</a> · <a data-del="${r.id}">削除</a>${cancelLink}</div>`;
+      // 便・新幹線・宿・駐車場は、人数や運賃ごとに別々に予約することがある。
+      const splitKinds = ["flight", "train", "bus", "stay", "parking"];
+      const addSplit = !viewingDemo && splitKinds.includes(r.kind) &&
+          (r.status === "candidate" || r.status === "confirmed")
+        ? ` · <a data-split="${r.id}">分けて取った分を足す</a>`
+        : "";
+      const tools = `<div class="tools">${inviteLink}<a data-edit="${r.id}">編集</a> · <a data-del="${r.id}">削除</a>${cancelLink}${addSplit}</div>`;
       const sgOwn = r.suggestion && !viewingDemo
         ? `<div class="sug-box"><span>${esc(r.suggestion.byName)}さんから${
           r.suggestion.action === "cancel" ? "取り消し" : "確定"
@@ -6086,11 +6130,21 @@
     function openAdd(r) {
       const isEdit = !!(r && r.id);
       const isPrefill = !!(r && r._prefill);
+      // 分けて取った分を足す: 同じ便・宿の別の予約（人数・金額・予約番号はその予約の分）。
+      const copyOf = r && r._copyOf ? r._copyOf : null;
       editingId = isEdit ? r.id : null;
       q("#addTitle").textContent = isEdit
         ? "予約を編集"
+        : copyOf
+        ? "分けて取った予約を足す"
         : (isPrefill ? "読み取り結果の確認" : "予約を追加");
       q("#parseNote").style.display = isPrefill ? "block" : "none";
+      q("#copyNote").style.display = copyOf ? "block" : "none";
+      q("#copyNote").textContent = copyOf
+        ? `「${copyOf.service}」と同じ便・日時で、別に取った予約を足します。人数・金額・予約番号はこの予約の分を入れてください。元の予約${
+          copyOf.people ? "" : "の人数と金額も、その予約の分に直してください（編集から）"
+        }${copyOf.people ? "はそのままです" : ""}。`
+        : "";
       q("#f_submit").textContent = isEdit ? "更新する" : "登録する";
       q("#kindRow").style.display = isEdit ? "none" : "flex";
       q("#f_plan").value = (r && r.plan) ? r.plan : "";
@@ -6103,6 +6157,7 @@
       q("#f_kind").value = (r && r.kind) ? r.kind : "";
       q("#f_bookedBy").value = (r && r.bookedBy) ? r.bookedBy : "";
       q("#f_people").value = (r && r.people) ? r.people : "";
+      q("#f_ref").value = (r && r.ref) ? r.ref : "";
       q("#f_from").value = (r && r.from) ? r.from : "";
       q("#f_to").value = (r && r.to) ? r.to : "";
       syncRouteRow();
@@ -6144,7 +6199,9 @@
       hideTplNote();
       q("#tplSave").checked = false;
       fillPolicyForm(r && r.policy); // 末尾の polPreview() が renderTplSaveRow() を呼ぶ
-      [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === "candidate");
+      // 分けて取った分は、元の予約と同じ状態（確定なら確定）で始める。
+      const startAs = copyOf && copyOf.status === "confirmed" ? "confirmed" : "candidate";
+      [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === startAs);
       q("#addOverlay").classList.add("on");
       lookupTemplate(); // 施設名が自動で入ったとき（取り込み・編集）にも既定を当てる
     }
@@ -6279,6 +6336,7 @@
       const booked = !q("#f_unbooked").checked;
       const kind = q("#f_kind").value || null;
       const bookedBy = q("#f_bookedBy").value.trim() || null;
+      const ref = q("#f_ref").value.trim() || null;
       const peopleRaw = q("#f_people").value.trim();
       const people = peopleRaw === "" ? null : Number(peopleRaw);
       if (people !== null && !(Number.isInteger(people) && people >= 1 && people <= 99)) {
@@ -6312,6 +6370,7 @@
             to,
             bookedBy,
             people,
+            ref,
             policy,
           });
           if (wasCancelled) await api("POST", `/api/reservations/${editingId}/restore`);
@@ -6335,6 +6394,7 @@
             to,
             bookedBy,
             people,
+            ref,
             policy,
             confirmed,
           });

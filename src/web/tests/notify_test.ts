@@ -99,6 +99,7 @@ async function putResv(
     bookedBy: null,
     rank: null,
     people: null,
+    ref: null,
     suggestion: null,
     policy,
     status,

@@ -43,6 +43,7 @@ export interface ApiReservation {
   bookedBy?: string | null;
   rank?: number | null;
   people?: number | null;
+  ref?: string | null;
   suggestion?: { action: "cancel" | "confirm"; byName: string; at: string } | null;
   policy: WebPolicy;
   status: WebStatus;
@@ -80,6 +81,8 @@ export interface ModelReservation {
   rank: number | null;
   /** How many people this booking is for, or null (not said: read as the whole party). */
   people: number | null;
+  /** The booking reference (予約番号), or null. */
+  ref: string | null;
   /** A member's open proposal to the owner (cancel / confirm), or null. */
   suggestion: { action: "cancel" | "confirm"; by: string; at: string } | null;
   /** What is still unsettled about this reservation, in words to relay. Empty when nothing is. */
@@ -481,6 +484,7 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     bookedBy: r.bookedBy ?? null,
     rank: r.rank ?? null,
     people: r.people ?? null,
+    ref: r.ref ?? null,
     suggestion: r.suggestion
       ? { action: r.suggestion.action, by: r.suggestion.byName, at: jst(r.suggestion.at) }
       : null,
@@ -505,7 +509,7 @@ export const listFilterSchema = z.object({
   ),
   to: readableInstantSchema.optional().describe("この日時まで（日付だけならその日いっぱい）"),
   q: z.string().optional().describe(
-    "店名・プラン名・旅行名・場所・メモに含まれる語（空白・全角半角・大小は同一視）",
+    "店名・プラン名・旅行名・場所・メモ・予約番号に含まれる語（空白・全角半角・大小は同一視）",
   ),
   trip: z.string().optional().describe("この旅行名の予約だけ（空白・全角半角・大小は同一視）"),
   includeFinished: z.boolean().default(false).describe("終わった予約も含める（既定 false）"),
@@ -599,6 +603,7 @@ export function presentList(
         r.from ?? "",
         r.to ?? "",
         r.bookedBy ?? "",
+        r.ref ?? "",
       ].some((s) => foldName(s).includes(q))
     ) {
       continue;

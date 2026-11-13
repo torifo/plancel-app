@@ -75,7 +75,10 @@ const POLICY_DESC =
   "当日=0）、期限は時刻でなくその日の終わりで切る。最後の段階は必ず h=0（当日）。" +
   "「前日まで無料」としか聞いていないときは free24 でよい（当日は100%と仮定する。違うと分かったら段階で直す）。" +
   '例「3日前まで無料、そのあと50%、当日100%」= {"stages":[{"h":72,"pct":0},{"h":24,"pct":50},{"h":0,"pct":100}]}、' +
-  '「5日前まで無料、以降は全額」= {"stages":[{"h":120,"pct":0},{"h":0,"pct":100}]}';
+  '「5日前まで無料、以降は全額」= {"stages":[{"h":120,"pct":0},{"h":0,"pct":100}]}、' +
+  '航空券「55日前まで5%、それ以降は50%」= {"stages":[{"h":1320,"pct":5},{"h":0,"pct":50}]}。' +
+  "料率の基準が支払額と違う（税抜運賃の◯%、1人あたりの手数料など）ときも、いちばん近い段階で入れ、正確な基準は" +
+  "notes に書く（unknown のままだと期限を見張れない）";
 
 // 「10月27日 19時」のような自然文は受け付けない（issue #2）。モデルはそのまま渡しがち
 // なので、説明文で ISO に直してから渡すことを求め、zod で API に届く前に弾く。
@@ -122,6 +125,8 @@ const TO_DESC = "到着地（交通）／返す場所（車）。到着時刻が
 const BOOKED_BY_DESC =
   "実際に予約を取った人（例「母」。ユーザー自身なら「自分」）。誰に確認やキャンセルを頼めばよいかが分かる。任意";
 
+const REF_DESC =
+  "予約番号（任意）。1つの便・宿を人数や運賃ごとに別々に予約したときは、予約ごとに違う番号になるので、それぞれに入れる";
 const PEOPLE_DESC =
   "この予約で何人分か（任意）。家族4人で行くが2人ずつしか買えなかった便なら、それぞれ 2。宿に家族全員で泊まるなら 4。" +
   "旅行の人数（set_trip_people）と合わせて、同じ時間帯の予約が「分けて取った（全部使う）」のか「人数より多い" +
@@ -136,6 +141,7 @@ const createInput = z.object({
   to: z.string().max(100).nullable().default(null).describe(TO_DESC),
   bookedBy: z.string().max(40).nullable().default(null).describe(BOOKED_BY_DESC),
   people: z.number().int().min(1).max(99).nullable().default(null).describe(PEOPLE_DESC),
+  ref: z.string().max(40).nullable().default(null).describe(REF_DESC),
   plan: z.string().nullable().default(null).describe(
     "プラン名（画面では「候補グループ」と呼ぶ）。同じ予定の候補（どちらにするか迷っている店・宿）を束ねる名前で、" +
       "同じプラン名の中で確定できるのは1件、1件確定すると残りは要キャンセルになる。宿の「夕朝食付きプラン」のような" +
@@ -179,6 +185,7 @@ const patchInput = z.object({
   to: z.string().max(100).nullable().optional().describe(TO_DESC),
   bookedBy: z.string().max(40).nullable().optional().describe(BOOKED_BY_DESC),
   people: z.number().int().min(1).max(99).nullable().optional().describe(PEOPLE_DESC),
+  ref: z.string().max(40).nullable().optional().describe(REF_DESC + "。null で消す"),
   startsAt: readableInstantSchema.optional().describe(STARTS_AT_DESC),
   endsAt: readableInstantSchema.nullable().optional().describe(ENDS_AT_DESC + "。null で消す"),
   plan: z.string().nullable().optional().describe(
@@ -419,7 +426,10 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
         "キャンセル規定の決め方: 分かれば policy に入れる。分からなければ省略する（施設の既定規定が保存されて" +
         'いれば自動で適用され、応答の policySource が "template" になる）。それでも policySource が ' +
         '"unknown" で hint が返ったら、規定はユーザーに確認して update_reservation の policy で入れる' +
-        "（不明のままだとキャンセル期限を見張れない）",
+        "（不明のままだとキャンセル期限を見張れない）。" +
+        "1つの便や宿を、人数や運賃ごとに別々に予約したとき（例: 家族4人で2席ずつ別々に購入）は、予約ごとに1件ずつ" +
+        "登録し、people・amount・ref はその予約の分を入れる（同じ便なら service と日時は同じでよい）。1件にまとめて" +
+        "内訳をメモに書くと、別々の予約として取り消せない。1回の予約で全員分を取ったなら1件でよい",
       inputSchema: createInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     async (args: any) => {

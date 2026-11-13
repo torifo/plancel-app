@@ -192,7 +192,22 @@ Deno.test("mirror: the page reads a party the way the server does", async () => 
     status,
     people,
   });
+  const seat = (id: string, service: string, people: number, startsAt: string) => ({
+    id,
+    status: "confirmed",
+    people,
+    service,
+    startsAt,
+  });
   const trips = [
+    [null, [
+      seat("A", "JAL665", 2, "2026-12-19T03:05:00.000Z"),
+      seat("B", "JAL 665", 2, "2026-12-19T03:05:00.000Z"),
+    ]],
+    [null, [
+      seat("A", "JAL665", 2, "2026-12-19T15:30:00.000Z"),
+      seat("B", "JAL665", 2, "2026-12-19T03:05:00.000Z"),
+    ]],
     [4, [live("A", 2)]],
     [null, [live("INN", 4), live("F1", 2), live("X", 6, "to_cancel")]],
     [undefined, [live("A", null)]],

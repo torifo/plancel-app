@@ -297,3 +297,28 @@ Deno.test("party: two halves of a party are both used, more seats than people ar
     total: null,
   });
 });
+
+Deno.test("party: the same flight bought twice on one day counts as one party when working it out", () => {
+  const seat = (id: string, service: string, people: number, at = "2026-12-19T12:05:00+09:00") => ({
+    id,
+    status: "confirmed",
+    people,
+    service,
+    startsAt: at,
+  });
+  // JAL665 as 2 + 2 seats: four people, not two.
+  assertEquals(partySize(null, [seat("A", "JAL665", 2), seat("B", "JAL 665", 2)]), {
+    party: 4,
+    inferred: true,
+  });
+  // Two different flights of two seats each say only that two travel on each.
+  assertEquals(partySize(null, [seat("A", "JAL665", 2), seat("B", "ANA795", 2)]), {
+    party: 2,
+    inferred: true,
+  });
+  // The same flight on different days is two trips' worth, not one party.
+  assertEquals(
+    partySize(null, [seat("A", "JAL665", 2), seat("B", "JAL665", 2, "2026-12-20T12:05:00+09:00")]),
+    { party: 2, inferred: true },
+  );
+});
