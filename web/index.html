@@ -222,9 +222,8 @@
       color: var(--ink);
       box-shadow: var(--shadow);
     }
-    /* 文字サイズ切替（トップバー）。テーマ切替と同じ見た目の族にする。ラベルは
-       A / A+ / A++ で現在の段を表し、読み上げ用の名前は aria-label 側に持たせる。
-       標準（いちばん狭い 320px で効く段）でいちばん細いラベルになるようにしている。 */
+    /* 文字サイズ切替（トップバー）。テーマ切替と同じ見た目の族にする。中は大きさの違う A を
+       3つ並べ、いまの段の A を強調する（.fs-a.cur）。読み上げ用の名前は aria-label 側に持たせる。 */
     .fs-toggle {
       font-size: calc(13px * var(--fs));
       font-weight: 700;
@@ -236,11 +235,6 @@
       box-shadow: var(--shadow);
       letter-spacing: 0;
       white-space: nowrap;
-    }
-    .fs-toggle.on {
-      border-color: var(--lamp);
-      background: var(--lamp-soft);
-      color: var(--lamp-ink);
     }
     .iconbtn {
       background: none;
@@ -1014,6 +1008,12 @@
       padding: calc(9px * var(--fs)) calc(11px * var(--fs));
       background: var(--card2);
       color: var(--ink);
+    }
+    /* 1行の入力欄も押せる高さ（ボタンと同じ 46px）。標準の文字では 40〜42px で、指の目安の
+       44px を下回っていた（2026-11-13 に全画面を測って発覚）。チェック・ラジオは別。 */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+    select {
+      min-height: var(--btn-h);
     }
     input:focus,
     select:focus,
@@ -2164,7 +2164,9 @@
       border-top: none;
     }
     .cal-item .what {
-      flex: 1 1 auto;
+      /* 幅の基準を 0 にして、点と同じ行で残りの幅に収まる（中身の幅を基準にすると、
+         折り返しの許された行で名前ごと次の行へ落ち、点だけが1行目に残った）。 */
+      flex: 1 1 0;
       min-width: 0;
       overflow-wrap: anywhere;
     }
@@ -2172,6 +2174,18 @@
       color: var(--ink-2);
       font-size: calc(12.5px * var(--fs));
       white-space: nowrap;
+    }
+    /* 名前の下の旅行名は折り返す（長い旅行名が1行のまま行を押し広げ、ページごと横に
+       ずれていた。2026-11-13 本番）。右の「21:00 · 確定」は狭ければ次の行の右へ。 */
+    .cal-item {
+      flex-wrap: wrap;
+    }
+    .cal-item .what .when {
+      display: block;
+      white-space: normal;
+    }
+    .cal-item > .when {
+      margin-left: auto;
     }
     /* スマホ幅では日のマスを 44px 以上にする。カードの左右の余白と列の間を詰めないと、
        375px で 40px にしかならなかった（測って発覚）。 */
@@ -2191,8 +2205,10 @@
         margin-left: 8px;
         margin-right: 8px;
       }
+      /* ボタンは width: auto だと中身の幅に縮み・広がる（ブロックのように伸びない）。
+         左右の余白 8px ずつを引いた幅にそろえる。 */
       .cal-item {
-        width: auto;
+        width: calc(100% - 16px);
       }
     }
     /* ═══ 旅行・メモ・仮の時刻（2026-11-12）═══ */
@@ -3121,10 +3137,50 @@
       border-color: var(--lamp);
       color: var(--lamp-ink);
     }
-    .top-right .fs-toggle.on {
-      border-color: var(--lamp);
-      background: var(--lamp-soft);
+    /* A を3つ並べる（11・14・18px。文字の大きさの設定では変えない＝段の違いが見えるまま、
+       ボタンの幅も変わらない）。いまの段は濃い色と下の線、ほかは薄く。 */
+    .top-right .fs-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 10px;
+    }
+    .fs-trio {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 3px;
+    }
+    .fs-a {
+      position: relative;
+      line-height: 1;
+      padding-bottom: 4px;
+      font-weight: 700;
+      color: var(--soft);
+      opacity: .55;
+    }
+    .fs-a[data-step="normal"] {
+      font-size: 11px;
+    }
+    .fs-a[data-step="large"] {
+      font-size: 14px;
+    }
+    .fs-a[data-step="xlarge"] {
+      font-size: 18px;
+    }
+    .fs-a.cur {
       color: var(--lamp-ink);
+      opacity: 1;
+      font-weight: 800;
+    }
+    .fs-a.cur::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2px;
+      border-radius: 1px;
+      background: var(--lamp);
     }
     /* 連携（ベル）とマイページ（人）の入口は、1つの画面に1か所だけ。下のナビが
        出ている幅（860px 以下）では下のナビにあるので、見出し側の2つは隠す。
@@ -3198,7 +3254,7 @@
       <div class="top-right">
         <button class="chip-btn" id="todayChip" aria-label="カレンダーを開く" title="カレンダーを開く"></button>
         <button class="theme-toggle" id="themeBtn" title="ライト/ダーク切替">◑</button>
-        <button class="fs-toggle" id="fsBtn" aria-label="文字サイズ: 標準（押すと大きめ）" title="文字サイズ: 標準（押すと大きめ）">A</button>
+        <button class="fs-toggle" id="fsBtn" aria-label="文字サイズ: 標準（押すと大きめ）" title="文字サイズ: 標準（押すと大きめ）"><span class="fs-trio" aria-hidden="true"><span class="fs-a" data-step="normal">A</span><span class="fs-a" data-step="large">A</span><span class="fs-a" data-step="xlarge">A</span></span></button>
         <button class="btn-primary" id="importBtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M12 5v14M5 12h14"></path></svg>取り込む</button>
         <button class="iconbtn" id="calBtn" title="カレンダー連携・通知"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg></button>
         <button class="avatar" id="profileBtn" title="マイページ"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"></circle><path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"></path></svg></button>
@@ -3564,7 +3620,7 @@
       <!-- 終了（キャンセル済み）。ラベルは他の4つと同じ日本語にそろえ、件数も戻す
            （オーナー 2026-07-28）。読み上げ名は件数まで入れて renderRail が書き替える
            ので、ここには置かない。0件のときは飛び先の節が無いので .off で無効化する。 -->
-      <button class="bn-item" id="bnDone"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M8.5 7.5 20 19M8.5 16.5 20 5"></path></svg><span class="bn-label">終了<span id="bnDoneCount"></span></span></button>
+      <button class="bn-item" id="bnDone"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M8.5 7.5 20 19M8.5 16.5 20 5"></path></svg><span class="bn-label">終了</span></button>
       <button class="bn-fab" id="bnImport" aria-label="取り込む" title="取り込む"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
       <button class="bn-item" id="bnCal"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg>連携</button>
       <button class="bn-item" id="bnProfile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>マイページ</button>
@@ -5812,8 +5868,8 @@
       // 先に「終了」を名乗っていて、中身はキャンセル済みしか無かった。0件のときは
       // 飛び先の節そのものが描かれないので、押せるように見せない（.off ＋
       // aria-disabled。onclick 側でも弾く）。読み上げ名は見えている文字と食い違わせず、
-      // 件数まで含める。
-      q("#bnDoneCount").textContent = doneCount;
+      // 件数は読み上げ名にだけ持たせ、見える文字は「終了」だけ（オーナー 2026-11-13「下の終了の
+      // ところに数字いらない」。件数は今日やることの下の「終了 n件」に出ている）。
       const bnDone = q("#bnDone");
       bnDone.classList.toggle("off", doneCount === 0);
       bnDone.setAttribute("aria-disabled", doneCount === 0 ? "true" : "false");
@@ -8248,17 +8304,18 @@
     const FS_KEY = "plancel.fontScale";
     const FS_STEPS = ["normal", "large", "xlarge"];
     const FS_LABEL = { normal: "標準", large: "大きめ", xlarge: "特大" };
-    const FS_MARK = { normal: "A", large: "A+", xlarge: "A++" };
     function applyFontScale(step) {
       document.body.classList.toggle("fs-large", step === "large");
       document.body.classList.toggle("fs-xlarge", step === "xlarge");
       const next = FS_STEPS[(FS_STEPS.indexOf(step) + 1) % FS_STEPS.length];
       const btn = q("#fsBtn");
-      btn.textContent = FS_MARK[step];
+      // 大きさの違う A を3つ並べ、いまの段の A だけを強調する（オーナー 2026-11-13「サイズ違いの
+      // AAAが並ぶようにして押す度に違うサイズのAがハイライトするように」）。前は A / A+ / A++ の
+      // 1つだけで、ほかに何段あるか・いまどこかが見えなかった。
+      for (const a of btn.querySelectorAll(".fs-a")) a.classList.toggle("cur", a.dataset.step === step);
       // 読み上げ用の名前は「いまの設定」と「押すとどうなるか」の両方を持たせる。
       btn.setAttribute("aria-label", "文字サイズ: " + FS_LABEL[step] + "（押すと" + FS_LABEL[next] + "）");
       btn.title = "文字サイズ: " + FS_LABEL[step] + "（押すと" + FS_LABEL[next] + "）";
-      btn.classList.toggle("on", step !== "normal");
       for (const opt of document.querySelectorAll(".fs-opt")) {
         opt.setAttribute("aria-pressed", opt.dataset.fs === step ? "true" : "false");
       }

@@ -53,14 +53,13 @@ Deno.test("web shell exposes install/update controls and registers the service w
   assertStringIncludes(html, 'navigator.serviceWorker.register("/sw.js"');
   assertStringIncludes(html, 'waiting.postMessage({ type: "SKIP_WAITING" })');
   assertStringIncludes(html, "grid-template-columns: repeat(5, minmax(0, 1fr))");
-  // Bottom-nav item #2 (renamed 2026-07-28): the visible label is 終了 and the
-  // count badge beside it is #bnDoneCount. Pinned as separate pieces, not as one
-  // literal `<span …>…</span>`: attribute order, whitespace, and whether the
-  // count sits inside or outside the label span are free to change. The previous
+  // Bottom-nav item #2 (renamed 2026-07-28): the visible label is 終了 alone —
+  // the count beside it was dropped on 2026-11-13 (owner: 「下の終了のところに
+  // 数字いらない」); the count stays in the accessible name below. The previous
   // version of this assertion froze the English placeholder 「Over」 through
   // review, so its absence is asserted too.
   assertStringIncludes(html, ">終了<");
-  assertStringIncludes(html, 'id="bnDoneCount"');
+  assertEquals(html.includes('id="bnDoneCount"'), false);
   assertEquals(html.includes(">Over<"), false);
   // The accessible name is applied in render() (`aria-label` = 終了した予約 N件 /
   // 終了した予約はまだありません), not as a static attribute, so it is pinned by its
