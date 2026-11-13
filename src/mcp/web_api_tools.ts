@@ -442,7 +442,10 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       "同じ便・同じ宿を同じ日に2件以上持つ組も載る: 人数の内なら split（画面では1つの便の下に入れ子）、人数より多い・" +
       "人数が分からない・同じ予約番号が2件なら over / choose（画面では警告つきで比べる）。旅行の人数が無くても、どれも" +
       "people が入っていれば split と読む。" +
-      "trips の people は旅行の人数（peopleInferred は予約から推定）。" +
+      "trips の people は旅行の人数（peopleInferred は予約から推定）。trips の toBook は、決めたけれどまだ予約して" +
+      "いないもの（confirmed で booked: false。旅行のやること）。予約が取れたと聞いたら update_reservation で booked: true " +
+      "にし、規定・金額も入れる。旅行でまだ取っていない予約（レンタカー・駐車場・店など）をユーザーが挙げたら、" +
+      "trip を付けて confirmed: true・booked: false で登録すると toBook に並ぶ（日時は分かる範囲でよく、時刻が未定なら日付だけ）。" +
       "needsCheck は各予約でまだ決まっていない・確かめていないこと（要キャンセルの予約には「取り消しの連絡が要る」が出る）、trips は旅行ごとの日程と費用" +
       "（confirmedYen＝確定の合計、expectedYen＝未確定を含む見込みの最大）",
     inputSchema: listFilterSchema.passthrough(),

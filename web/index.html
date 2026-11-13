@@ -2707,6 +2707,47 @@
       margin-top: 8px;
       min-height: var(--btn-h);
     }
+    /* 旅行の「予約がまだ」（決めたけれど、まだ予約していないもの） */
+    .trip-tobook {
+      margin-top: 8px;
+    }
+    .tb-title {
+      font-size: calc(12.5px * var(--fs));
+      font-weight: 700;
+      color: var(--lamp-ink);
+    }
+    .tb-list {
+      list-style: none;
+      margin: 4px 0 0;
+      padding: 0;
+    }
+    .tb-list li {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px 10px;
+      padding: 2px 0;
+      border-top: 1px dashed var(--line);
+    }
+    .tb-when {
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .tb-name {
+      flex: 1 1 8em;
+      min-width: 0;
+      font-size: calc(13.5px * var(--fs));
+      overflow-wrap: anywhere;
+    }
+    .tb-who {
+      font-size: calc(12px * var(--fs));
+      color: var(--soft);
+    }
+    .tb-add {
+      margin-top: 6px;
+    }
     .notes-count.over {
       color: var(--danger-ink);
       font-weight: 700;
@@ -3423,6 +3464,7 @@
               <li><b>✎ 手動で追加</b>：「＋手動で追加」から1件ずつ。読み取りが難しいときの最後の手段です。</li>
             </ul>
             <p class="help-p">4人で行くのに2人ずつしか取れなかった便のように、1つの便や宿を分けて予約したときは、追加・編集画面の「予約と料金」で「＋別に取った予約を足す」を押し、予約ごとに人数・金額・予約番号を入れます。台帳では1つの便の下に予約が並びます。旅行の人数より多いときや、同じ時間帯に別の便があるときは、警告つきの「比べる」囲みになります。人数・金額・予約番号・運賃は、メモに書かずにそれぞれの欄へ入れてください。</p>
+            <p class="help-p">旅行は決めたけれど、まだ予約していないもの（レンタカー・駐車場・お店など）は、旅行の見出しの「＋予約することを足す」から、名前と種類だけで足せます（日付は旅行の初日・時刻は未定で始まります）。旅行の「予約がまだ」と「今日やること」に並ぶので、取ったら「予約した」を押し、金額と規定を入れてください。</p>
             <p class="help-p">貼り付け・スクショ・.ics・手動は、登録の前に確認画面が出ます。読み取りが外れていたら、その場で直してから登録してください。</p>
             <p class="help-p" id="helpWayMailNote" style="display:none"><b>転送だけは確認画面がありません。</b>メールが届いた時点で候補として並ぶので、あとから台帳で見て直してください。</p>
             <p class="help-p">このほか、LINEのトークにメール本文やスクリーンショットを送っても同じように読み取れます（→6）。</p>
@@ -3611,10 +3653,10 @@
           <div class="fsec-title">状態・まとめ方・メモ</div>
           <div class="radio-row" id="kindRow">
             <label><input type="radio" name="kind" value="candidate" checked> 候補（どれか1つに決める）</label>
-            <label><input type="radio" name="kind" value="confirmed"> 確定済みの予約</label>
+            <label><input type="radio" name="kind" value="confirmed"> これに決めた（確定）</label>
           </div>
-          <label class="check-row"><input type="checkbox" id="f_unbooked"> まだ予約していない（検討中の案）</label>
-          <div class="hint" style="margin:0">予約を取る前の案です。キャンセル期限は見張らず、選ばなかったときも連絡は要りません。</div>
+          <label class="check-row"><input type="checkbox" id="f_unbooked"> まだ予約していない</label>
+          <div class="hint" style="margin:0">決めたけれど予約がまだなら、「これに決めた」と一緒に印を付けます。旅行の「予約がまだ」と「今日やること」に並び、取ったら「予約した」を押します。候補のまま印を付けると、予約を取る前の案になります。どちらもキャンセル期限は見張りません。</div>
           <label for="f_plan">候補グループ名（任意）</label>
           <input id="f_plan" list="planList" placeholder="例: 8月の宿">
           <datalist id="planList"></datalist>
@@ -5293,6 +5335,11 @@
         const dls = open.map((u) => unitDeadline(u, now)).filter(Boolean).sort((x, y) => x - y);
         const calls = rows.filter((r) => r.status === "to_cancel" && !r.shared).length;
         const shortOnes = us.filter((u) => u.short > 0);
+        // 決めたけれど、まだ予約していないもの（オーナー 2026-11-13「旅はきめたけど、予約が
+        // まだとかのtodoはあってもいいかも」）。新しい種類は作らず、確定・未予約の予約を
+        // 旅行のやることとして並べる。
+        const toBook = rows.filter((r) => r.status === "confirmed" && unbooked(r))
+          .sort((x, y) => sortKey(x) - sortKey(y));
         const todo = [
           open.length ? `決めること ${open.length}件${dls.length ? `（決めどき ${fmtDate(dls[0])}）` : ""}` : "",
           shortOnes.length ? `席が足りない ${shortOnes.length}件` : "",
@@ -5301,11 +5348,29 @@
         const tp = tripParty(t, rows);
         const who = tp.party === null ? "人数未設定" : `${tp.party}人${tp.inferred ? "（推定）" : ""}`;
         const whoBtn = viewingDemo ? "" : `<button class="rowbtn" data-trip-people="${esc(t)}">人数</button>`;
+        const canAdd = !viewingDemo && !(ME && ME.viewOnly);
+        const bookList = toBook.length || canAdd
+          ? `<div class="trip-tobook">${
+            toBook.length
+              ? `<div class="tb-title">予約がまだ ${toBook.length}件</div><ul class="tb-list">${
+                toBook.map((r) =>
+                  `<li><span class="tb-when">${fmtDate(startMs(r))}</span><span class="tb-name">${kindTag(r)}${
+                    esc(r.service)
+                  }${r.shared ? `<span class="tb-who">（${esc(r.shared.ownerDisplayName)}さん）</span>` : ""}</span>${
+                    !r.shared && canAdd ? `<button class="rowbtn" data-booked="${r.id}">予約した</button>` : ""
+                  }</li>`
+                ).join("")
+              }</ul>`
+              : ""
+          }${
+            canAdd ? `<button class="rowbtn tb-add" data-trip-tobook="${esc(t)}">＋予約することを足す</button>` : ""
+          }</div>`
+          : "";
         return `<div class="trip-head"><div class="trip-line"><span class="trip-label">旅行</span><span class="trip-title">${
           esc(t)
         }</span>${whoBtn}</div><div class="trip-note">${span ? span + " · " : ""}${who} · ${rows.length}件 · ${money}</div>${
           todo ? `<div class="trip-todo">${todo}</div>` : ""
-        }</div>`;
+        }${bookList}</div>`;
       };
       const tripNames = [...new Set(units.map((u) => u.trip).filter(Boolean))];
       const blocks = tripNames.map((t) => {
@@ -5374,6 +5439,19 @@
       );
       document.querySelectorAll("[data-compare]").forEach((b) =>
         b.onclick = () => openCompare(b.dataset.compare)
+      );
+      // 予約することを足す: その旅行の、決めたけれどまだ予約していない予約として開く
+      // （日付は旅行の初日・時刻は未定。名前と種類を入れれば足りる）。
+      document.querySelectorAll("[data-trip-tobook]").forEach((b) =>
+        b.onclick = () => {
+          const name = b.dataset.tripTobook;
+          const k = foldTrip(name);
+          const first = data.filter((r) => r.trip && foldTrip(r.trip) === k).map(startMs)
+            .filter((n) => !Number.isNaN(n)).sort((x, y) => x - y)[0];
+          const d = new Date(Number.isFinite(first) ? first : Date.now() + 7 * DAY);
+          const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          openAdd({ trip: name, booked: false, startsAt: day, timeTentative: true, _decided: true });
+        }
       );
       document.querySelectorAll("[data-trip-people]").forEach((b) =>
         b.onclick = async () => {
@@ -6660,7 +6738,7 @@
         ? (siblings.length || (r && r._addBooking)
           ? `${r.kind === "stay" ? "宿" : r.kind === "parking" ? "駐車場" : "便"}と予約を編集`
           : "予約を編集")
-        : (isPrefill ? "読み取り結果の確認" : "予約を追加");
+        : (isPrefill ? "読み取り結果の確認" : (r && r._decided ? "予約することを足す" : "予約を追加"));
       q("#parseNote").style.display = isPrefill ? "block" : "none";
       q("#f_submit").textContent = isEdit ? "更新する" : "登録する";
       q("#kindRow").style.display = isEdit ? "none" : "flex";
@@ -6722,7 +6800,8 @@
       hideTplNote();
       q("#tplSave").checked = false;
       fillPolicyForm(r && r.policy); // 末尾の polPreview() が renderTplSaveRow() を呼ぶ
-      [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === "candidate");
+      const startAs = r && r._decided ? "confirmed" : "candidate";
+      [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === startAs);
       // 予約の行: 同じ便を分けて取ったほかの予約を2行目から並べ、足すときは空の行を1つ。
       q("#bkMore").innerHTML = "";
       siblings.forEach((x) => addBookingRow(x));

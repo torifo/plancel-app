@@ -338,6 +338,8 @@ Deno.test("view: a trip is summed up, and each row says what is still to be chec
     to: "2026-12-20",
     confirmedYen: 48000,
     expectedYen: 48000 + 22000 + 8000,
+    // The unbooked train is still an idea (a candidate), not a to-do.
+    toBook: [],
   }]);
 });
 
@@ -651,4 +653,47 @@ Deno.test("view: the same flight beyond the party, or under one booking number, 
   // No trip at all: bookings that each say their seats are halves of one party.
   const noTrip = [flight("A", 2), flight("B", 2)].map((r) => ({ ...r, trip: null }));
   assertEquals(read(noTrip, []), [["split", 4, ["A", "B"]]]);
+});
+
+Deno.test("view: a trip lists what is decided but not yet booked, earliest first", () => {
+  const rows = [
+    row({
+      id: "CAR",
+      trip: "別府",
+      kind: "car",
+      service: "レンタカー",
+      status: "confirmed",
+      booked: false,
+      startsAt: "2026-12-19T05:00:00.000Z",
+    }),
+    row({
+      id: "PARK",
+      trip: "別府",
+      kind: "parking",
+      service: "羽田の駐車場",
+      status: "confirmed",
+      booked: false,
+      startsAt: "2026-12-18T23:00:00.000Z",
+    }),
+    row({
+      id: "IDEA",
+      trip: "別府",
+      service: "夕食の店",
+      status: "candidate",
+      booked: false,
+      startsAt: "2026-12-19T10:00:00.000Z",
+    }),
+    row({
+      id: "INN",
+      trip: "別府",
+      service: "宿",
+      status: "confirmed",
+      startsAt: "2026-12-19T06:00:00.000Z",
+    }),
+  ];
+  const trip = presentList(rows, listFilterSchema.parse({}), NOW).trips![0]!;
+  assertEquals(trip.toBook.map((t) => [t.id, t.kind, t.startsAt, t.owner]), [
+    ["PARK", "parking", "2026-12-19T08:00:00+09:00", null],
+    ["CAR", "car", "2026-12-19T14:00:00+09:00", null],
+  ]);
 });

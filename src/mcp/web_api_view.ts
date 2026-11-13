@@ -249,6 +249,18 @@ export interface TripSummary {
    * its own, and of each undecided plan only its dearest alternative.
    */
   expectedYen: number;
+  /**
+   * Decided but not yet booked (confirmed, booked: false), earliest first — the
+   * trip's to-do (owner 2026-11-13: 「旅はきめたけど、予約がまだとかのtodoはあっても
+   * いいかも」).
+   */
+  toBook: {
+    id: string;
+    service: string;
+    kind: string | null;
+    startsAt: string;
+    owner: string | null;
+  }[];
 }
 
 /** Sums up each trip among `rows` (cancelled and to-be-cancelled rows left out). */
@@ -293,6 +305,16 @@ export function summarizeTrips(
       to: days.length ? day(Math.max(...days)) : null,
       confirmedYen,
       expectedYen: confirmedYen + solo + [...dearest.values()].reduce((a, b) => a + b, 0),
+      toBook: rs.filter((r) => r.status === "confirmed" && r.booked === false)
+        .map((r) => ({ r, at: toInstantOrNull(r.startsAt)?.epochMilliseconds ?? Infinity }))
+        .sort((a, b) => a.at - b.at)
+        .map(({ r, at }) => ({
+          id: r.id,
+          service: r.service,
+          kind: r.kind ?? null,
+          startsAt: Number.isFinite(at) ? jstOfMs(at) : r.startsAt,
+          owner: r.shared?.ownerDisplayName ?? null,
+        })),
     };
   });
 }
