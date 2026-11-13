@@ -3316,8 +3316,11 @@
           </select>
           <label for="f_service"><span id="serviceLabel">お店・宿・サービス名</span> <span class="req">*</span></label>
           <input id="f_service" placeholder="例: 湖畔の湯宿 蛍">
-          <label for="f_ref">予約番号（任意）</label>
-          <input id="f_ref" maxlength="40" autocomplete="off" placeholder="例: ABC123">
+          <div class="two">
+            <div><label for="f_fare">運賃・料金プラン（任意）</label><input id="f_fare" list="fareList" maxlength="40" autocomplete="off" placeholder="例: JAL スペシャルセイバー"><datalist id="fareList"></datalist></div>
+            <div><label for="f_ref">予約番号（任意）</label><input id="f_ref" maxlength="40" autocomplete="off" placeholder="例: ABC123"></div>
+          </div>
+          <div class="hint" style="margin:4px 0 0">JAL の運賃を選ぶと、その運賃のキャンセル規定が入ります（違えば下で直せます）。</div>
           <div class="two" id="routeRow" style="display:none">
             <div><label for="f_from" id="fromLabel">出発地</label><input id="f_from" maxlength="100" placeholder="例: 羽田"></div>
             <div><label for="f_to" id="toLabel">到着地</label><input id="f_to" maxlength="100" placeholder="例: 大分"></div>
@@ -3381,7 +3384,7 @@
           <label for="f_plan">候補グループ名（任意）</label>
           <input id="f_plan" list="planList" placeholder="例: 8月の宿">
           <datalist id="planList"></datalist>
-          <div class="hint" style="margin:4px 0 0">どれか1つに決める候補に、同じ名前を付けます。1つ確定すると残りは要キャンセルになります。宿の「夕朝食付きプラン」のような宿泊プランは、ここではなくメモへ。</div>
+          <div class="hint" style="margin:4px 0 0">どれか1つに決める候補に、同じ名前を付けます。1つ確定すると残りは要キャンセルになります。宿の「夕朝食付きプラン」のような宿泊プランは、ここではなく「運賃・料金プラン」へ。</div>
           <label for="f_trip">旅行名（任意）</label>
           <input id="f_trip" list="tripList" maxlength="60" placeholder="例: 12月の別府旅行">
           <datalist id="tripList"></datalist>
@@ -4539,6 +4542,9 @@
         (members.some((r) => r.people)
           ? line("人数", members.map((r) => cell("", r.people ? `${r.people}人` : "—")))
           : "") +
+        (members.some((r) => r.fare)
+          ? line("運賃・料金プラン", members.map((r) => cell("", r.fare ? esc(r.fare) : "—")))
+          : "") +
         (members.some((r) => r.ref)
           ? line("予約番号", members.map((r) => cell("", r.ref ? esc(r.ref) : "—")))
           : "") +
@@ -4744,7 +4750,8 @@
       st.forEach((s, i) => {
         if (s.pct === 0) return;
         const prev = st[i - 1];
-        const last = (!prev || prev.h <= 24) ? "当日" : "以降";
+        // 前の段階が無い（最初から有料）なら予約したときからこの料率なので「いつでも」。
+        const last = !prev ? "いつでも" : (prev.h <= 24 ? "当日" : "以降");
         parts.push(s.h === 0 ? `${last}${s.pct}%` : `${boundaryLabel(s.h)}まで${s.pct}%`);
       });
       return parts.join(" → ");
@@ -5656,6 +5663,7 @@
       const route = inItem ? "" : routeText(r);
       const locLink = (route ? `<div class="sub route">${route}</div>` : "") +
         (r.ref ? `<div class="sub">予約番号: ${esc(r.ref)}</div>` : "") +
+        (r.fare ? `<div class="sub">運賃・料金プラン: ${esc(r.fare)}</div>` : "") +
         (r.bookedBy ? `<div class="sub">予約した人: ${esc(r.bookedBy)}</div>` : "") +
         locationHtml(r) +
         (r.notes ? `<div class="note">${esc(r.notes)}</div>` : "");
@@ -6027,6 +6035,47 @@
       if (tplAppliedFor !== null) hideTplNote();
     }
     const tplFacility = () => q("#f_service").value.trim();
+    // 運賃の既定（/api/fare-presets）。JAL の運賃を選ぶと、その規定を入れる。運賃の
+    // 規定は変わることがあるので、直して「この運賃の既定として保存」すれば上書きできる
+    // （src/web/fares.ts。保存先は施設の既定と同じ policy-templates、名前は運賃名）。
+    let farePresets = [];
+    async function loadFarePresets() {
+      try {
+        const j = await api("GET", "/api/fare-presets");
+        farePresets = Array.isArray(j.fares) ? j.fares : [];
+      } catch (e) {
+        farePresets = [];
+      }
+      q("#fareList").innerHTML = farePresets.map((f) => `<option value="${esc(f.label)}">`).join("");
+    }
+    const foldFare = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+    function findFarePreset(name) {
+      const k = foldFare(name);
+      if (!k) return null;
+      return farePresets.find((f) =>
+        foldFare(f.label) === k || foldFare(f.label.replace(/^JAL\s*/, "")) === k
+      ) || null;
+    }
+    // 既定として保存する宛先: 知っている運賃ならその運賃、そうでなければ施設。
+    const tplTarget = () => {
+      const f = findFarePreset(q("#f_fare").value);
+      return f ? f.label : tplFacility();
+    };
+    function applyFare() {
+      renderTplSaveRow();
+      const f = findFarePreset(q("#f_fare").value);
+      if (!f) return;
+      q("#f_fare").value = f.label; // 打ち方がちがっても、知っている運賃は1つの名前で持つ
+      tplUndoPolicy = readPolicy();
+      tplAppliedFor = "fare:" + f.label;
+      fillPolicyForm(f.policy);
+      polTouched = false; // fillPolicyForm 由来の変更はユーザー入力ではない
+      q("#tplNoteText").textContent = f.saved
+        ? `「${f.label}」は、あなたが保存した既定の規定を入れました（参考: JAL の公式ページ ${f.checked} 時点は「${f.note}」）。`
+        : `「${f.label}」の規定を入れました（JAL の公式ページで ${f.checked} に確かめた内容）。${f.note}。違えば直して、この運賃の既定として保存できます。`;
+      q("#tplNote").classList.add("on");
+      renderTplSaveRow();
+    }
     function hideTplNote() {
       q("#tplNote").classList.remove("on");
       tplAppliedFor = null;
@@ -6034,7 +6083,7 @@
     }
     function renderTplSaveRow() {
       const box = q("#tplSave"), why = q("#tplSaveWhy");
-      const name = tplFacility();
+      const name = tplTarget();
       const reason = name === ""
         ? "先にお店・宿・サービス名を入れると、その施設の既定として保存できます。"
         : (stagesOfPolicy(readPolicy()) === null
@@ -6042,6 +6091,8 @@
           : "");
       q("#tplSaveLabel").textContent = name === ""
         ? "この規定をこの施設の既定として保存する"
+        : findFarePreset(q("#f_fare").value)
+        ? `この規定を「${name}」の既定として保存する（以後、この運賃を選ぶとこの規定が入ります）`
         : `この規定を「${name}」の既定として保存する`;
       box.disabled = reason !== "";
       if (box.disabled) box.checked = false;
@@ -6076,6 +6127,8 @@
       q("#tplNoteText").textContent = `「${j.template.facility}」の保存済み規定を適用しました。`;
       q("#tplNote").classList.add("on");
     }
+    q("#f_fare").onchange = applyFare;
+    q("#f_fare").oninput = renderTplSaveRow;
     q("#f_service").onblur = lookupTemplate;
     q("#f_service").onchange = lookupTemplate;
     q("#f_service").oninput = () => {
@@ -6158,6 +6211,8 @@
       q("#f_bookedBy").value = (r && r.bookedBy) ? r.bookedBy : "";
       q("#f_people").value = (r && r.people) ? r.people : "";
       q("#f_ref").value = (r && r.ref) ? r.ref : "";
+      q("#f_fare").value = (r && r.fare) ? r.fare : "";
+      if (farePresets.length === 0) loadFarePresets().then(renderTplSaveRow);
       q("#f_from").value = (r && r.from) ? r.from : "";
       q("#f_to").value = (r && r.to) ? r.to : "";
       syncRouteRow();
@@ -6337,6 +6392,7 @@
       const kind = q("#f_kind").value || null;
       const bookedBy = q("#f_bookedBy").value.trim() || null;
       const ref = q("#f_ref").value.trim() || null;
+      const fare = q("#f_fare").value.trim() || null;
       const peopleRaw = q("#f_people").value.trim();
       const people = peopleRaw === "" ? null : Number(peopleRaw);
       if (people !== null && !(Number.isInteger(people) && people >= 1 && people <= 99)) {
@@ -6371,6 +6427,7 @@
             bookedBy,
             people,
             ref,
+            fare,
             policy,
           });
           if (wasCancelled) await api("POST", `/api/reservations/${editingId}/restore`);
@@ -6395,6 +6452,7 @@
             bookedBy,
             people,
             ref,
+            fare,
             policy,
             confirmed,
           });
@@ -6409,7 +6467,8 @@
       let tplError = null;
       if (saveTpl) {
         try {
-          await api("PUT", "/api/policy-templates/" + encodeURIComponent(service), { policy });
+          await api("PUT", "/api/policy-templates/" + encodeURIComponent(tplTarget()), { policy });
+          farePresets = []; // 運賃の既定を上書きしたかもしれないので、次に開くとき読み直す
         } catch (e) {
           tplError = e.message;
         }

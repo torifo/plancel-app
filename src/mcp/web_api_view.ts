@@ -44,6 +44,7 @@ export interface ApiReservation {
   rank?: number | null;
   people?: number | null;
   ref?: string | null;
+  fare?: string | null;
   suggestion?: { action: "cancel" | "confirm"; byName: string; at: string } | null;
   policy: WebPolicy;
   status: WebStatus;
@@ -83,6 +84,8 @@ export interface ModelReservation {
   people: number | null;
   /** The booking reference (予約番号), or null. */
   ref: string | null;
+  /** The fare it was bought on (運賃), or null. */
+  fare: string | null;
   /** A member's open proposal to the owner (cancel / confirm), or null. */
   suggestion: { action: "cancel" | "confirm"; by: string; at: string } | null;
   /** What is still unsettled about this reservation, in words to relay. Empty when nothing is. */
@@ -485,6 +488,7 @@ export function presentReservation(r: ApiReservation, nowMs: number): ModelReser
     rank: r.rank ?? null,
     people: r.people ?? null,
     ref: r.ref ?? null,
+    fare: r.fare ?? null,
     suggestion: r.suggestion
       ? { action: r.suggestion.action, by: r.suggestion.byName, at: jst(r.suggestion.at) }
       : null,
@@ -604,6 +608,7 @@ export function presentList(
         r.to ?? "",
         r.bookedBy ?? "",
         r.ref ?? "",
+        r.fare ?? "",
       ].some((s) => foldName(s).includes(q))
     ) {
       continue;

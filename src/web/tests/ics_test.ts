@@ -24,6 +24,7 @@ const resv = (over: Partial<WebReservation>): WebReservation => ({
   rank: null,
   people: null,
   ref: null,
+  fare: null,
   suggestion: null,
   policy: "free24",
   status: "confirmed",

@@ -219,7 +219,10 @@ function boundaryLabel(h: number): string {
  * Then it is 「以降」.
  */
 function lastStageLabel(prev: WebPolicyStage | undefined): string {
-  return prev === undefined || prev.h <= 24 ? "当日" : "以降";
+  // No stage before it: the rate applies from booking on (a fare that is never
+  // free, 2026-11-13) — 「当日5%」 would read as "free until the day itself".
+  if (prev === undefined) return "いつでも";
+  return prev.h <= 24 ? "当日" : "以降";
 }
 
 /**

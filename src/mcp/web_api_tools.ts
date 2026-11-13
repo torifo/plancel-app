@@ -35,6 +35,7 @@ import { webPolicyInputSchema } from "../web/policy.ts";
 import { webKindSchema } from "../web/store.ts";
 import { templatePolicyInputSchema } from "../web/policy-template.ts";
 import { memberRoleSchema } from "../web/sharing.ts";
+import { FARE_PRESETS } from "../web/fares.ts";
 
 export interface WebApiConfig {
   /** e.g. https://plancel-app.torifo.deno.net */
@@ -127,6 +128,12 @@ const BOOKED_BY_DESC =
 
 const REF_DESC =
   "予約番号（任意）。1つの便・宿を人数や運賃ごとに別々に予約したときは、予約ごとに違う番号になるので、それぞれに入れる";
+const FARE_DESC =
+  "運賃・料金プランの名前（任意）。JAL 国内線の運賃なら「JAL スペシャルセイバー」のように入れると、policy を省いたとき" +
+  'その運賃の取消規定が自動で入る（応答の policySource が "fare"）。分かる運賃: ' +
+  FARE_PRESETS.map((p) => p.label).join("・") +
+  "。家族がその運賃の規定を直して保存していれば、そちらが入る。航空会社が規定を変えることがあるので、予約の画面や" +
+  "メールと違えば policy で直す";
 const PEOPLE_DESC =
   "この予約で何人分か（任意）。家族4人で行くが2人ずつしか買えなかった便なら、それぞれ 2。宿に家族全員で泊まるなら 4。" +
   "旅行の人数（set_trip_people）と合わせて、同じ時間帯の予約が「分けて取った（全部使う）」のか「人数より多い" +
@@ -142,10 +149,11 @@ const createInput = z.object({
   bookedBy: z.string().max(40).nullable().default(null).describe(BOOKED_BY_DESC),
   people: z.number().int().min(1).max(99).nullable().default(null).describe(PEOPLE_DESC),
   ref: z.string().max(40).nullable().default(null).describe(REF_DESC),
+  fare: z.string().max(40).nullable().default(null).describe(FARE_DESC),
   plan: z.string().nullable().default(null).describe(
     "プラン名（画面では「候補グループ」と呼ぶ）。同じ予定の候補（どちらにするか迷っている店・宿）を束ねる名前で、" +
       "同じプラン名の中で確定できるのは1件、1件確定すると残りは要キャンセルになる。宿の「夕朝食付きプラン」のような" +
-      "宿泊プランのことではない（それは notes に書く。plan に入れると別々の宿が束ねられ、片方の確定でもう片方が" +
+      "宿泊プランのことではない（それは fare に書く。plan に入れると別々の宿が束ねられ、片方の確定でもう片方が" +
       "要キャンセルになる）。候補が1つだけの予約は省略してよい。全部使う予約をまとめたいときは plan でなく trip を使う",
   ),
   trip: z.string().max(60).nullable().default(null).describe(TRIP_DESC),
@@ -186,6 +194,9 @@ const patchInput = z.object({
   bookedBy: z.string().max(40).nullable().optional().describe(BOOKED_BY_DESC),
   people: z.number().int().min(1).max(99).nullable().optional().describe(PEOPLE_DESC),
   ref: z.string().max(40).nullable().optional().describe(REF_DESC + "。null で消す"),
+  fare: z.string().max(40).nullable().optional().describe(
+    FARE_DESC + "。規定が不明の予約に運賃を入れると、その規定が入る。null で消す",
+  ),
   startsAt: readableInstantSchema.optional().describe(STARTS_AT_DESC),
   endsAt: readableInstantSchema.nullable().optional().describe(ENDS_AT_DESC + "。null で消す"),
   plan: z.string().nullable().optional().describe(

@@ -19,6 +19,7 @@ import {
   toInstantOrNull,
 } from "./instant.ts";
 import { getTemplate } from "./policy-template.ts";
+import { farePolicy, findFare } from "./fares.ts";
 
 // The policy model (presets + arbitrary stage tables) and its math live in
 // ./policy.ts; re-exported here because the record schema is this module's.
@@ -120,6 +121,11 @@ export const webReservationSchema = z.object({
    */
   ref: z.string().nullable().default(null),
   /**
+   * The fare or plan it was bought on (運賃: 「JAL スペシャルセイバー」). A known
+   * fare fills the cancellation policy when none is given (./fares.ts).
+   */
+  fare: z.string().nullable().default(null),
+  /**
    * A member's proposal to the owner — cancel it, or confirm it (owner
    * 2026-11-13: how to recommend cancelling a booking someone invited you to).
    * Settling stays the owner's: a proposal changes nothing by itself, it is
@@ -189,6 +195,7 @@ export const webCreateSchema = z.object({
   bookedBy: personSchema.default(null),
   people: z.number().int().min(1).max(99).nullable().default(null),
   ref: refSchema.default(null),
+  fare: refSchema.default(null),
   policy: webPolicySchema.default("unknown"),
   confirmed: z.boolean().default(false),
 });
@@ -211,6 +218,7 @@ export const webPatchSchema = z.object({
   bookedBy: personSchema.optional(),
   people: z.number().int().min(1).max(99).nullable().optional(),
   ref: refSchema.optional(),
+  fare: refSchema.optional(),
   rank: z.number().int().min(1).max(99).nullable().optional(),
   policy: webPolicySchema.optional(),
 });
@@ -364,7 +372,8 @@ type OptionalCreateField =
   | "to"
   | "bookedBy"
   | "people"
-  | "ref";
+  | "ref"
+  | "fare";
 
 export async function createReservation(
   kv: Deno.Kv,
@@ -391,8 +400,11 @@ export async function createReservationWithEffects(
   // でも web から入れると規定が入り、LINE から入れると不明」になっていた
   // （2026-07-28）。作る場所は1つなので、規則もここ1か所に置く。
   // 読み取れた規定は塗り替えない — その予約に固有の料率表のほうが強い。
+  // A known fare comes first (its saved default, else the fare table): it is
+  // what the booking was bought on, more specific than the place's default.
   const policy = input.policy === "unknown"
-    ? (await getTemplate(kv, token, input.service))?.policy ?? "unknown"
+    ? (await farePolicy(kv, token, input.fare))?.policy ??
+      (await getTemplate(kv, token, input.service))?.policy ?? "unknown"
     : input.policy;
   const r: WebReservation = {
     id: ids.newId(),
@@ -415,6 +427,8 @@ export async function createReservationWithEffects(
     bookedBy: input.bookedBy ?? null,
     people: input.people ?? null,
     ref: input.ref ?? null,
+    // A known fare is kept under its one name, however it was typed.
+    fare: findFare(input.fare)?.label ?? input.fare ?? null,
     rank: null,
     suggestion: null,
     policy,
@@ -487,6 +501,7 @@ export async function patchReservation(
     ...(patch.rank !== undefined ? { rank: patch.rank } : {}),
     ...(patch.people !== undefined ? { people: patch.people } : {}),
     ...(patch.ref !== undefined ? { ref: patch.ref } : {}),
+    ...(patch.fare !== undefined ? { fare: findFare(patch.fare)?.label ?? patch.fare } : {}),
     updated_at: ids.nowIso(),
     updated_by: actor,
   };
@@ -805,6 +820,7 @@ export async function mergeReservations(
     bookedBy: take("bookedBy"),
     people: take("people"),
     ref: take("ref"),
+    fare: take("fare"),
     updated_at: ids.nowIso(),
     updated_by: actor,
   };

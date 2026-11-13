@@ -713,6 +713,8 @@ Deno.test("web-api MCP: set_trip_people and drop_reservation reach the API", asy
     const { tools } = await client.listTools();
     const create = tools.find((t: { name: string }) => t.name === "create_reservation")!;
     assertStringIncludes(JSON.stringify(create.inputSchema), "何人分");
+    assertStringIncludes(JSON.stringify(create.inputSchema), "JAL スペシャルセイバー");
+    assertStringIncludes(create.description!, "予約ごとに1件ずつ");
     const list = tools.find((t: { name: string }) => t.name === "list_reservations")!.description!;
     assertStringIncludes(list, "split");
   });

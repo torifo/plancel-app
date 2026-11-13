@@ -100,6 +100,7 @@ async function putResv(
     rank: null,
     people: null,
     ref: null,
+    fare: null,
     suggestion: null,
     policy,
     status,

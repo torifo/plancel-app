@@ -34,6 +34,7 @@
  * Policy templates (施設の既定規定, see policy-template.ts) — private to
  * the acting ledger, no calendar side effects, so no `mutated()` hook:
  *   PUT    /api/trips/<name>                  {people} how many go (null clears)
+ *   GET    /api/fare-presets                          fares with known rules
  *   GET    /api/policy-templates                       list
  *   PUT    /api/policy-templates/<facility>   {policy} save/overwrite
  *   DELETE /api/policy-templates/<facility>            delete (204, idempotent)
@@ -71,6 +72,7 @@ import {
 } from "./store.ts";
 import { getUser, type WebUser } from "./users.ts";
 import { listTrips, setTripPeople } from "./trips.ts";
+import { FARE_PRESETS, farePolicy, findFare } from "./fares.ts";
 import {
   addMember,
   cleanupReservationShares,
@@ -108,7 +110,7 @@ const memberView = (u: WebUser, role: MemberRole) => ({
 export function isApiPath(pathname: string): boolean {
   return pathname === "/api/reservations" || pathname.startsWith("/api/reservations/") ||
     pathname === "/api/policy-templates" || pathname.startsWith("/api/policy-templates/") ||
-    pathname.startsWith("/api/trips/");
+    pathname.startsWith("/api/trips/") || pathname === "/api/fare-presets";
 }
 
 /**
@@ -290,6 +292,28 @@ export async function handleWebApi(
   // Policy templates are keyed by the ACTING ledger, so ownership needs no
   // extra check: a shared-reservation member calls with their own token and
   // reaches their own templates, never the owner's.
+  // Fares: GET /api/fare-presets — the fares whose rules are known, with the
+  // policy each gives in this ledger (the family's saved default wins).
+  if (parts[1] === "fare-presets") {
+    if (parts.length !== 2 || req.method !== "GET") {
+      return json({ error: "method not allowed" }, 405);
+    }
+    const fares = [];
+    for (const p of FARE_PRESETS) {
+      const fp = await farePolicy(kv, token, p.label);
+      fares.push({
+        label: p.label,
+        carrier: p.carrier,
+        policy: fp?.policy ?? p.policy,
+        saved: fp?.source === "saved",
+        note: p.note,
+        source: p.source,
+        checked: p.checked,
+      });
+    }
+    return json({ fares });
+  }
+
   // Trips: PUT /api/trips/:name {people} — how many people go (null clears).
   // Listed with the reservations (GET /api/reservations → `trips`).
   if (parts[1] === "trips") {
@@ -373,8 +397,11 @@ export async function handleWebApi(
       // Where the policy came from, and a nudge when nobody knows it. The MCP
       // relays this JSON to the model verbatim, so the hint is the cue for it
       // to ask the user instead of leaving the deadline unwatched (issue #4).
+      const fare = parsed.data.policy === "unknown" ? findFare(parsed.data.fare) : null;
       const policySource = parsed.data.policy !== "unknown"
         ? "explicit"
+        : r.policy !== "unknown" && fare !== null
+        ? "fare"
         : r.policy !== "unknown"
         ? "template"
         : "unknown";
@@ -388,6 +415,11 @@ export async function handleWebApi(
         policySource === "unknown" && r.booked
           ? "キャンセル規定が不明なので、キャンセル期限を見張れません。推測で入れず、ユーザーに確認して規定が分かったら " +
             "update_reservation（画面では「日付変更・編集」）の policy に入れてください。"
+          : undefined,
+        // A fare's rules come from a table that the airline may change.
+        policySource === "fare" && fare !== null
+          ? `規定は運賃「${fare.label}」のものを入れました（${fare.note}）。運賃の規定は変わることがあるので、` +
+            "予約の画面やメールと違えば policy で直してください。"
           : undefined,
       ].filter((h): h is string => h !== undefined);
       return json({
@@ -770,6 +802,16 @@ export async function handleWebApi(
       // unless the caller says it is still a guess.
       if (parsed.data.startsAt !== undefined && parsed.data.timeTentative === undefined) {
         parsed.data.timeTentative = isBareDate(raw, "startsAt");
+      }
+      // Naming a known fare on a reservation whose policy is unknown fills it,
+      // the same as on create. A policy given in the same edit wins.
+      if (parsed.data.fare != null && parsed.data.policy === undefined) {
+        const cur = await getReservation(kv, token, id);
+        const ownerLedger = cur !== null ? token : null;
+        if (cur !== null && cur.policy === "unknown" && ownerLedger !== null) {
+          const fp = await farePolicy(kv, ownerLedger, parsed.data.fare);
+          if (fp !== null) parsed.data.policy = fp.policy;
+        }
       }
       let r: WebReservation | null;
       // An editor member's edit is applied to the OWNER's ledger (no copy is

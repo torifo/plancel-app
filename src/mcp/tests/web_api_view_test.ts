@@ -36,6 +36,7 @@ function row(over: Partial<WebReservation> = {}): WebReservation {
     rank: null,
     people: null,
     ref: null,
+    fare: null,
     suggestion: null,
     policy: "staged",
     status: "candidate",
