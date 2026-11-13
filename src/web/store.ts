@@ -9,6 +9,7 @@
  * event log / cron notifications is a later step; for now it is a
  * self-contained per-user store that the same KV database backs.
  */
+import { NOTES_MAX } from "./notes.ts";
 import { z } from "zod";
 import { webPolicySchema } from "./policy.ts";
 import { isFinished } from "./lifecycle.ts";
@@ -169,7 +170,13 @@ const yenSchema = z.number().int("金額は円の整数で").min(0, "金額は 0
 /** Free text on write: trimmed, bounded, and an empty string is "none". */
 const textSchema = (max: number) =>
   z.string().trim().max(max).transform((v) => (v === "" ? null : v)).nullable();
-const notesSchema = textSchema(2000);
+// Notes hold only what has no field (./notes.ts); the message says so.
+const notesSchema = z.string().trim()
+  .max(
+    NOTES_MAX,
+    `メモは${NOTES_MAX}字までです（人数・金額・予約番号・運賃・規定はそれぞれの欄へ）`,
+  )
+  .transform((v) => (v === "" ? null : v)).nullable();
 const tripSchema = textSchema(60);
 const placeSchema = textSchema(100);
 const personSchema = textSchema(40);

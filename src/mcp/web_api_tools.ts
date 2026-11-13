@@ -17,6 +17,7 @@
  * (owner 2026-07-27) are NEVER exposed here. Sharing is NOT such an exception,
  * so the invite/role tools live here too (owner 2026-07-28).
  */
+import { NOTES_MAX } from "../web/notes.ts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { type Clock, SystemClock } from "../core/clock/mod.ts";
@@ -99,12 +100,14 @@ const ENDS_AT_DESC =
 // 説明すると入力の手間が大きすぎる」「メモに書くことが目で見てわかるように」. Fields
 // are shown as fields — the seats per booking nested under the flight, the fee
 // table with dates, the fare's official page — so the notes keep only the rest.
-const NOTES_DESC =
-  "メモ（任意、2000字まで）。決まった欄に入らないことだけを短く残す所（例「夕朝食付き」「駐車場は先着順」）。" +
+const NOTES_DESC = `メモ（任意、${NOTES_MAX}字まで）。決まった欄に入らないことだけを短く残す所` +
+  "（例「夕朝食付き」「駐車場は先着順」）。" +
   "人数（people）・金額（amount）・予約番号（ref）・運賃（fare）・キャンセル規定（policy）・予約した人（bookedBy）・" +
   "旅行（trip）・分けて取った内訳（bookings）はそれぞれの欄に入れ、メモに書き写さない（画面では欄ごとに見える。" +
   "運賃を入れれば公式の規定と出典も画面に出るので、規定の全文や URL も書かない）。欄の無い補足をユーザーが" +
   "言ったら、捨てずにここへ入れる";
+const NOTES_TOO_LONG =
+  `メモは${NOTES_MAX}字まで。人数・金額・予約番号・運賃・規定はそれぞれの欄に入れ、欄の無いことだけを短く書く`;
 const TRIP_DESC =
   "旅行名（任意）。同じ旅行で全部使う予約（宿・行きの便・帰りの便・食事など）をまとめる名前。plan とは別物: " +
   "plan は1件だけ確定して残りをキャンセルする候補の束、trip はどれもキャンセルされない。両方付けてよい" +
@@ -182,7 +185,7 @@ const createInput = z.object({
   trip: z.string().max(60).nullable().default(null).describe(TRIP_DESC),
   booked: z.boolean().default(true).describe(BOOKED_DESC),
   timeTentative: z.boolean().default(false).describe(TIME_TENTATIVE_DESC),
-  notes: z.string().max(2000).nullable().default(null).describe(NOTES_DESC),
+  notes: z.string().max(NOTES_MAX, NOTES_TOO_LONG).nullable().default(null).describe(NOTES_DESC),
   amount: z.number().int().min(0).nullable().default(null).describe("金額（円、0 以上の整数）"),
   location: z.string().nullable().default(null).describe("場所（店名・住所、任意）"),
   policy: webPolicyInputSchema.default("unknown").describe(POLICY_DESC),
@@ -229,7 +232,7 @@ const patchInput = z.object({
   trip: z.string().max(60).nullable().optional().describe(TRIP_DESC + "。null で外す"),
   booked: z.boolean().optional().describe(BOOKED_DESC),
   timeTentative: z.boolean().optional().describe(TIME_TENTATIVE_DESC),
-  notes: z.string().max(2000).nullable().optional().describe(
+  notes: z.string().max(NOTES_MAX, NOTES_TOO_LONG).nullable().optional().describe(
     NOTES_DESC + "。上書きになるので、足すときは既存のメモに続けて書く。null で消す",
   ),
   amount: z.number().int().min(0).nullable().optional().describe("金額（円、0 以上の整数）"),

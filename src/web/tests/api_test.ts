@@ -1032,3 +1032,41 @@ Deno.test("web api: a start given as a bare date is a day with no time yet", asy
     assertEquals(guess.reservation.timeTentative, true);
   });
 });
+
+Deno.test("web api: notes are kept to 200 characters on write, and a longer stored note survives other edits", async () => {
+  await withKv(async (kv) => {
+    const ids = makeIds();
+    const post = (notes: string) =>
+      handleWebApi(
+        kv,
+        reqOf("POST", BASE, "tok-A", {
+          service: "宿",
+          startsAt: "2026-12-19T15:00:00+09:00",
+          notes,
+        }),
+        ids,
+      );
+    // 200 characters fit; 201 are refused with the reason, before anything is stored.
+    assertEquals((await post("あ".repeat(200))).status, 201);
+    const tooLong = await post("あ".repeat(201));
+    assertEquals(tooLong.status, 400);
+    assertStringIncludes(await tooLong.text(), "メモは200字まで");
+    // A note stored before the limit stays when other fields are edited.
+    const made = await (await post("短い")).json();
+    const id = made.reservation?.id ?? made.id;
+    const key = (await Array.fromAsync(kv.list({ prefix: [] }))).find((e) =>
+      Array.isArray(e.key) && e.key.includes(id) && typeof e.value === "object" &&
+      e.value !== null &&
+      (e.value as { id?: string }).id === id
+    )!;
+    await kv.set(key.key, { ...(key.value as object), notes: "い".repeat(300) });
+    const edit = await handleWebApi(
+      kv,
+      reqOf("PATCH", `${BASE}/${id}`, "tok-A", { amount: 9000 }),
+      ids,
+    );
+    assertEquals(edit.status, 200);
+    const after = (await kv.get(key.key)).value as { notes: string; amount: number };
+    assertEquals([after.notes.length, after.amount], [300, 9000]);
+  });
+});

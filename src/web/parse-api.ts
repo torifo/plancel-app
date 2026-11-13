@@ -15,6 +15,7 @@
  * (src/web/policy.ts) is the one conversion into the web policy model, shared
  * with the LINE registration path.
  */
+import { clipNotes } from "./notes.ts";
 import { z } from "zod";
 import type { Clock } from "../core/clock/mod.ts";
 import type { ParseJob } from "../core/schema/mod.ts";
@@ -114,7 +115,8 @@ export async function handleParseApi(req: Request, deps: ParseApiDeps): Promise<
     amount: typeof merged.amount_jpy === "number" ? merged.amount_jpy : null,
     policy: fromCoreStages(merged.cancellation_policy, freeAt),
     location: typeof merged.location === "string" ? merged.location : null,
-    notes: typeof merged.notes === "string" ? merged.notes : null,
+    // メモは200字まで（./notes.ts）。読み取りが長く拾っても、フォームで弾かれないよう切る。
+    notes: typeof merged.notes === "string" ? clipNotes(merged.notes) : null,
   };
 
   return json({

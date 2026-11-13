@@ -787,3 +787,16 @@ Deno.test("web-api MCP: bookings refuse seats given twice, and a plan, before an
     assertEquals(calls.filter((c) => c.method === "POST").length, 0);
   });
 });
+
+Deno.test("web-api MCP: a note over 200 characters is refused with what to do instead", async () => {
+  const { calls, fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    const res = await client.callTool({
+      name: "create_reservation",
+      arguments: { service: "宿", startsAt: "2026-12-19T15:00:00+09:00", notes: "あ".repeat(201) },
+    });
+    assertEquals(res.isError, true);
+    assertStringIncludes(JSON.stringify(res.content), "メモは200字まで");
+    assertEquals(calls.length, 0);
+  });
+});

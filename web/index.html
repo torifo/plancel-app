@@ -2608,51 +2608,66 @@
       color: var(--soft);
       margin-bottom: 4px;
     }
-    .sch-table {
-      width: 100%;
-      border-collapse: collapse;
+    .sch-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
       font-size: calc(13px * var(--fs));
       font-variant-numeric: tabular-nums;
     }
-    .sch-table th {
-      text-align: left;
-      font-weight: 500;
-      color: var(--ink-2);
-      padding: 3px 8px 3px 0;
+    .sch {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 2px 12px;
+      padding: 4px 0;
     }
-    .sch-table td {
-      text-align: right;
+    .sch + .sch {
+      border-top: 1px dashed var(--line);
+    }
+    .sch-when {
+      flex: 1 1 9em;
+      min-width: 0;
+      color: var(--ink-2);
+    }
+    .sch-when .nw {
+      white-space: nowrap;
+    }
+    .sch-fee {
+      flex: 0 0 auto;
+      margin-left: auto;
       font-weight: 700;
       color: var(--ink);
-      padding: 3px 0;
       white-space: nowrap;
     }
     .sch-yen {
-      display: inline-block;
-      min-width: 5.5em;
-      margin-left: 8px;
+      margin-left: 10px;
       font-weight: 600;
       color: var(--ink-2);
     }
-    .sch.past th,
-    .sch.past td,
+    .sch.past .sch-when,
+    .sch.past .sch-fee,
     .sch.past .sch-yen {
       color: var(--soft);
       font-weight: 400;
       text-decoration: line-through;
     }
-    .sch.now th,
-    .sch.now td {
+    .sch.now .sch-when,
+    .sch.now .sch-fee {
       color: var(--lamp-ink);
     }
     .sch-now {
-      margin-left: 6px;
+      display: inline-block;
+      white-space: nowrap;
+      margin-right: 6px;
       font-size: calc(11px * var(--fs));
       font-weight: 700;
+      line-height: 1.6;
       color: var(--on-lamp);
       background: var(--lamp-ink);
       border-radius: 999px;
-      padding: 0 6px;
+      padding: 0 7px;
+      text-decoration: none;
     }
     .sch-foot {
       margin-top: 6px;
@@ -2691,6 +2706,37 @@
     .bk-add {
       margin-top: 8px;
       min-height: var(--btn-h);
+    }
+    .notes-count.over {
+      color: var(--danger-ink);
+      font-weight: 700;
+    }
+    .note-fold > summary {
+      list-style: none;
+      cursor: pointer;
+    }
+    .note-fold > summary::-webkit-details-marker {
+      display: none;
+    }
+    .note-fold .note {
+      display: block;
+    }
+    .note-fold:not([open]) .note {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      overflow: hidden;
+    }
+    .note-more {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      font-size: calc(12.5px * var(--fs));
+      color: var(--lamp-ink);
+      text-decoration: underline;
+    }
+    .note-fold[open] .note-more {
+      display: none;
     }
     /* 人数と金額は短い数なので、狭い画面でも横に並べる（予約の行が縦に伸びすぎない） */
     .two.keep {
@@ -2959,6 +3005,16 @@
        範囲だけ 44px に広げる。測ると 18×25px で、「編集」の隣が「削除」だった。 */
     .resv .tools {
       margin-left: -6px;
+    }
+    /* 操作どうしは「·」で区切らず間隔で分ける（狭い画面・大きい文字で折り返すと、
+       行末や行頭に「·」だけが残っていた）。下線で1つずつの操作と分かる。 */
+    .resv .tools {
+      display: flex;
+      flex-wrap: wrap;
+      column-gap: 10px;
+    }
+    .resv .tools .tl {
+      white-space: nowrap;
     }
     .resv .tools a {
       display: inline-flex;
@@ -3570,8 +3626,9 @@
           <label for="f_bookedBy">予約した人（任意）</label>
           <input id="f_bookedBy" list="bookedByList" maxlength="40" placeholder="例: 母"><datalist id="bookedByList"></datalist>
           <label for="f_notes">メモ（任意）</label>
-          <textarea id="f_notes" rows="2" maxlength="2000" placeholder="例: 夕朝食付き。駐車場は先着順"></textarea>
-          <div class="hint" style="margin:4px 0 0">人数・金額・運賃・予約番号・キャンセル規定は上の欄へ。メモは欄の無いことだけで足ります。</div>
+          <textarea id="f_notes" rows="2" maxlength="200" placeholder="例: 夕朝食付き。駐車場は先着順"></textarea>
+          <div class="hint notes-count" id="notesCount" style="margin:4px 0 0" aria-live="polite"></div>
+          <div class="hint" style="margin:4px 0 0">人数・金額・運賃・予約番号・キャンセル規定は上の欄へ。メモは欄の無いことだけを200字まで。</div>
         </div>
         <div class="modal-foot"><button class="btn-primary" id="f_submit">登録する</button></div>
       </div>
@@ -5916,6 +5973,13 @@
         `<span class="i-chev" aria-hidden="true"></span></summary>` +
         `<div class="i-body">${rowHtml(r, true)}</div></details>`;
     }
+    // メモ。60字を超えるもの（前から入っている200字より長いものも）は3行に畳み、押すと全文。
+    // 60字はふつうの文字で3行ほど。大きい文字では短いメモでも縦に伸びるので、畳む。
+    function notesHtml(r) {
+      if (!r.notes) return "";
+      if (r.notes.length <= 60) return `<div class="note">${esc(r.notes)}</div>`;
+      return `<details class="note-fold"><summary><span class="note">${esc(r.notes)}</span><span class="note-more">全文を見る</span></summary></details>`;
+    }
     // 予約の決まった欄を、文ではなく項目として見せる（オーナー 2026-11-13「メモでなんでも
     // 説明すると入力の手間が大きすぎる」「メモに書くことが目で見てわかるように」）。
     function factsHtml(r) {
@@ -5952,7 +6016,12 @@
           ? "無料"
           : `${s.pct}%${r.amount ? `<span class="sch-yen">${yen(Math.round(r.amount * s.pct / 100))}</span>` : ""}`;
         from = until;
-        return `<tr class="sch${cls}"><th scope="row">${when}${cls === " now" ? `<span class="sch-now">いま</span>` : ""}</th><td>${fee}</td></tr>`;
+        // 1段を1行に: 左に期間（「〜」の後ろで折り返してよい）、右に料率と額（折り返さない）。
+        // 表（table）にすると、文字を大きくした端末で期間の列が細くなり「いま」が割れた。
+        const [w1, w2] = when.includes("〜") ? [when.slice(0, when.indexOf("〜") + 1), when.slice(when.indexOf("〜") + 1)] : [when, ""];
+        return `<li class="sch${cls}"><span class="sch-when">${
+          cls === " now" ? `<span class="sch-now">いま</span>` : ""
+        }<span class="nw">${w1}</span>${w2 ? `<span class="nw">${w2}</span>` : ""}</span><span class="sch-fee">${fee}</span></li>`;
       }).join("");
       const f = r.fare ? findFarePreset(r.fare) : null;
       const fromFare = f && sameStages(stagesOfPolicy(r.policy) || [], stagesOfPolicy(f.policy) || []);
@@ -5961,7 +6030,7 @@
           esc(f.source)
         }" target="_blank" rel="noopener">JAL の公式の規定</a>（${esc(f.checked || "")} 確認）</div>`
         : "";
-      return `<div class="sch-box"><div class="sch-title">キャンセル料</div><table class="sch-table"><tbody>${rows}</tbody></table>${foot}</div>`;
+      return `<div class="sch-box"><div class="sch-title">キャンセル料</div><ul class="sch-list">${rows}</ul>${foot}</div>`;
     }
     function rowHtml(r, inItem) {
       const now = Date.now(),
@@ -5999,7 +6068,7 @@
           // もう高い段階（無料期間なし・終了）: 強調せず、いま取り消したときの額だけ。
           : `いま取り消すと${pctNow(r, now)}%${
             r.amount ? `（${yen(Math.round(r.amount * pctNow(r, now) / 100))}）` : ""
-          }${dl === null ? "（無料期間なし）" : "（無料期間は終了）"}`);
+          }`);
       // .mid はモバイルで独立行に回し、色も --ink-2 にする（キャプション読みやすさ）
       const cap = `<div class="bar-cap"><span>今日</span><span class="mid">${mid}</span><span>${
         fmtDate(start)
@@ -6021,7 +6090,7 @@
         factsHtml(r) +
         locationHtml(r) +
         scheduleHtml(r) +
-        (r.notes ? `<div class="note">${esc(r.notes)}</div>` : "");
+        notesHtml(r);
       const off = r.status === "to_cancel" ? " off" : "";
       const cut = r.status === "to_cancel" ? ` <span class="cut">✂ 要キャンセル</span>` : "";
       // 共有された予約（自分はメンバー）: オーナー表示名を行内に出す。編集を許された
@@ -6077,11 +6146,12 @@
           ? `<span class="okmark">✓ これに決定</span>` + bookBtn
           : `<span class="okmark">✓ 確定済み</span>`;
       }
-      const inviteLink = viewingDemo ? "" : `<a data-invite="${r.id}">招待</a> · `;
+      // 区切りの「·」は後ろの操作と一緒に折り返す（行末に「·」だけが残らないように）。
+      const inviteLink = viewingDemo ? "" : `<span class="tl"><a data-invite="${r.id}">招待</a></span>`;
       const cancelLink = r.status === "confirmed"
-        ? ` · <a data-cancel="${r.id}">キャンセルした</a>`
+        ? `<span class="tl"><a data-cancel="${r.id}">キャンセルした</a></span>`
         : "";
-      const tools = `<div class="tools">${inviteLink}<a data-edit="${r.id}">編集</a> · <a data-del="${r.id}">削除</a>${cancelLink}</div>`;
+      const tools = `<div class="tools">${inviteLink}<span class="tl"><a data-edit="${r.id}">編集</a></span><span class="tl"><a data-del="${r.id}">削除</a></span>${cancelLink}</div>`;
       const sgOwn = r.suggestion && !viewingDemo
         ? `<div class="sug-box"><span>${esc(r.suggestion.byName)}さんから${
           r.suggestion.action === "cancel" ? "取り消し" : "確定"
@@ -6599,6 +6669,10 @@
       q("#f_location").value = (r && r.location) ? r.location : "";
       q("#f_trip").value = (r && r.trip) ? r.trip : "";
       q("#f_notes").value = (r && r.notes) ? r.notes : "";
+      notesAtOpen = q("#f_notes").value.trim();
+      // 前から長いメモは、打って減らせるように上限を外して見せる（保存は200字まで）。
+      q("#f_notes").maxLength = notesAtOpen.length > NOTES_MAX ? 100000 : NOTES_MAX;
+      syncNotesCount();
       q("#f_tentative").checked = !!(r && r.timeTentative);
       q("#f_unbooked").checked = !!(r && r.booked === false);
       q("#f_kind").value = (r && r.kind) ? r.kind : "";
@@ -6663,6 +6737,17 @@
       }
     }
     q("#bkAdd").onclick = () => addBookingRow(null).querySelector(".bk-people").focus();
+    // メモの字数（サーバの上限 NOTES_MAX＝200 と同じ。src/web/notes.ts）。前から長いメモは
+    // そのまま残すが、直すときは200字に収める。
+    const NOTES_MAX = 200;
+    let notesAtOpen = "";
+    function syncNotesCount() {
+      const n = q("#f_notes").value.trim().length;
+      const el = q("#notesCount");
+      el.textContent = n > NOTES_MAX ? `${n}／${NOTES_MAX}字 — ${n - NOTES_MAX}字けずってください` : `${n}／${NOTES_MAX}字`;
+      el.classList.toggle("over", n > NOTES_MAX);
+    }
+    q("#f_notes").addEventListener("input", syncNotesCount);
     function openImport() {
       q("#importOverlay").classList.add("on");
     }
@@ -6790,6 +6875,12 @@
       const location = q("#f_location").value.trim() || null;
       const trip = q("#f_trip").value.trim() || null;
       const notes = q("#f_notes").value.trim() || null;
+      // 編集で前から長いメモに触れていなければ、そのまま残す（送らない）。
+      const notesChanged = !editingId || (notes || "") !== notesAtOpen;
+      if (notesChanged && notes && notes.length > NOTES_MAX) {
+        alert(`メモは${NOTES_MAX}字までです（いま${notes.length}字）。人数・金額・予約番号・運賃・規定は、それぞれの欄に入れてください。`);
+        return;
+      }
       const timeTentative = q("#f_tentative").checked;
       const booked = !q("#f_unbooked").checked;
       const kind = q("#f_kind").value || null;
@@ -6857,7 +6948,7 @@
             amount,
             location,
             trip,
-            notes,
+            ...(notesChanged ? { notes } : {}),
             timeTentative,
             booked,
             kind,
