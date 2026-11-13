@@ -332,6 +332,8 @@ export interface OverlapSummary {
   partyInferred: boolean;
   /** Seats the live bookings add up to, or null when one does not say. */
   peopleTotal: number | null;
+  /** For a "split" group: how many people still have no seat (party − peopleTotal); 0 otherwise. */
+  shortBy: number;
   /** Stay: first night and the morning it ends. Transport: the day(s) of the rides. Parking: first entry day and last exit day. JST dates. */
   from: string;
   to: string;
@@ -381,10 +383,15 @@ export function summarizeOverlaps(
   trips: TripMetaInput[] = [],
 ): OverlapSummary[] {
   const live = rows.filter((r) => !isFinished(r, nowMs));
-  return findOverlaps(live).map((g) => {
+  const summarize = (
+    kind: OverlapSummary["kind"],
+    from: string,
+    to: string,
+    ids: string[],
+  ): OverlapSummary => {
     // In the family's order of preference when one is set (rank 1 first), else by time.
     const rk = (r: ApiReservation) => r.rank ?? 1000;
-    const members = g.ids.map((id) => live.find((r) => r.id === id)!)
+    const members = ids.map((id) => live.find((r) => r.id === id)!)
       .map((r, i) => ({ r, i }))
       .sort((a, b) => rk(a.r) - rk(b.r) || a.i - b.i)
       .map((x) => x.r);
@@ -395,13 +402,14 @@ export function summarizeOverlaps(
     const { party, inferred } = partyOfTrip(trip, live, trips);
     const { mode, total } = classifyAlternatives(members, party);
     return {
-      kind: g.kind,
+      kind,
       mode,
       party,
       partyInferred: inferred,
       peopleTotal: total,
-      from: g.from,
-      to: g.to,
+      shortBy: mode === "split" && total !== null && party !== null ? party - total : 0,
+      from,
+      to,
       decideBy: mode === "split"
         ? null
         : deadlines.length > 0
@@ -421,7 +429,29 @@ export function summarizeOverlaps(
         };
       }),
     };
-  });
+  };
+  const out = findOverlaps(live).map((g) => summarize(g.kind, g.from, g.to, g.ids));
+  // The same flight (or inn, or lot) bought more than once for halves of the
+  // party is one used set too — but as the same name on the same day it is
+  // left out of the overlaps above, so it is added here when the counts say so.
+  const kindOf = (r: ApiReservation): OverlapSummary["kind"] | null =>
+    r.kind === "flight" || r.kind === "train" || r.kind === "bus"
+      ? "transport"
+      : r.kind === "stay"
+      ? "stay"
+      : r.kind === "parking"
+      ? "parking"
+      : null;
+  for (const d of findPossibleDuplicates(live)) {
+    const members = d.ids.map((id) => live.find((r) => r.id === id)!).filter((r) =>
+      r.status === "candidate" || r.status === "confirmed"
+    );
+    const kind = members[0] ? kindOf(members[0]) : null;
+    if (kind === null || members.length < 2) continue;
+    const s = summarize(kind, d.day, d.day, members.map((r) => r.id));
+    if (s.mode === "split") out.push(s);
+  }
+  return out;
 }
 
 export function presentReservation(r: ApiReservation, nowMs: number): ModelReservation {

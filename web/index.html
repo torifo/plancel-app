@@ -1532,11 +1532,30 @@
       color: var(--ink-2);
     }
     .foot-note {
-      color: var(--faint);
-      font-size: calc(12px * var(--fs));
+      color: var(--ink-2);
+      font-size: calc(12.5px * var(--fs));
+      line-height: 1.7;
       margin-top: 28px;
       border-top: 1px solid var(--line);
       padding-top: 12px;
+    }
+    .foot-note p {
+      margin: 0;
+    }
+    .foot-more > summary {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      cursor: pointer;
+      color: var(--lamp-ink);
+      font-weight: 600;
+    }
+    .foot-more ul {
+      margin: 0;
+      padding-left: 1.2em;
+    }
+    .foot-more li {
+      margin-bottom: 6px;
     }
     /* ═══ PWA install / update ═══ */
     .pwa-panel {
@@ -2434,6 +2453,13 @@
       border-style: solid;
       border-color: var(--safe);
     }
+    .alt.together.lacking {
+      border-color: var(--danger-ink);
+    }
+    .short {
+      color: var(--danger-ink);
+      font-weight: 700;
+    }
     .alt-head {
       display: flex;
       align-items: center;
@@ -2945,7 +2971,18 @@
         </aside>
       </div>
 
-      <p class="foot-note">同じアカウントでログインすれば、どの端末でも同じ台帳が開きます。</p>
+      <div class="foot-note">
+        <p>予約は plancel のサーバ（Deno Deploy のデータベース）に保存しています。見られるのは、あなたと、あなたが招待した人だけです。</p>
+        <details class="foot-more">
+          <summary>保存先と安全について</summary>
+          <ul>
+            <li><b>保存先</b>：米国 Deno 社のクラウド「Deno Deploy」のデータベース。端末には予約の中身を残しません（残るのはログインの状態と、表示の設定だけ）。</li>
+            <li><b>見られる人</b>：あなたと、あなたが招待した人。招待した相手にも、あなたのメールアドレスは見せません。運営者（開発者）は、サーバの管理のためにデータベースを見られる立場にあります。</li>
+            <li><b>守り方</b>：通信はすべて暗号化（HTTPS）。パスワードはそのまま保存せず、元に戻せない形（ハッシュ）にしています。Google カレンダー連携の鍵も暗号化して保存しています。</li>
+            <li><b>消すとき</b>：マイページの「退会」で、予約と共有の記録をすべて消します。</li>
+          </ul>
+        </details>
+      </div>
       </div>
 
       <!-- My page: profile, credentials, account linking (GUI-only flows).
@@ -4215,6 +4252,27 @@
         const rs = all.filter((r) => !taken.has(r.id));
         if (rs.length >= 2) addAlt("plan", rs, name);
       }
+      // 同じ便・同じ宿を人数を分けて2回以上取ったもの（4人を2人ずつ）も、1つの囲みに
+      // まとめる。同じ名前・同じ日なので重なりの組からは外れ、ばらばらの行に見えていた。
+      // 人数で「分けて取った」と読めるときだけで、そうでなければ二重登録の印のまま。
+      const kindOfSame = (r) => {
+        if (r.kind === "flight" || r.kind === "train" || r.kind === "bus") return "transport";
+        if (r.kind === "parking") return "parking";
+        if (r.kind === "stay") return "stay";
+        return null;
+      };
+      const sameGroups = {};
+      for (const r of rows) {
+        if (taken.has(r.id) || (r.status !== "candidate" && r.status !== "confirmed")) continue;
+        const k = lookKey(r);
+        if (k && kindOfSame(r)) (sameGroups[k] = sameGroups[k] || []).push(r);
+      }
+      for (const rs of Object.values(sameGroups)) {
+        if (rs.length < 2) continue;
+        const trip = (rs.find((r) => r.trip) || {}).trip || null;
+        if (classifyAlternatives(rs, tripParty(trip, rows).party).mode !== "split") continue;
+        addAlt(kindOfSame(rs[0]), rs, rs[0].service);
+      }
       for (const r of rows) if (!taken.has(r.id)) units.push({ type: "single", rows: [r] });
       const isLive = (r) => r.status === "candidate" || r.status === "confirmed";
       for (const u of units) {
@@ -4243,7 +4301,19 @@
           u.total = c.total;
           u.party = p.party;
           u.partyInferred = p.inferred;
+          // 見出しの呼び方。便は区間がそろっていれば区間で呼ぶ（行きと帰りの組が並んでも
+          // 見分けられる）。分けて取った組は選ぶものではないので「同じ時間帯の〜」と呼ばない。
+          const w = OVERLAP_WORDS[u.kind];
+          if (w && u.title === `${w.when}の${w.thing}`) {
+            const f = u.live[0] && u.live[0].from, t = u.live[0] && u.live[0].to;
+            const sameRoute = u.kind === "transport" && f && t &&
+              u.live.every((r) => r.from === f && r.to === t);
+            if (sameRoute) u.title = `${f} → ${t} の便`;
+            else if (u.mode === "split") u.title = `分けて取った${w.thing}`;
+          }
         }
+        // 分けて取ったのに、人数分に足りない（4人に2人＋1人）。
+        u.short = u.mode === "split" && u.total !== null && u.party !== null ? u.party - u.total : 0;
         // 並べ替えられるのは、囲みの生きている予約を全部書き換えられるときだけ
         // （自分の予約か、編集を許可された共有）。順は予約そのものに書くので、
         // 共有している人にも同じ順で見える。
@@ -4370,10 +4440,16 @@
       const over = g.mode === "over";
       const foot = members.map((r) => {
         if (over) {
-          if (viewingDemo) return cell("foot", "");
+          // 外したあとに残る席。人数を割り込むなら、その分足りなくなると言う。
+          const left = g.total - (r.people || 0);
+          const lack = g.party - left;
+          const leftNote = `<span class="sub">外すと残り${left}人分${
+            lack > 0 ? `（<b class="short">${lack}人分足りなくなる</b>）` : ""
+          }</span>`;
+          if (viewingDemo) return cell("foot", leftNote);
           return cell(
             "foot",
-            `<button class="rowbtn" data-drop="${r.id}">${r.shared ? "取り消しを提案" : "これを外す"}</button>`,
+            `<button class="rowbtn" data-drop="${r.id}">${r.shared ? "取り消しを提案" : "これを外す"}</button>${leftNote}`,
           );
         }
         const fx = chooseEffects(r, members.filter((x) => x.id !== r.id), w.call);
@@ -4791,7 +4867,7 @@
         const note = u.mode === "split"
           ? `${u.party}人${inf}を${u.live.length}件に分けて予約（${
             u.live.map((r) => r.people + "人").join("＋")
-          }）· 全部使う`
+          }）· ${u.short > 0 ? `<b class="short">あと${u.short}人分足りない</b>` : "全部使う"}`
           : u.mode === "over" && open
           ? `${u.party}人${inf}に${u.total}人分 · ${u.total - u.party}人分多い${by}`
           : open
@@ -4818,7 +4894,9 @@
             itemHtml(r, true)
           }</div>`;
         }).join("");
-        return `<div class="alt${open ? "" : " settled"}${u.mode === "split" ? " together" : ""}"><div class="alt-head"><div class="alt-text"><span class="alt-title">${
+        return `<div class="alt${open ? "" : " settled"}${u.mode === "split" ? " together" : ""}${
+          u.short > 0 ? " lacking" : ""
+        }"><div class="alt-head"><div class="alt-text"><span class="alt-title">${
           esc(u.title)
         }</span><span class="alt-note">${note}</span>${hint}</div>${btn}</div><div class="alt-rows" data-unit="${u.key}">${rows}</div></div>`;
       };
@@ -4876,8 +4954,10 @@
         const open = us.filter(undecided);
         const dls = open.map((u) => unitDeadline(u, now)).filter(Boolean).sort((x, y) => x - y);
         const calls = rows.filter((r) => r.status === "to_cancel" && !r.shared).length;
+        const shortOnes = us.filter((u) => u.short > 0);
         const todo = [
           open.length ? `決めること ${open.length}件${dls.length ? `（決めどき ${fmtDate(dls[0])}）` : ""}` : "",
+          shortOnes.length ? `席が足りない ${shortOnes.length}件` : "",
           calls ? `取り消しの連絡 ${calls}件` : "",
         ].filter(Boolean).join(" · ");
         const tp = tripParty(t, rows);
@@ -5192,6 +5272,19 @@
           }</div><div class="tt"><b>${esc(u.title)} ${
             u.mode === "over" ? `が${u.total - u.party}人分多い` : "を決める"
           }</b></div><div class="ds">${names} ${u.mode === "over" ? "からどれを外すか" : "から1つに"}</div><div class="btns"><button class="rowbtn" data-compare="${u.key}">比べる</button></div></div>`,
+        );
+      }
+      // 分けて取ったが、人数分に足りない組。席を取り足すのは人の仕事なので、知らせる。
+      for (const u of units) {
+        if (!u.short || u.short <= 0 || u.live.every((r) => r.shared)) continue;
+        items.push(
+          `<div class="rail-item"><div class="lb">早めに</div><div class="tt"><b>${
+            esc(u.title)
+          } が${u.short}人分足りない</b></div><div class="ds">${u.party}人${
+            u.partyInferred ? "（推定）" : ""
+          }に対して ${u.total}人分（${
+            u.live.map((r) => `${esc(r.service)} ${r.people}人`).join("・")
+          }）</div></div>`,
         );
       }
       for (const r of active) {

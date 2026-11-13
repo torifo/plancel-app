@@ -392,7 +392,9 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       "それまでに決めればどちらを外しても無料（残す方が決まっているなら、外す方の freeUntil が実際の期限）。" +
       "決まったら choose_reservation）。overlaps の mode は、旅行の人数（party）と各予約の people から: " +
       '"choose"＝どれか1つ（人数が分からない予約がある）、"split"＝人数を分けて取った予約で全部使う（決めることは無い。' +
-      '外さない）、"over"＝人数より席が多い（peopleTotal − party 人分を drop_reservation で外す）。' +
+      "外さない。shortBy が 1 以上なら、その人数分の席がまだ無いのでユーザーに伝える）、" +
+      '"over"＝人数より席が多い（peopleTotal − party 人分を drop_reservation で外す。外すと人数を割り込む予約は外さない）。' +
+      "同じ便を人数を分けて2回以上取った組も split として載る。" +
       "trips の people は旅行の人数（peopleInferred は予約から推定）。" +
       "needsCheck は各予約でまだ決まっていない・確かめていないこと（要キャンセルの予約には「取り消しの連絡が要る」が出る）、trips は旅行ごとの日程と費用" +
       "（confirmedYen＝確定の合計、expectedYen＝未確定を含む見込みの最大）",

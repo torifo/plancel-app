@@ -418,6 +418,7 @@ Deno.test("view: the list lines up different stays held for the same night, with
     party: null,
     partyInferred: false,
     peopleTotal: null,
+    shortBy: 0,
     from: "2026-12-19",
     to: "2026-12-20",
     // Hers closes first (8 days before): by then, dropping either is free.
@@ -580,4 +581,38 @@ Deno.test("view: overlaps are read against the party — split, over, or choose"
   // Trips say how many go.
   const t = presentList([inn], listFilterSchema.parse({}), NOW).trips![0]!;
   assertEquals([t.people, t.peopleInferred], [4, true]);
+});
+
+Deno.test("view: a split that leaves people without seats says how many, and the same flight bought twice is one set", () => {
+  const flight = (id: string, service: string, people: number, at = "2026-12-18T23:00:00.000Z") =>
+    row({
+      id,
+      service,
+      kind: "flight",
+      trip: "別府",
+      startsAt: at,
+      endsAt: "2026-12-19T00:45:00.000Z",
+      people,
+    });
+  const four = [{ name: "別府", people: 4 }];
+  // 2 + 1 for four: split, one short.
+  const short = presentList(
+    [flight("A", "JAL661", 2), flight("B", "ANA795", 1, "2026-12-18T23:10:00.000Z")],
+    listFilterSchema.parse({}),
+    NOW,
+    four,
+  ).overlaps!;
+  assertEquals(short.map((o) => [o.mode, o.peopleTotal, o.shortBy]), [["split", 3, 1]]);
+  // The same flight bought twice, 2 + 2: one used set, not a duplicate.
+  const same = presentList(
+    [flight("A", "JAL661", 2), flight("B", "JAL661", 2)],
+    listFilterSchema.parse({}),
+    NOW,
+    four,
+  );
+  assertEquals(same.possibleDuplicates, undefined);
+  assertEquals(
+    same.overlaps!.map((o) => [o.kind, o.mode, o.shortBy, o.reservations.map((r) => r.id)]),
+    [["transport", "split", 0, ["A", "B"]]],
+  );
 });
