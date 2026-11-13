@@ -618,3 +618,37 @@ Deno.test("view: a split that leaves people without seats says how many, and the
     [["transport", "split", 0, ["A", "B"]]],
   );
 });
+
+Deno.test("view: the same flight beyond the party, or under one booking number, is a set to compare", () => {
+  const flight = (id: string, people: number, ref: string | null = null) =>
+    row({
+      id,
+      service: "JAL661",
+      kind: "flight",
+      trip: "別府",
+      startsAt: "2026-12-18T23:00:00.000Z",
+      people,
+      ref,
+    });
+  const four = [{ name: "別府", people: 4 }];
+  const read = (rows: ReturnType<typeof flight>[], trips = four) =>
+    presentList(rows, listFilterSchema.parse({}), NOW, trips).overlaps!.map((o) => [
+      o.mode,
+      o.peopleTotal,
+      o.reservations.map((r) => r.id),
+    ]);
+  // 2 + 2 + 1 for four: one seat too many, to drop.
+  assertEquals(read([flight("A", 2), flight("B", 2), flight("C", 1)]), [["over", 5, [
+    "A",
+    "B",
+    "C",
+  ]]]);
+  // The same booking number twice is the same booking entered twice.
+  assertEquals(read([flight("A", 2, "ABC123"), flight("B", 2, "ABC123")]), [["over", 4, [
+    "A",
+    "B",
+  ]]]);
+  // No trip at all: bookings that each say their seats are halves of one party.
+  const noTrip = [flight("A", 2), flight("B", 2)].map((r) => ({ ...r, trip: null }));
+  assertEquals(read(noTrip, []), [["split", 4, ["A", "B"]]]);
+});

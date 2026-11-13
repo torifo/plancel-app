@@ -2392,6 +2392,11 @@
     .i-dl.warn {
       color: var(--danger-ink);
     }
+    /* 無料か安く（10%以下で）戻れる期限。もう高い段階のときは強調しない。 */
+    .i-dl.act {
+      color: var(--lamp-ink);
+      font-weight: 700;
+    }
     /* 地図リンクの印。絵文字（📍）は端末ごとに見た目が変わるので線画にする。 */
     .pin {
       width: 1em;
@@ -2529,6 +2534,167 @@
     .alt-row.dragging .i-grip {
       cursor: grabbing;
       color: var(--lamp-ink);
+    }
+    /* 分けて取った予約: 便を親に、予約を入れ子に（2026-11-13）。親は1件の行と同じ顔、
+       予約の行は左の線でぶら下げ、予約で違うこと（人数・金額・予約番号）だけを書く。 */
+    .ride {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      margin-bottom: 8px;
+      box-shadow: var(--shadow);
+    }
+    .ride.lacking {
+      border-color: var(--danger-ink);
+    }
+    .ride-head {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 2px 12px;
+      align-items: center;
+      padding: calc(10px * var(--fs)) 14px 8px;
+    }
+    .ride-bks {
+      margin: 0 12px 0 22px;
+      padding-left: 10px;
+      border-left: 2px solid var(--line);
+    }
+    .ride-bks .item {
+      box-shadow: none;
+      margin-bottom: 6px;
+    }
+    .ride-foot {
+      padding: 2px 12px 10px 34px;
+    }
+    .ride-head .nw {
+      white-space: nowrap;
+    }
+    .bk-n {
+      font-size: calc(14px * var(--fs));
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .bk-top {
+      font-size: calc(13.5px * var(--fs));
+      color: var(--ink);
+    }
+    /* 予約の決まった欄（人数・運賃・予約番号・予約した人）を項目として */
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(9.5em, 1fr));
+      gap: 6px 14px;
+      margin: 6px 0 4px;
+    }
+    .facts dt {
+      font-size: calc(11.5px * var(--fs));
+      color: var(--soft);
+    }
+    .facts dd {
+      margin: 0;
+      font-size: calc(13.5px * var(--fs));
+      font-weight: 600;
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+    /* キャンセル料の段階（日付と金額。いまの段階に印） */
+    .sch-box {
+      margin: 8px 0 4px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .sch-title {
+      font-size: calc(11.5px * var(--fs));
+      color: var(--soft);
+      margin-bottom: 4px;
+    }
+    .sch-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: calc(13px * var(--fs));
+      font-variant-numeric: tabular-nums;
+    }
+    .sch-table th {
+      text-align: left;
+      font-weight: 500;
+      color: var(--ink-2);
+      padding: 3px 8px 3px 0;
+    }
+    .sch-table td {
+      text-align: right;
+      font-weight: 700;
+      color: var(--ink);
+      padding: 3px 0;
+      white-space: nowrap;
+    }
+    .sch-yen {
+      display: inline-block;
+      min-width: 5.5em;
+      margin-left: 8px;
+      font-weight: 600;
+      color: var(--ink-2);
+    }
+    .sch.past th,
+    .sch.past td,
+    .sch.past .sch-yen {
+      color: var(--soft);
+      font-weight: 400;
+      text-decoration: line-through;
+    }
+    .sch.now th,
+    .sch.now td {
+      color: var(--lamp-ink);
+    }
+    .sch-now {
+      margin-left: 6px;
+      font-size: calc(11px * var(--fs));
+      font-weight: 700;
+      color: var(--on-lamp);
+      background: var(--lamp-ink);
+      border-radius: 999px;
+      padding: 0 6px;
+    }
+    .sch-foot {
+      margin-top: 6px;
+      font-size: calc(12px * var(--fs));
+      color: var(--ink-2);
+      line-height: 1.6;
+    }
+    .sch-foot a {
+      color: var(--lamp-ink);
+    }
+    /* フォームの予約の行。1件だけなら見出しも枠も出さない（今までの見た目のまま）。 */
+    .bk-head {
+      display: none;
+    }
+    .bk-wrap.multi .bk-row {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 10px 10px;
+      margin-bottom: 8px;
+    }
+    .bk-wrap.multi .bk-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: var(--btn-h);
+    }
+    .bk-title {
+      font-weight: 700;
+      font-size: calc(13.5px * var(--fs));
+    }
+    .bk-state {
+      font-size: calc(12px * var(--fs));
+      color: var(--soft);
+    }
+    .bk-add {
+      margin-top: 8px;
+      min-height: var(--btn-h);
+    }
+    /* 人数と金額は短い数なので、狭い画面でも横に並べる（予約の行が縦に伸びすぎない） */
+    .two.keep {
+      grid-template-columns: 1fr 1fr;
     }
     .i-rank {
       font-size: calc(11.5px * var(--fs));
@@ -3286,7 +3452,6 @@
           class="modal-head"><h3 id="addTitle">予約を追加</h3><button class="x" data-close>×</button></div>
         <div class="parse-note"
           id="parseNote">自動で読み取った内容です。確認・修正して登録してください。</div>
-        <div class="parse-note" id="copyNote"></div>
         <!-- 種類を最初に選ぶ。選んだ種類で、名前・日付・区間の呼び方と例が切り替わる
              （オーナー 2026-11-12「宿か新幹線かとか選択して切り替えられる方が良さそう」）。 -->
         <div class="fsec top">
@@ -3316,11 +3481,6 @@
           </select>
           <label for="f_service"><span id="serviceLabel">お店・宿・サービス名</span> <span class="req">*</span></label>
           <input id="f_service" placeholder="例: 湖畔の湯宿 蛍">
-          <div class="two">
-            <div><label for="f_fare">運賃・料金プラン（任意）</label><input id="f_fare" list="fareList" maxlength="40" autocomplete="off" placeholder="例: JAL スペシャルセイバー"><datalist id="fareList"></datalist></div>
-            <div><label for="f_ref">予約番号（任意）</label><input id="f_ref" maxlength="40" autocomplete="off" placeholder="例: ABC123"></div>
-          </div>
-          <div class="hint" style="margin:4px 0 0">JAL の運賃を選ぶと、その運賃のキャンセル規定が入ります（違えば下で直せます）。</div>
           <div class="two" id="routeRow" style="display:none">
             <div><label for="f_from" id="fromLabel">出発地</label><input id="f_from" maxlength="100" placeholder="例: 羽田"></div>
             <div><label for="f_to" id="toLabel">到着地</label><input id="f_to" maxlength="100" placeholder="例: 大分"></div>
@@ -3341,12 +3501,27 @@
           <div class="hint" style="margin:4px 0 0">Googleマップの共有リンクを貼ると、その1点をそのまま開けます。</div>
         </div>
         <div class="fsec">
-          <div class="fsec-title">料金とキャンセル</div>
-          <label for="f_amount">金額（円）</label>
-          <input id="f_amount" type="number" min="0" step="1" inputmode="numeric" placeholder="例: 18000">
-          <label for="f_people">人数（この予約で何人分・任意）</label>
-          <input id="f_people" type="number" min="1" max="99" step="1" inputmode="numeric" placeholder="例: 4">
-          <div class="hint" style="margin:4px 0 0">4人で行って2人ずつしか取れなかった便なら、それぞれ 2。空なら全員分とみなします。</div>
+          <div class="fsec-title">予約と料金</div>
+          <!-- 予約ごとの欄（オーナー 2026-11-13「最初から分けて取ったぶんはネストして見えるように」
+               「メモでなんでも説明すると入力の手間が大きすぎる」）。分けて取った便・宿は、
+               ここに予約の行を足すと、予約ごとに1件ずつ登録され、一覧では1つの便の下に並ぶ。 -->
+          <div class="bk-wrap" id="bkWrap">
+            <div class="bk-row" id="bk0">
+              <div class="bk-head"><span class="bk-title">予約 1</span></div>
+              <div class="two keep">
+                <div><label for="f_people">人数（何人分）</label><input id="f_people" type="number" min="1" max="99" step="1" inputmode="numeric" placeholder="例: 4"></div>
+                <div><label for="f_amount">金額（円）</label><input id="f_amount" type="number" min="0" step="1" inputmode="numeric" placeholder="例: 18000"></div>
+              </div>
+              <div class="two">
+                <div><label for="f_fare">運賃・料金プラン</label><input id="f_fare" list="fareList" maxlength="40" autocomplete="off" placeholder="例: JAL スペシャルセイバー"><datalist id="fareList"></datalist></div>
+                <div><label for="f_ref">予約番号</label><input id="f_ref" maxlength="40" autocomplete="off" placeholder="例: ABC123"></div>
+              </div>
+            </div>
+            <div id="bkMore"></div>
+          </div>
+          <button type="button" class="btn-ghost bk-add" id="bkAdd">＋別に取った予約を足す</button>
+          <div class="hint" id="bkHint" style="margin:4px 0 0">4人で行って2人ずつしか取れなかった便などは、予約ごとに行を足して人数・金額・予約番号を入れます。一覧では1つの便の下に並びます。人数が空なら全員分とみなします。</div>
+          <div class="hint" style="margin:4px 0 0">JAL の運賃を選ぶと、その運賃のキャンセル規定が下に入ります（違えば直せます）。</div>
         <label>キャンセル料</label>
         <div class="pol-modes" id="polModes">
           <button type="button" class="pol-mode" data-pol="unknown">不明（あとで）</button>
@@ -3392,7 +3567,8 @@
           <label for="f_bookedBy">予約した人（任意）</label>
           <input id="f_bookedBy" list="bookedByList" maxlength="40" placeholder="例: 母"><datalist id="bookedByList"></datalist>
           <label for="f_notes">メモ（任意）</label>
-          <textarea id="f_notes" rows="3" maxlength="2000" placeholder="例: 夕朝食付き。税込・家族4人合計。予約番号 ABC123。連絡なしの不泊は100%"></textarea>
+          <textarea id="f_notes" rows="2" maxlength="2000" placeholder="例: 夕朝食付き。駐車場は先着順"></textarea>
+          <div class="hint" style="margin:4px 0 0">人数・金額・運賃・予約番号・キャンセル規定は上の欄へ。メモは欄の無いことだけで足ります。</div>
         </div>
         <div class="modal-foot"><button class="btn-primary" id="f_submit">登録する</button></div>
       </div>
@@ -3745,6 +3921,8 @@
     // 旅行の人数（何人で行くか。/api/reservations の trips）。src/web/trips.ts。
     let tripMeta = [];
     let editingId = null;
+    // 開いたときの規定（分けて取ったほかの予約にも、変えたときだけ同じ規定を入れる）。
+    let formPolicyAtOpen = "";
     // 編集中の予約が持っていた終了時刻（"HH:MM"）。フォームは終了「日」しか見せない
     // ので、読み取れていた時刻をここに退避して保存時に戻す。
     let formEndTime = null;
@@ -4078,7 +4256,7 @@
       if (!same.some((x) => x.id !== r.id)) return false;
       const live = same.filter((x) => x.status === "candidate" || x.status === "confirmed");
       const trip = (same.find((x) => x.trip) || {}).trip || null;
-      return classifyAlternatives(live, tripParty(trip, data).party).mode !== "split";
+      return classifyRide(live, tripParty(trip, data).party).mode !== "split";
     }
     function lookAlikeHtml(r) {
       const k = lookKey(r);
@@ -4208,6 +4386,17 @@
       const total = live.reduce((n, r) => n + r.people, 0);
       return { mode: total <= party ? "split" : "over", total };
     }
+    // 同じ便・同じ宿・同じ駐車場を同じ日に2件以上（src/web/overlap.ts の classifyRide の写し）。
+    // 旅行の人数が無くても、どれも人数が入っていれば分けて取った予約。同じ予約番号が
+    // 2件あれば、同じ予約の入れ直し。
+    function classifyRide(live, party) {
+      const fold = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+      const refs = live.map((r) => fold(r.ref)).filter((r) => r !== "");
+      const c = party === null && live.length > 0 && live.every((r) => r.people != null)
+        ? { mode: "split", total: live.reduce((n, r) => n + r.people, 0) }
+        : classifyAlternatives(live, party);
+      return new Set(refs).size < refs.length && c.mode === "split" ? { mode: "over", total: c.total } : c;
+    }
     const foldTrip = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
     // 旅行 `trip` の人数: 家族が入れた数、無ければその旅行の予約の人数の最大。
     function tripParty(trip, rows) {
@@ -4279,11 +4468,14 @@
         const k = lookKey(r);
         if (k && kindOfSame(r)) (sameGroups[k] = sameGroups[k] || []).push(r);
       }
+      // 人数の内に収まれば1つの便の下に入れ子（下の u.ride）。人数より多い・人数が分から
+      // ない・同じ予約番号なら、時間の重なる便と同じく、警告つきで比べる囲みにする
+      // （オーナー 2026-11-13「人数以上だったり時間が被ってたりしたら警告が出る比較対象に
+      // なるって感じが適切」）。
       for (const rs of Object.values(sameGroups)) {
         if (rs.length < 2) continue;
-        const trip = (rs.find((r) => r.trip) || {}).trip || null;
-        if (classifyAlternatives(rs, tripParty(trip, rows).party).mode !== "split") continue;
         addAlt(kindOfSame(rs[0]), rs, rs[0].service);
+        units[units.length - 1].sameRide = true;
       }
       for (const r of rows) if (!taken.has(r.id)) units.push({ type: "single", rows: [r] });
       const isLive = (r) => r.status === "candidate" || r.status === "confirmed";
@@ -4308,11 +4500,13 @@
         u.total = null;
         if (u.type === "alt" && u.kind !== "plan") {
           const p = tripParty(u.trip, rows);
-          const c = classifyAlternatives(u.live, p.party);
+          const c = (u.sameRide ? classifyRide : classifyAlternatives)(u.live, p.party);
           u.mode = c.mode;
           u.total = c.total;
-          u.party = p.party;
-          u.partyInferred = p.inferred;
+          // 同じ便・同じ宿を分けて取った予約（人数の内）は、便を親に予約を入れ子で見せる。
+          u.ride = !!u.sameRide && c.mode === "split";
+          u.party = p.party === null && u.ride ? c.total : p.party;
+          u.partyInferred = p.party === null && u.ride ? true : p.inferred;
           // 見出しの呼び方。便は区間がそろっていれば区間で呼ぶ（行きと帰りの組が並んでも
           // 見分けられる）。分けて取った組は選ぶものではないので「同じ時間帯の〜」と呼ばない。
           const w = OVERLAP_WORDS[u.kind];
@@ -4337,10 +4531,10 @@
     // まだ決まっていない組（使えるのは1つなのに、生きている予約が2件以上ある）。
     // 分けて取った予約（split）は全部使うので、決めることではない。
     const undecided = (u) => u.type === "alt" && u.live.length >= 2 && u.mode !== "split";
-    // 組の決めどき: 生きている予約のうち、いちばん早い無料期限（過ぎたものは除く）。
+    // 組の決めどき: 生きている予約のうち、いちばん早い「無料か安く戻れる期限」（過ぎたものは除く）。
     const unitDeadline = (u, now) =>
-      u.live.filter((r) => !unbooked(r)).map(freeDeadline).filter((d) => d && d > now)
-        .sort((x, y) => x - y)[0] || null;
+      u.live.filter((r) => !unbooked(r)).map((r) => actDeadline(r, now)).filter(Boolean)
+        .map((a) => a.at).sort((x, y) => x - y)[0] || null;
     // 組の種類ごとの言い方。宿は「日程」、乗りものは「時間帯」と「便」。
     const OVERLAP_WORDS = {
       plan: { when: "同じ候補グループ", thing: "候補", count: "候補", call: "取り消しの連絡" },
@@ -4432,10 +4626,13 @@
         if (unknownPolicy(r)) return "規定が不明";
         if (alwaysFree(r)) return "いつでも無料";
         const dl = freeDeadline(r);
-        if (dl === null) return "無料期間なし";
+        // 無料期間が無い・終わっていても、安く戻れる段階があれば添える。
+        const c = cheapUntil(r, now);
+        const cheap = c ? `<span class="sub">◆${fmtDate(c.at)}まで${cheapText(c)}</span>` : "";
+        if (dl === null) return "無料期間なし" + cheap;
         return dl > now
           ? `${fmtDate(dl)} まで<span class="sub">あと${Math.max(1, Math.ceil((dl - now) / DAY))}日</span>`
-          : `${fmtDate(dl)} で終了`;
+          : `${fmtDate(dl)} で終了` + cheap;
       };
       const feeNowText = (r) => {
         if (unbooked(r)) return "¥0";
@@ -4724,6 +4921,7 @@
       q("#endDateLabel").textContent = `${f.end}（${f.endNote}）`;
       q("#endDateHint").textContent = f.endHint;
       q("#f_location").placeholder = f.locPh;
+      syncBookingRows(); // 分けて取った予約の行は、便・宿・駐車場のときだけ足せる
     }
     function maxLoss(r) {
       const st = stagesOf(r);
@@ -4769,6 +4967,11 @@
         tripMeta = Array.isArray(j.trips) ? j.trips : [];
         dataLoaded = true;
         loadError = null;
+        // 運賃の規定（キャンセル料の段階に、運賃の補足と公式の出典を添える）。1回だけ読む。
+        if (!farePresetsAsked && data.some((r) => r.fare)) {
+          farePresetsAsked = true;
+          loadFarePresets().then(() => farePresets.length && render());
+        }
       } catch (e) {
         console.error(e);
         loadError = e && e.status === 401 ? "unauth" : "offline";
@@ -4883,12 +5086,21 @@
         const dl = unitDeadline(u, now);
         const inf = u.partyInferred ? "（推定）" : "";
         const by = dl ? ` · 決めどき ${fmtDate(dl)}` : "";
-        const note = u.mode === "split"
+        // 同じ便・同じ宿が同じ日に2件以上で、分けて取ったと読めないもの（警告つきで比べる）。
+        const refFold = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+        const refs = u.live.map((r) => refFold(r.ref)).filter(Boolean);
+        const sameRef = u.sameRide && new Set(refs).size < refs.length;
+        const thing = RIDE_THING[u.kind] || "予約";
+        const note = sameRef && open
+          ? `<b class="short">同じ予約番号が${refs.length - new Set(refs).size + 1}件</b> · 同じ予約の入れ直しかもしれません${by}`
+          : u.mode === "split"
           ? `${u.party}人${inf}を${u.live.length}件に分けて予約（${
             u.live.map((r) => r.people + "人").join("＋")
           }）· ${u.short > 0 ? `<b class="short">あと${u.short}人分足りない</b>` : "全部使う"}`
           : u.mode === "over" && open
-          ? `${u.party}人${inf}に${u.total}人分 · ${u.total - u.party}人分多い${by}`
+          ? `${u.party}人${inf}に${u.total}人分 · <b class="short">${u.total - u.party}人分多い</b>${by}`
+          : u.sameRide && open
+          ? `<b class="short">同じ${thing}が${u.live.length}件</b> · 人数が分からないので、どれか1つとして比べます${by}`
           : open
           ? `${u.live.length}件 · どれか1つに${by}`
           : [
@@ -4919,7 +5131,54 @@
           esc(u.title)
         }</span><span class="alt-note">${note}</span>${hint}</div>${btn}</div><div class="alt-rows" data-unit="${u.key}">${rows}</div></div>`;
       };
-      const unitHtml = (u) => u.type === "single" ? itemHtml(u.rows[0], false) : altHtml(u);
+      // 同じ便・同じ宿・同じ駐車場を分けて取った予約（オーナー 2026-11-13「最初から分けて
+      // 取ったぶんはネストして見えるようにするべき」「メモに書くことが目で見てわかるように」）。
+      // 親に便のことを1回だけ、下に予約ごとの行を入れ子で並べる。前は同じ便名・時刻・区間の
+      // 行が2枚並び、内訳はメモに文で書かれていた。
+      const RIDE_THING = { transport: "便", stay: "宿", parking: "駐車場" };
+      const rideHtml = (u) => {
+        const head = u.live[0] || u.rows[0];
+        const amounts = u.live.map((r) => r.amount || 0);
+        const sum = amounts.reduce((n, a) => n + a, 0);
+        const sub = [
+          routeText(head),
+          `${u.total}人分`,
+          `予約${u.live.length}件`,
+          `合計 ${yen(sum)}${u.live.some((r) => !r.amount) ? "（金額未定あり）" : ""}`,
+        ].filter(Boolean).map((x) => `<span class="nw">${x}</span>`).join(" · ");
+        const counts = {};
+        for (const r of u.live) {
+          const w = r.status === "confirmed" ? (unbooked(r) ? "決定・未予約" : "確定") : (unbooked(r) ? "案・未予約" : "候補");
+          counts[w] = (counts[w] || 0) + 1;
+        }
+        const words = Object.keys(counts);
+        const st = words.length === 1 ? words[0] : words.map((w) => `${w}${counts[w]}`).join("・");
+        const unknown = u.live.filter((r) => !unbooked(r) && unknownPolicy(r)).length;
+        const acts = u.live.map((r) => actDeadline(r, now)).filter(Boolean).sort((x, y) => x.at - y.at);
+        const meta = `<span class="i-st">${st}</span>` +
+          (u.short > 0 ? `<span class="i-dl warn">あと${u.short}人分足りない</span>` : "") +
+          (unknown ? `<span class="i-dl warn">規定が不明 ${unknown}件</span>` : "") +
+          (acts.length
+            ? `<span class="i-dl act">◆${fmtDate(acts[0].at)}まで${acts[0].pct === 0 ? "無料" : acts[0].pct + "%"}</span>`
+            : "");
+        const canAdd = !viewingDemo && !(ME && ME.viewOnly) &&
+          u.live.every((r) => !r.shared || r.shared.role === "editor");
+        const add = canAdd
+          ? `<div class="ride-foot"><button class="rowbtn" data-ride-add="${head.id}">＋この${
+            RIDE_THING[u.kind] || "予約"
+          }の予約を足す</button></div>`
+          : "";
+        const st2 = head.status === "to_cancel" ? "to_cancel" : head.status;
+        return `<div class="ride st-${st2}${u.short > 0 ? " lacking" : ""}"><div class="ride-head">` +
+          `<span class="i-when">${whenHtml(head)}</span>` +
+          `<span class="i-main"><span class="i-name">${kindTag(head)}<b>${esc(head.service)}</b></span>` +
+          `<span class="i-sub">${sub}</span><span class="i-meta">${meta}</span></span></div>` +
+          `<div class="ride-bks" role="list" aria-label="${esc(head.service)} の予約">${
+            u.rows.map((r) => `<div role="listitem">${bookingHtml(r)}</div>`).join("")
+          }</div>${add}</div>`;
+      };
+      const unitHtml = (u) =>
+        u.type === "single" ? itemHtml(u.rows[0], false) : u.ride ? rideHtml(u) : altHtml(u);
       const daysHtml = (us) => {
         const out = [];
         let cur = null, buf = [];
@@ -5109,27 +5368,11 @@
       document.querySelectorAll("[data-edit]").forEach((b) =>
         b.onclick = () => openAdd(data.find((r) => r.id === b.dataset.edit))
       );
-      document.querySelectorAll("[data-split]").forEach((b) =>
+      // 分けて取った予約を足す: その便の予約をまとめて編集する画面に、空の予約の行を1つ足して開く。
+      document.querySelectorAll("[data-ride-add]").forEach((b) =>
         b.onclick = () => {
-          const r = data.find((x) => x.id === b.dataset.split);
-          if (!r) return;
-          // 候補グループは写さない（写すと「どれか1つ」の束になり、片方の確定で
-          // もう片方が要キャンセルになる）。メモ・人数・金額・予約番号はその予約のもの。
-          openAdd({
-            service: r.service,
-            kind: r.kind,
-            startsAt: r.startsAt,
-            endsAt: r.endsAt,
-            timeTentative: r.timeTentative,
-            from: r.from,
-            to: r.to,
-            trip: r.trip,
-            location: r.location,
-            bookedBy: r.bookedBy,
-            booked: r.booked,
-            policy: r.policy,
-            _copyOf: r,
-          });
+          const r = data.find((x) => x.id === b.dataset.rideAdd);
+          if (r) openAdd({ ...r, _addBooking: true });
         }
       );
       document.querySelectorAll("[data-del]").forEach((b) =>
@@ -5236,6 +5479,35 @@
       const paid = st.find((s) => s.pct > 0);
       return paid ? Math.round(r.amount * paid.pct / 100) : 0;
     }
+    // 安く戻れる段階（オーナー 2026-11-13「無料期間がなくても550円とか5%とかみたいに安めに
+    // キャンセルできる時はハイライトしたい。逆にもう何やってもキャンセル料がかかる時は何も
+    // ハイライトいらない」）。いまの段階が CHEAP_PCT 以下（無料は除く）なら、その段階の
+    // 終わりと、過ぎたあとの料率。定額（550円など）は規定の形でまだ持てない。
+    const CHEAP_PCT = 10;
+    function cheapUntil(r, now) {
+      if (unbooked(r)) return null;
+      const st = stagesOf(r);
+      const start = startMs(r);
+      if (!st || Number.isNaN(start)) return null;
+      const i = st.findIndex((s) => now <= boundaryMs(start, s.h));
+      const cur = st[i];
+      if (!cur || cur.pct === 0 || cur.pct > CHEAP_PCT) return null;
+      return {
+        at: boundaryMs(start, cur.h),
+        pct: cur.pct,
+        yen: r.amount ? Math.round(r.amount * cur.pct / 100) : null,
+        next: st[i + 1] ? st[i + 1].pct : null,
+      };
+    }
+    // 手を打つ期限: 無料で戻れる期限が先にあればそれ、なければ安く戻れる期限、どちらも
+    // なければ null（もう高い — 強調しない）。
+    function actDeadline(r, now) {
+      const dl = freeDeadline(r);
+      if (dl && dl > now) return { at: dl, pct: 0, yen: 0, next: null };
+      return cheapUntil(r, now);
+    }
+    // 「5%（¥1,400）」— 安い段階の言い方。
+    const cheapText = (a) => `${a.pct}%${a.yen ? `（${yen(a.yen)}）` : ""}`;
     // 「今日→予約日」を損失率で塗り分ける: 0%=safe / 中間=lamp / 100%=danger
     function barGradient(r, now) {
       const st = stagesOf(r);
@@ -5283,7 +5555,8 @@
       for (const r of active) {
         if (r.shared || r.status !== "to_cancel") continue;
         const dl = freeDeadline(r);
-        const label = dl ? (dl > now ? `◆${fmtDate(dl)} まで` : "今日中") : "早めに";
+        const a = actDeadline(r, now); // 無料か安く戻れる期限（もう高いなら無し）
+        const label = a ? `◆${fmtDate(a.at)} まで` : (dl ? "今日中" : "早めに");
         const pct = pctNow(r, now);
         const ds = unknownPolicy(r)
           ? "規定不明のため損失は未知"
@@ -5332,20 +5605,22 @@
       for (const r of active) {
         if (r.shared || r.status !== "candidate") continue;
         if (inDecision.has(r.id)) continue; // 「を決める」で既に出ている
-        const dl = freeDeadline(r);
-        if (!dl || dl <= now || dl - now > 2 * DAY) continue;
+        const a = actDeadline(r, now);
+        if (!a || a.at - now > 2 * DAY) continue;
+        const dl = a.at;
         const today = new Date(dl).toDateString() === new Date(now).toDateString();
         const pen = penaltyAfterFree(r);
+        const after = a.pct === 0
+          ? (pen ? `過ぎると最低 ${yen(pen)} かかります。` : "過ぎるとキャンセル料がかかります。")
+          : (a.next !== null ? `過ぎると${a.next}%になります。` : "過ぎるとキャンセル料が上がります。");
         items.push(
           `<div class="rail-item"><div class="lb">${
             today ? "今日中" : `◆${fmtDate(dl)} まで`
           }</div><div class="tt"><b>${
             esc(r.service)
-          } を決める</b></div><div class="ds">無料で戻せるのは${
+          } を決める</b></div><div class="ds">${a.pct === 0 ? "無料" : cheapText(a)}で戻せるのは${
             today ? "今日" : fmtDate(dl)
-          }まで。${
-            pen ? `過ぎると最低 ${yen(pen)} かかります。` : "過ぎるとキャンセル料がかかります。"
-          }</div></div>`,
+          }まで。${after}</div></div>`,
         );
       }
       for (const r of active) {
@@ -5402,19 +5677,19 @@
         return `<div class="rail-item soft"><div class="ds">台帳を読み込めていないため、今日やることを出せません。</div></div>`;
       }
       const mine = active.filter((r) => !r.shared);
-      const ahead = mine.map((r) => ({ r, dl: freeDeadline(r) }))
-        .filter((x) => x.dl && x.dl > now).sort((a, b) => a.dl - b.dl);
+      const ahead = mine.map((r) => ({ r, a: actDeadline(r, now) }))
+        .filter((x) => x.a).sort((x, y) => x.a.at - y.a.at);
       if (ahead.length) {
-        const r = ahead[0].r, dl = ahead[0].dl, d = daysUntil(dl, now);
-        const lb = d <= 0
-          ? "◆無料キャンセル期限は今日まで"
-          : (d === 1 ? "◆無料キャンセル期限は明日まで" : `◆無料キャンセル期限まであと${d}日`);
+        const r = ahead[0].r, a = ahead[0].a, dl = a.at, d = daysUntil(dl, now);
+        const what = a.pct === 0 ? "無料キャンセル期限" : `${a.pct}%で戻せる期限`;
+        const lb = d <= 0 ? `◆${what}は今日まで` : (d === 1 ? `◆${what}は明日まで` : `◆${what}まであと${d}日`);
         const pen = penaltyAfterFree(r);
+        const after = a.pct === 0
+          ? (pen ? `過ぎると最低 ${yen(pen)} かかります。` : "過ぎるとキャンセル料がかかります。")
+          : (a.next !== null ? `過ぎると${a.next}%になります。` : "過ぎるとキャンセル料が上がります。");
         return `<div class="rail-item soft"><div class="lb lamp">${lb}</div><div class="tt"><b>${
           esc(r.service)
-        }</b>を¥0で戻せるのは${fmtDate(dl)}まで</div><div class="ds">${
-          pen ? `過ぎると最低 ${yen(pen)} かかります。` : "過ぎるとキャンセル料がかかります。"
-        }それまでは何もしなくて大丈夫です。</div></div>`;
+        }</b>を${a.pct === 0 ? "¥0" : cheapText(a)}で戻せるのは${fmtDate(dl)}まで</div><div class="ds">${after}それまでは何もしなくて大丈夫です。</div></div>`;
       }
       const next = mine.filter((r) => startMs(r) > now)
         .sort((a, b) => startMs(a) - startMs(b))[0];
@@ -5552,17 +5827,54 @@
     // 期限の棒・場所・メモ・操作は押して開いた中（rowHtml）に置く。状態の言い方と、
     // 仮の時刻・時刻未定・未予約の見分け方は、カードのときと同じ（2026-11-12 の決まり）。
     const openItems = new Set();
+    // 一覧の行の左の時刻（仮・未定の印つき）。
+    function whenHtml(r) {
+      const start = startMs(r);
+      if (Number.isNaN(start)) return "—";
+      const d = new Date(start);
+      const hm = (d.getHours() || d.getMinutes())
+        ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+        : "";
+      return hm ? hm + (r.timeTentative ? `<span class="i-tent">仮</span>` : "") : (r.timeTentative ? "未定" : "—");
+    }
+    // 行の状態・期限・印（一覧の1行と、入れ子の予約の行で同じものを使う）。
+    function rowState(r, now) {
+      const bad = Number.isNaN(startMs(r));
+      const st = r.status === "confirmed"
+        ? (unbooked(r) ? "決定・未予約" : "確定")
+        : r.status === "to_cancel"
+        ? "要キャンセル"
+        : (unbooked(r) ? "案・未予約" : "候補");
+      let dlText = "", dlCls = "";
+      if (bad) [dlText, dlCls] = ["日時を直すと期限を見張れます", " warn"];
+      else if (unbooked(r)) dlText = "";
+      else if (unknownPolicy(r)) [dlText, dlCls] = ["規定が不明", " warn"];
+      else if (alwaysFree(r)) dlText = "いつでも無料";
+      else {
+        // 無料か安く戻れる期限があれば強調し、もう高い段階なら料率だけを強調せずに書く。
+        const a = actDeadline(r, now);
+        const call = r.status === "to_cancel" ? "までに連絡で" : "まで";
+        if (a) [dlText, dlCls] = [`◆${fmtDate(a.at)}${call}${a.pct === 0 ? "無料" : cheapText(a)}`, " act"];
+        else dlText = `キャンセル料 ${pctNow(r, now)}%`;
+      }
+      const dup = looksDuplicated(r) ? `<span class="i-flag">同じ予約かも</span>` : "";
+      const sg = r.suggestion;
+      const sgWord = sg ? (sg.action === "cancel" ? "取り消し" : "確定") : "";
+      const sug = !sg
+        ? ""
+        : r.shared
+        ? `<span class="i-flag">${sg.mine ? "" : esc(sg.byName) + "さんが"}${sgWord}を提案中</span>`
+        : `<span class="i-flag strong">${esc(sg.byName)}さんから${sgWord}の提案</span>`;
+      const meta = `<span class="i-st">${st}</span>${
+        dlText ? `<span class="i-dl${dlCls}">${dlText}</span>` : ""
+      }${dup}${sug}`;
+      return { meta };
+    }
     function itemHtml(r, inAlt) {
       const now = Date.now();
       const start = startMs(r);
       const bad = Number.isNaN(start);
-      const d = new Date(start);
-      const hm = !bad && (d.getHours() || d.getMinutes())
-        ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-        : "";
-      const when = bad
-        ? "—"
-        : (hm ? hm + (r.timeTentative ? `<span class="i-tent">仮</span>` : "") : (r.timeTentative ? "未定" : "—"));
+      const when = whenHtml(r);
       const endMsV = r.endsAt ? Date.parse(r.endsAt) : NaN;
       const sub = [
         !bad && !Number.isNaN(endMsV) && fmtDate(endMsV) !== fmtDate(start) ? `〜${fmtDate(endMsV)}` : "",
@@ -5574,60 +5886,98 @@
         !inAlt && r.plan ? `候補グループ: ${esc(r.plan)}` : "",
         r.shared ? `共有: ${esc(r.shared.ownerDisplayName)}` : "",
       ].filter(Boolean).join(" · ");
-      const st = r.status === "confirmed"
-        ? (unbooked(r) ? "決定・未予約" : "確定")
-        : r.status === "to_cancel"
-        ? "要キャンセル"
-        : (unbooked(r) ? "案・未予約" : "候補");
-      const dl = freeDeadline(r);
-      let dlText = "", dlCls = "";
-      if (bad) [dlText, dlCls] = ["日時を直すと期限を見張れます", " warn"];
-      else if (unbooked(r)) dlText = "";
-      else if (unknownPolicy(r)) [dlText, dlCls] = ["規定が不明", " warn"];
-      else if (alwaysFree(r)) dlText = "いつでも無料";
-      else if (dl === null) dlText = "無料期間なし";
-      else if (dl > now) {
-        dlText = r.status === "to_cancel" ? `◆${fmtDate(dl)}までに連絡で無料` : `◆${fmtDate(dl)}まで無料`;
-      }
-      else [dlText, dlCls] = ["無料期間は終了", " warn"];
-      const dup = looksDuplicated(r) ? `<span class="i-flag">同じ予約かも</span>` : "";
       const rank = inAlt && r.rank != null && (r.status === "candidate" || r.status === "confirmed")
         ? `<span class="i-rank">第${r.rank}希望</span>`
         : "";
-      const sg = r.suggestion;
-      const sgWord = sg ? (sg.action === "cancel" ? "取り消し" : "確定") : "";
-      const sug = !sg
-        ? ""
-        : r.shared
-        ? `<span class="i-flag">${sg.mine ? "" : esc(sg.byName) + "さんが"}${sgWord}を提案中</span>`
-        : `<span class="i-flag strong">${esc(sg.byName)}さんから${sgWord}の提案</span>`;
       return `<details class="item st-${r.status}" data-id="${r.id}"${openItems.has(r.id) ? " open" : ""}><summary>` +
         `<span class="i-when">${when}</span>` +
         `<span class="i-main"><span class="i-name">${kindTag(r)}<b>${esc(r.service)}</b></span>` +
         `<span class="i-sub">${sub}</span>` +
-        `<span class="i-meta">${rank}<span class="i-st">${st}</span>${
-          dlText ? `<span class="i-dl${dlCls}">${dlText}</span>` : ""
-        }${dup}${sug}</span></span>` +
+        `<span class="i-meta">${rank}${rowState(r, now).meta}</span></span>` +
         `<span class="i-chev" aria-hidden="true"></span></summary>` +
         `<div class="i-body">${rowHtml(r, true)}</div></details>`;
+    }
+    // 分けて取った予約の1件（便の下に入れ子で並ぶ）。便のこと（時刻・便名・区間）は
+    // 親に書いてあるので、ここは予約で違うことだけ: 人数・金額・予約番号・運賃・状態・期限。
+    function bookingHtml(r) {
+      const top = [
+        r.amount ? `<b>${yen(r.amount)}</b>` : "金額未定",
+        r.ref ? `予約番号 ${esc(r.ref)}` : "",
+        r.shared ? `共有: ${esc(r.shared.ownerDisplayName)}` : "",
+      ].filter(Boolean).join(" · ");
+      return `<details class="item bk st-${r.status}" data-id="${r.id}"${openItems.has(r.id) ? " open" : ""}><summary>` +
+        `<span class="i-when bk-n">${r.people ? `${r.people}人` : "人数?"}</span>` +
+        `<span class="i-main"><span class="i-sub bk-top">${top}</span>` +
+        (r.fare ? `<span class="i-sub">${esc(r.fare)}</span>` : "") +
+        `<span class="i-meta">${rowState(r, Date.now()).meta}</span></span>` +
+        `<span class="i-chev" aria-hidden="true"></span></summary>` +
+        `<div class="i-body">${rowHtml(r, true)}</div></details>`;
+    }
+    // 予約の決まった欄を、文ではなく項目として見せる（オーナー 2026-11-13「メモでなんでも
+    // 説明すると入力の手間が大きすぎる」「メモに書くことが目で見てわかるように」）。
+    function factsHtml(r) {
+      // 人数と予約番号は閉じた行に出ているので、ここは運賃と予約した人。
+      const facts = [
+        r.fare ? ["運賃・料金プラン", esc(r.fare)] : null,
+        r.bookedBy ? ["予約した人", esc(r.bookedBy)] : null,
+      ].filter(Boolean);
+      if (!facts.length) return "";
+      return `<dl class="facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
+    }
+    // キャンセル料の段階を、この予約の日付と金額で並べる（いまの段階に印）。運賃の規定から
+    // 入ったものは、その運賃の補足（出発後・締め切り）と公式の出典を添える。前は Codex が
+    // 規定の全文と出典の URL をメモに書いていた。
+    function scheduleHtml(r) {
+      if (unbooked(r) || unknownPolicy(r) || alwaysFree(r)) return "";
+      const start = startMs(r);
+      if (Number.isNaN(start)) return "";
+      const now = Date.now();
+      let from = null;
+      const rows = stagesOf(r).map((s) => {
+        const until = boundaryMs(start, s.h);
+        const d = new Date(until);
+        const untilText = s.h <= 0
+          ? `${fmtDate(until)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+          : fmtDate(until);
+        const when = from === null
+          ? `〜${untilText}`
+          : s.h <= 0 && fmtDate(from + 1) === fmtDate(until)
+          ? `当日 〜${untilText.slice(untilText.indexOf(" ") + 1)}`
+          : `${fmtDate(from + 1)}〜${untilText}`;
+        const cls = until < now ? " past" : (from === null || now > from) ? " now" : "";
+        const fee = s.pct === 0
+          ? "無料"
+          : `${s.pct}%${r.amount ? `<span class="sch-yen">${yen(Math.round(r.amount * s.pct / 100))}</span>` : ""}`;
+        from = until;
+        return `<tr class="sch${cls}"><th scope="row">${when}${cls === " now" ? `<span class="sch-now">いま</span>` : ""}</th><td>${fee}</td></tr>`;
+      }).join("");
+      const f = r.fare ? findFarePreset(r.fare) : null;
+      const fromFare = f && sameStages(stagesOfPolicy(r.policy) || [], stagesOfPolicy(f.policy) || []);
+      const foot = f
+        ? `<div class="sch-foot">${fromFare ? esc(f.note) + "。" : "運賃の規定から直してあります。"}<a href="${
+          esc(f.source)
+        }" target="_blank" rel="noopener">JAL の公式の規定</a>（${esc(f.checked || "")} 確認）</div>`
+        : "";
+      return `<div class="sch-box"><div class="sch-title">キャンセル料</div><table class="sch-table"><tbody>${rows}</tbody></table>${foot}</div>`;
     }
     function rowHtml(r, inItem) {
       const now = Date.now(),
         start = startMs(r),
         badStart = Number.isNaN(start),
         span = Math.max(start - now, DAY),
-        dl = freeDeadline(r);
+        dl = freeDeadline(r),
+        act = actDeadline(r, now);
       const pos = (t) => Math.max(0, Math.min(100, ((t - now) / span) * 100));
-      const freePct = dl ? pos(dl) : 0;
+      const freePct = act ? pos(act.at) : 0;
       const track = unknownPolicy(r) || badStart
         ? `<div class="bar unknown" title="${
           badStart ? "開始日時が読めません" : "キャンセル規定が不明です"
         }"></div>`
         : `<div class="bar" style="background:${barGradient(r, now)}">${
-          dl && dl > now
-            ? `<span class="mark" style="left:${freePct}%" title="無料キャンセル期限 ${
-              fmtDate(dl)
-            }"></span>`
+          act
+            ? `<span class="mark" style="left:${freePct}%" title="${
+              act.pct === 0 ? "無料キャンセル期限" : `${act.pct}%で戻れる期限`
+            } ${fmtDate(act.at)}"></span>`
             : ""
         }</div>`;
       // 無料期限のない規定は2種類ある（いつでも無料／最初から有料）ので区別する。
@@ -5641,9 +5991,12 @@
         ? "規定が不明だと見張れません"
         : (alwaysFree(r)
           ? "いつでも無料で戻れます"
-          : (dl === null
-            ? "無料期間なし"
-            : (dl > now ? `◆${fmtDate(dl)} ¥0で戻れる最終日` : "無料期間は終了")));
+          : act
+          ? `◆${fmtDate(act.at)} ${act.pct === 0 ? "¥0" : cheapText(act)}で戻れる最終日`
+          // もう高い段階（無料期間なし・終了）: 強調せず、いま取り消したときの額だけ。
+          : `いま取り消すと${pctNow(r, now)}%${
+            r.amount ? `（${yen(Math.round(r.amount * pctNow(r, now) / 100))}）` : ""
+          }${dl === null ? "（無料期間なし）" : "（無料期間は終了）"}`);
       // .mid はモバイルで独立行に回し、色も --ink-2 にする（キャプション読みやすさ）
       const cap = `<div class="bar-cap"><span>今日</span><span class="mid">${mid}</span><span>${
         fmtDate(start)
@@ -5662,10 +6015,9 @@
       }`;
       const route = inItem ? "" : routeText(r);
       const locLink = (route ? `<div class="sub route">${route}</div>` : "") +
-        (r.ref ? `<div class="sub">予約番号: ${esc(r.ref)}</div>` : "") +
-        (r.fare ? `<div class="sub">運賃・料金プラン: ${esc(r.fare)}</div>` : "") +
-        (r.bookedBy ? `<div class="sub">予約した人: ${esc(r.bookedBy)}</div>` : "") +
+        factsHtml(r) +
         locationHtml(r) +
+        scheduleHtml(r) +
         (r.notes ? `<div class="note">${esc(r.notes)}</div>` : "");
       const off = r.status === "to_cancel" ? " off" : "";
       const cut = r.status === "to_cancel" ? ` <span class="cut">✂ 要キャンセル</span>` : "";
@@ -5726,13 +6078,7 @@
       const cancelLink = r.status === "confirmed"
         ? ` · <a data-cancel="${r.id}">キャンセルした</a>`
         : "";
-      // 便・新幹線・宿・駐車場は、人数や運賃ごとに別々に予約することがある。
-      const splitKinds = ["flight", "train", "bus", "stay", "parking"];
-      const addSplit = !viewingDemo && splitKinds.includes(r.kind) &&
-          (r.status === "candidate" || r.status === "confirmed")
-        ? ` · <a data-split="${r.id}">分けて取った分を足す</a>`
-        : "";
-      const tools = `<div class="tools">${inviteLink}<a data-edit="${r.id}">編集</a> · <a data-del="${r.id}">削除</a>${cancelLink}${addSplit}</div>`;
+      const tools = `<div class="tools">${inviteLink}<a data-edit="${r.id}">編集</a> · <a data-del="${r.id}">削除</a>${cancelLink}</div>`;
       const sgOwn = r.suggestion && !viewingDemo
         ? `<div class="sug-box"><span>${esc(r.suggestion.byName)}さんから${
           r.suggestion.action === "cancel" ? "取り消し" : "確定"
@@ -6039,6 +6385,7 @@
     // 規定は変わることがあるので、直して「この運賃の既定として保存」すれば上書きできる
     // （src/web/fares.ts。保存先は施設の既定と同じ policy-templates、名前は運賃名）。
     let farePresets = [];
+    let farePresetsAsked = false;
     async function loadFarePresets() {
       try {
         const j = await api("GET", "/api/fare-presets");
@@ -6180,24 +6527,66 @@
     }
 
     // ---- add / edit modal (also the confirmation screen for parsed imports) ----
+    // 予約の行（フォームの「予約と料金」）。1行目は #f_people などの固定の欄、2行目からは
+    // ここで足す。既にある予約（同じ便を分けて取った別の予約）の行は data-bk-id を持ち、
+    // 外すボタンは出さない（消すのは一覧の「削除」で、確かめてから）。
+    const SPLIT_KINDS = new Set(["flight", "train", "bus", "stay", "parking"]);
+    let bkSeq = 0;
+    function addBookingRow(v) {
+      const n = ++bkSeq;
+      const el = document.createElement("div");
+      el.className = "bk-row";
+      if (v && v.id) el.dataset.bkId = v.id;
+      const val = (x) => (x == null ? "" : esc(String(x)));
+      el.innerHTML = `<div class="bk-head"><span class="bk-title"></span>${
+        v && v.id
+          ? `<span class="bk-state">${v.status === "confirmed" ? "確定" : "候補"}・登録済み</span>`
+          : `<button type="button" class="rowbtn bk-del">外す</button>`
+      }</div>
+        <div class="two keep">
+          <div><label for="bk${n}p">人数（何人分）</label><input id="bk${n}p" class="bk-people" type="number" min="1" max="99" step="1" inputmode="numeric" placeholder="例: 2" value="${val(v && v.people)}"></div>
+          <div><label for="bk${n}a">金額（円）</label><input id="bk${n}a" class="bk-amount" type="number" min="0" step="1" inputmode="numeric" placeholder="例: 28000" value="${val(v && v.amount)}"></div>
+        </div>
+        <div class="two">
+          <div><label for="bk${n}f">運賃・料金プラン</label><input id="bk${n}f" class="bk-fare" list="fareList" maxlength="40" autocomplete="off" placeholder="1件目と同じなら空でよい" value="${val(v && v.fare)}"></div>
+          <div><label for="bk${n}r">予約番号</label><input id="bk${n}r" class="bk-ref" maxlength="40" autocomplete="off" placeholder="例: DEF456" value="${val(v && v.ref)}"></div>
+        </div>`;
+      const del = el.querySelector(".bk-del");
+      if (del) {
+        del.onclick = () => {
+          el.remove();
+          syncBookingRows();
+        };
+      }
+      q("#bkMore").appendChild(el);
+      syncBookingRows();
+      return el;
+    }
+    // 行が2つ以上のときだけ「予約 1」「予約 2」の見出しを出す（1件だけの予約は今までどおり）。
+    function syncBookingRows() {
+      const rows = [q("#bk0"), ...q("#bkMore").querySelectorAll(".bk-row")];
+      q("#bkWrap").classList.toggle("multi", rows.length > 1);
+      rows.forEach((el, i) => el.querySelector(".bk-title").textContent = `予約 ${i + 1}`);
+      const on = SPLIT_KINDS.has(q("#f_kind").value);
+      q("#bkAdd").style.display = on ? "" : "none";
+      q("#bkHint").style.display = on ? "" : "none";
+    }
+    // 同じ便・同じ宿を分けて取った、ほかの予約（一覧で入れ子にまとまっているもの）。
+    // 書き換えられるもの（自分の予約か、編集を許可された共有）だけ。
+    function rideSiblings(r) {
+      const u = units.find((x) => x.ride && x.rows.some((y) => y.id === r.id));
+      if (!u) return [];
+      return u.live.filter((x) => x.id !== r.id && (!x.shared || x.shared.role === "editor"));
+    }
     function openAdd(r) {
       const isEdit = !!(r && r.id);
       const isPrefill = !!(r && r._prefill);
-      // 分けて取った分を足す: 同じ便・宿の別の予約（人数・金額・予約番号はその予約の分）。
-      const copyOf = r && r._copyOf ? r._copyOf : null;
       editingId = isEdit ? r.id : null;
+      const siblings = isEdit ? rideSiblings(r) : [];
       q("#addTitle").textContent = isEdit
-        ? "予約を編集"
-        : copyOf
-        ? "分けて取った予約を足す"
+        ? (siblings.length || (r && r._addBooking) ? "便と予約を編集" : "予約を編集")
         : (isPrefill ? "読み取り結果の確認" : "予約を追加");
       q("#parseNote").style.display = isPrefill ? "block" : "none";
-      q("#copyNote").style.display = copyOf ? "block" : "none";
-      q("#copyNote").textContent = copyOf
-        ? `「${copyOf.service}」と同じ便・日時で、別に取った予約を足します。人数・金額・予約番号はこの予約の分を入れてください。元の予約${
-          copyOf.people ? "" : "の人数と金額も、その予約の分に直してください（編集から）"
-        }${copyOf.people ? "はそのままです" : ""}。`
-        : "";
       q("#f_submit").textContent = isEdit ? "更新する" : "登録する";
       q("#kindRow").style.display = isEdit ? "none" : "flex";
       q("#f_plan").value = (r && r.plan) ? r.plan : "";
@@ -6254,12 +6643,21 @@
       hideTplNote();
       q("#tplSave").checked = false;
       fillPolicyForm(r && r.policy); // 末尾の polPreview() が renderTplSaveRow() を呼ぶ
-      // 分けて取った分は、元の予約と同じ状態（確定なら確定）で始める。
-      const startAs = copyOf && copyOf.status === "confirmed" ? "confirmed" : "candidate";
-      [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === startAs);
+      [...document.getElementsByName("kind")].forEach((x) => x.checked = x.value === "candidate");
+      // 予約の行: 同じ便を分けて取ったほかの予約を2行目から並べ、足すときは空の行を1つ。
+      q("#bkMore").innerHTML = "";
+      siblings.forEach((x) => addBookingRow(x));
+      syncBookingRows();
+      formPolicyAtOpen = JSON.stringify(readPolicy());
       q("#addOverlay").classList.add("on");
       lookupTemplate(); // 施設名が自動で入ったとき（取り込み・編集）にも既定を当てる
+      if (r && r._addBooking) {
+        const el = addBookingRow(null);
+        el.scrollIntoView({ block: "center" });
+        el.querySelector(".bk-people").focus();
+      }
     }
+    q("#bkAdd").onclick = () => addBookingRow(null).querySelector(".bk-people").focus();
     function openImport() {
       q("#importOverlay").classList.add("on");
     }
@@ -6405,6 +6803,42 @@
       const to = routeOn ? (q("#f_to").value.trim() || null) : null;
       const policy = readPolicy();
       const saveTpl = q("#tplSave").checked && !q("#tplSave").disabled;
+      // 2行目からの予約（同じ便・同じ宿を分けて取った分）。何も入れていない新しい行は捨てる。
+      const numOrNull = (v) => (String(v).trim() === "" ? null : Number(v));
+      const more = [...q("#bkMore").querySelectorAll(".bk-row")].map((el) => ({
+        id: el.dataset.bkId || null,
+        people: numOrNull(el.querySelector(".bk-people").value),
+        amount: numOrNull(el.querySelector(".bk-amount").value),
+        fare: el.querySelector(".bk-fare").value.trim() || null,
+        ref: el.querySelector(".bk-ref").value.trim() || null,
+      })).filter((x) => x.id || x.people !== null || x.amount !== null || x.fare || x.ref);
+      if (more.length) {
+        // 人数で「分けて取った（全部使う）」と読む。空だと「どれか1つ」に見えてしまう。
+        if ([people, ...more.map((x) => x.people)].some((p) => p === null)) {
+          alert("分けて取った予約は、それぞれ何人分かを入れてください。");
+          return;
+        }
+        if (more.some((x) => !(Number.isInteger(x.people) && x.people >= 1 && x.people <= 99))) {
+          alert("人数は 1〜99 の整数で入れてください。");
+          return;
+        }
+        if (more.some((x) => x.amount !== null && !(Number.isInteger(x.amount) && x.amount >= 0))) {
+          alert("金額は 0 以上の整数で入れてください。");
+          return;
+        }
+        // 候補グループは「1件確定すると残りが要キャンセル」の束。分けて取った予約に付けると、
+        // 片方の確定でもう片方が要キャンセルになる。
+        if (plan && more.some((x) => !x.id)) {
+          alert("候補グループ名が付いた予約には、別に取った予約を足せません。候補グループ名を消してから足してください。");
+          return;
+        }
+      }
+      // 便のこと（名前・日時・区間・場所・旅行）は、分けて取った予約にもそろえる
+      // （そろっていないと、一覧で1つの便の下にまとまらない）。
+      const rideFields = { service, startsAt, endsAt, location, trip, timeTentative, kind, from, to };
+      const policyChanged = JSON.stringify(policy) !== formPolicyAtOpen;
+      const sameFare = (x) => !x.fare || foldFare(x.fare) === foldFare(fare);
+      let firstSaved = false;
       try {
         if (editingId) {
           // Editing a cancelled reservation = 取り直し: revive it as a candidate
@@ -6457,10 +6891,39 @@
             confirmed,
           });
         }
+        firstSaved = true;
+        const head = editingId ? data.find((r) => r.id === editingId) : null;
+        const confirmedAll = head
+          ? head.status === "confirmed"
+          : [...document.getElementsByName("kind")].find((r) => r.checked).value === "confirmed";
+        for (const x of more) {
+          const own = { people: x.people, amount: x.amount, fare: x.fare || fare, ref: x.ref };
+          if (x.id) {
+            // 規定は、この画面で変えたときだけ、同じ運賃の予約にもそろえる。
+            await api("PATCH", `/api/reservations/${x.id}`, {
+              ...rideFields,
+              ...own,
+              ...(policyChanged && sameFare(x) ? { policy } : {}),
+            });
+          } else {
+            // 違う運賃なら規定は運賃から（サーバが当てる）。同じ運賃なら1件目と同じ規定。
+            await api("POST", "/api/reservations", {
+              ...rideFields,
+              ...own,
+              booked,
+              bookedBy,
+              plan: null,
+              notes: null,
+              policy: sameFare(x) ? policy : "unknown",
+              confirmed: confirmedAll,
+            });
+          }
+        }
       } catch (e) {
         // 共有予約を「閲覧のみ」で編集しようとしたときは 403 が返る（rowHtml は編集を
         // 出さないが、権限がその場で降格されることはある）。
-        failed(e, "保存できませんでした。");
+        failed(e, firstSaved ? "1件目は保存しましたが、分けて取った予約の保存に失敗しました。" : "保存できませんでした。");
+        if (firstSaved) refresh(); // 保存できた分は一覧に出す（知らせを閉じるとフォームも閉じる）
         return;
       }
       // 既定の保存は予約が通ったあと。ここで失敗しても予約は成立させ、知らせるだけ。

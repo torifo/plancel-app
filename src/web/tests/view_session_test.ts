@@ -152,6 +152,7 @@ Deno.test("view session: reads pass, every write and every identity route is ref
         "/api/reservations/R1/members",
         "/api/policy-templates",
         "/api/policy-templates/lookup?service=x",
+        "/api/fare-presets",
       ]
     ) {
       assertEquals(await gate("GET", path), null, `GET ${path} は通る`);

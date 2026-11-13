@@ -1,6 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
 import {
   classifyAlternatives,
+  classifyRide,
   findOverlaps,
   nightsOf,
   type OverlapRow,
@@ -321,4 +322,30 @@ Deno.test("party: the same flight bought twice on one day counts as one party wh
     partySize(null, [seat("A", "JAL665", 2), seat("B", "JAL665", 2, "2026-12-20T12:05:00+09:00")]),
     { party: 2, inferred: true },
   );
+});
+
+Deno.test("ride: bookings of one flight that each say their seats are one ride, unless one is entered twice", () => {
+  const b = (id: string, people: number | null, ref: string | null = null) => ({
+    id,
+    status: "confirmed",
+    people,
+    ref,
+  });
+  // No trip count: 2 + 2 seats on JAL665 are halves of one party.
+  assertEquals(classifyRide([b("A", 2, "ABC"), b("B", 2, "DEF")], null), {
+    mode: "split",
+    total: 4,
+  });
+  // A trip of four with 2 + 1: still one ride, one seat short (read as before).
+  assertEquals(classifyRide([b("A", 2), b("B", 1)], 4), { mode: "split", total: 3 });
+  // A booking without its seats cannot be read: one of them, as before.
+  assertEquals(classifyRide([b("A", 2), b("B", null)], null), { mode: "choose", total: null });
+  // The same booking number twice (spacing and case aside) is one booking entered twice.
+  assertEquals(classifyRide([b("A", 2, "ABC"), b("B", 2, " a b c")], null), {
+    mode: "over",
+    total: 4,
+  });
+  assertEquals(classifyRide([b("A", 2, "ABC"), b("B", 2, "ABC")], 4), { mode: "over", total: 4 });
+  // More seats than the trip holds stays over.
+  assertEquals(classifyRide([b("A", 4), b("B", 4)], 4), { mode: "over", total: 8 });
 });

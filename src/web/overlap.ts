@@ -164,6 +164,8 @@ export interface PartyRow {
   people?: number | null;
   service?: string;
   startsAt?: string;
+  /** The booking number, when known (two rows with the same one are one booking). */
+  ref?: string | null;
 }
 
 /**
@@ -202,4 +204,27 @@ export function classifyAlternatives(
   }
   const total = live.reduce((n, r) => n + (r.people as number), 0);
   return { mode: total <= party ? "split" : "over", total };
+}
+
+/**
+ * The same flight, inn or lot on the same day, held as more than one booking
+ * (owner 2026-11-13: 「最初から分けて取ったぶんはネストして見えるようにするべき」).
+ * Read like any overlap, with two differences:
+ *   - with no trip count to read against, bookings that each say how many
+ *     they are for are halves of one party — that is what entering the count
+ *     per booking means — so they are one ride, not a choice;
+ *   - the same booking number twice is the same booking entered twice: never
+ *     halves, whatever the counts say.
+ */
+export function classifyRide(
+  live: PartyRow[],
+  party: number | null,
+): { mode: OverlapMode; total: number | null } {
+  const refs = live.map((r) => fold(r.ref ?? "")).filter((r) => r !== "");
+  const c = party === null && live.length > 0 && live.every((r) => r.people != null)
+    ? { mode: "split" as const, total: live.reduce((n, r) => n + (r.people as number), 0) }
+    : classifyAlternatives(live, party);
+  return new Set(refs).size < refs.length && c.mode === "split"
+    ? { mode: "over", total: c.total }
+    : c;
 }

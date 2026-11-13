@@ -94,10 +94,17 @@ const ENDS_AT_DESC =
   "終了日時（宿泊のチェックアウト日など、任意）。時刻が分からなければ日付だけでよい（例 2026-12-20）。" +
   "連泊・宿泊では必ず入れる — 無いと初日の終わりに「終わった予約」扱いになる";
 
+// The first real entry put the seat breakdown, the fare, the whole fare rule and
+// its source URL into the notes (2026-11-13), and the owner said: 「メモでなんでも
+// 説明すると入力の手間が大きすぎる」「メモに書くことが目で見てわかるように」. Fields
+// are shown as fields — the seats per booking nested under the flight, the fee
+// table with dates, the fare's official page — so the notes keep only the rest.
 const NOTES_DESC =
-  "メモ（任意、2000字まで）。決まった欄に入らない情報を残す所: 食事の有無、含まれる券、人数と料金の単位" +
-  "（例「税込・家族4人合計」）、予約番号・予約サイト、規定の補足（例「連絡なし不泊は100%」）。ユーザーが言った" +
-  "補足は捨てずにここへ入れる";
+  "メモ（任意、2000字まで）。決まった欄に入らないことだけを短く残す所（例「夕朝食付き」「駐車場は先着順」）。" +
+  "人数（people）・金額（amount）・予約番号（ref）・運賃（fare）・キャンセル規定（policy）・予約した人（bookedBy）・" +
+  "旅行（trip）・分けて取った内訳（bookings）はそれぞれの欄に入れ、メモに書き写さない（画面では欄ごとに見える。" +
+  "運賃を入れれば公式の規定と出典も画面に出るので、規定の全文や URL も書かない）。欄の無い補足をユーザーが" +
+  "言ったら、捨てずにここへ入れる";
 const TRIP_DESC =
   "旅行名（任意）。同じ旅行で全部使う予約（宿・行きの便・帰りの便・食事など）をまとめる名前。plan とは別物: " +
   "plan は1件だけ確定して残りをキャンセルする候補の束、trip はどれもキャンセルされない。両方付けてよい" +
@@ -139,6 +146,22 @@ const PEOPLE_DESC =
   "旅行の人数（set_trip_people）と合わせて、同じ時間帯の予約が「分けて取った（全部使う）」のか「人数より多い" +
   "（外すものがある）」のかを見分ける。入れないと全員分とみなし、重なる予約は「どれか1つ」として扱う";
 
+const BOOKINGS_DESC =
+  "1つの便・宿・駐車場を、人数や運賃ごとに別々に予約したとき（例: 家族4人で2席ずつしか買えず2回に分けて購入）" +
+  "の内訳。予約ごとに people（必須）・amount・ref・fare（違えば）・policy（違えば）を並べると、予約ごとに1件ずつ" +
+  "登録され、画面では1つの便の下に入れ子で並ぶ（画面の「＋別に取った予約を足す」と同じ）。service・日時・区間・" +
+  "trip などは全部の予約に共通で入る。使うときは上の people・amount・ref は省き、plan は付けない" +
+  "（付けると1件の確定でもう片方が要キャンセルになる）。1回の予約で全員分を取ったなら使わない";
+const bookingInput = z.object({
+  people: z.number().int().min(1).max(99).describe("この予約で何人分"),
+  amount: z.number().int().min(0).nullable().default(null).describe("この予約の金額（円）"),
+  ref: z.string().max(40).nullable().default(null).describe("この予約の予約番号"),
+  fare: z.string().max(40).nullable().default(null).describe(
+    "この予約の運賃（上の fare と違うときだけ）",
+  ),
+  policy: webPolicyInputSchema.optional().describe("この予約の規定（上の policy と違うときだけ）"),
+});
+
 const createInput = z.object({
   service: z.string().min(1).describe(SERVICE_DESC),
   kind: webKindSchema.nullable().default(null).describe(KIND_DESC),
@@ -167,6 +190,7 @@ const createInput = z.object({
     "true で確定（これに決めている）として登録。迷っているものは false のまま（候補）。" +
       "決めたかどうかと、予約が取れているか（booked）は別に指定する",
   ),
+  bookings: z.array(bookingInput).min(2).max(10).nullable().default(null).describe(BOOKINGS_DESC),
 });
 
 const idInput = z.object({ id: z.string().min(1).describe("予約ID") });
@@ -412,7 +436,9 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       '"choose"＝どれか1つ（人数が分からない予約がある）、"split"＝人数を分けて取った予約で全部使う（決めることは無い。' +
       "外さない。shortBy が 1 以上なら、その人数分の席がまだ無いのでユーザーに伝える）、" +
       '"over"＝人数より席が多い（peopleTotal − party 人分を drop_reservation で外す。外すと人数を割り込む予約は外さない）。' +
-      "同じ便を人数を分けて2回以上取った組も split として載る。" +
+      "同じ便・同じ宿を同じ日に2件以上持つ組も載る: 人数の内なら split（画面では1つの便の下に入れ子）、人数より多い・" +
+      "人数が分からない・同じ予約番号が2件なら over / choose（画面では警告つきで比べる）。旅行の人数が無くても、どれも" +
+      "people が入っていれば split と読む。" +
       "trips の people は旅行の人数（peopleInferred は予約から推定）。" +
       "needsCheck は各予約でまだ決まっていない・確かめていないこと（要キャンセルの予約には「取り消しの連絡が要る」が出る）、trips は旅行ごとの日程と費用" +
       "（confirmedYen＝確定の合計、expectedYen＝未確定を含む見込みの最大）",
@@ -427,6 +453,64 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
     );
   });
 
+  // One flight (or inn, or lot) booked as several bookings: one row each, the
+  // shared fields on all of them, in one call — what the screen's 「＋別に取った
+  // 予約を足す」 rows do (owner 2026-11-13: 「アプリのguiとmcpで同じように入れられ」).
+  const createBookings = async (
+    input: Omit<z.infer<typeof createInput>, "bookings">,
+    bookings: z.infer<typeof bookingInput>[],
+    similar: ApiReservation | null,
+  ): Promise<McpTextResult> => {
+    const misplaced = (["people", "amount", "ref"] as const).filter((k) => input[k] !== null);
+    if (misplaced.length > 0 || input.plan !== null) {
+      return invalidArgs([{
+        path: misplaced.length > 0 ? misplaced : ["plan"],
+        message: misplaced.length > 0
+          ? "bookings を使うときは、people・amount・ref は bookings の中の予約ごとに入れる"
+          : "分けて取った予約に plan は付けない（1件の確定でもう片方が要キャンセルになる）",
+      }]);
+    }
+    const created: unknown[] = [];
+    for (const b of bookings) {
+      const r = await request(cfg, "POST", "/api/reservations", {
+        ...input,
+        people: b.people,
+        amount: b.amount,
+        ref: b.ref,
+        fare: b.fare ?? input.fare,
+        policy: b.policy ?? input.policy,
+      });
+      if (!("res" in r)) return r;
+      if (!r.res.ok) {
+        if (created.length === 0) return finish(cfg, r.res, r.text);
+        return textResult(
+          JSON.stringify({
+            error: "partially_created",
+            message:
+              `${bookings.length}件のうち${created.length}件だけ登録しました。残りは登録できませんでした。`,
+            created,
+            failure: parseJson(r.text),
+          }),
+          true,
+        );
+      }
+      created.push(presentResponse(parseJson(r.text), nowMsOf(cfg)));
+    }
+    const thing = input.kind === "stay" ? "宿" : input.kind === "parking" ? "駐車場" : "便";
+    return textResult(JSON.stringify({
+      created,
+      ...(similar !== null
+        ? { warning: "possible_duplicate", similar: presentReservation(similar, nowMsOf(cfg)) }
+        : {}),
+      hint:
+        `${bookings.length}件の予約として登録しました（画面では1つの${thing}の下に並びます）。` +
+        (similar !== null
+          ? `同じ日に同じ名前の予約が前からあります（similar）。1件にまとめて入れてあった同じ${thing}の入れ直しなら、` +
+            "ユーザーに確かめてから similar を delete_reservation で消してください（メモの内訳はもう要りません）。"
+          : ""),
+    }));
+  };
+
   server.registerTool(
     "create_reservation",
     {
@@ -438,15 +522,18 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
         'いれば自動で適用され、応答の policySource が "template" になる）。それでも policySource が ' +
         '"unknown" で hint が返ったら、規定はユーザーに確認して update_reservation の policy で入れる' +
         "（不明のままだとキャンセル期限を見張れない）。" +
-        "1つの便や宿を、人数や運賃ごとに別々に予約したとき（例: 家族4人で2席ずつ別々に購入）は、予約ごとに1件ずつ" +
-        "登録し、people・amount・ref はその予約の分を入れる（同じ便なら service と日時は同じでよい）。1件にまとめて" +
-        "内訳をメモに書くと、別々の予約として取り消せない。1回の予約で全員分を取ったなら1件でよい",
+        "1つの便や宿を、人数や運賃ごとに別々に予約したとき（例: 家族4人で2席ずつ別々に購入）は、bookings に予約ごとの" +
+        "people・amount・ref を並べて1回で登録する（予約ごとに1件ずつの記録になり、画面では1つの便の下に並ぶ）。" +
+        "1件にまとめて内訳をメモに書くと、別々の予約として取り消せない。1回の予約で全員分を取ったなら bookings は使わない。" +
+        "既にある予約に、分けて取ったもう1件を足すときは、同じ service・startsAt でもう1件登録し、両方に people を入れる" +
+        "（同じ便・同じ日で人数の入った予約は、画面で1つの便にまとまる）。" +
+        "メモには、決まった欄に入らないことだけを書く",
       inputSchema: createInput.passthrough(),
     }, // deno-lint-ignore no-explicit-any
     async (args: any) => {
       const parsed = createInput.safeParse(args ?? {});
       if (!parsed.success) return invalidArgs(parsed.error.issues);
-      const input = parsed.data;
+      const { bookings, ...input } = parsed.data;
       // Look first, create regardless (owner 2026-11-12: 「同じ宿の同じプランを別で
       // 予約することもあるから、通知であくまでブロックはしない」). A family books
       // the same inn twice on purpose; whether a look-alike is a mistake is for
@@ -455,6 +542,7 @@ export function buildWebApiServer(cfg: WebApiConfig): McpServer {
       if (!Array.isArray(rows)) return rows;
       const exact = findDuplicate(rows, input.service, input.startsAt);
       const similar = exact ?? findSameDay(rows, input.service, input.startsAt);
+      if (bookings !== null) return await createBookings(input, bookings, similar);
       const r = await request(cfg, "POST", "/api/reservations", input);
       if (!("res" in r)) return r;
       if (!r.res.ok || similar === null) return finish(cfg, r.res, r.text);

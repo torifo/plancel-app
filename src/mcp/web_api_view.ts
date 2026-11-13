@@ -12,7 +12,13 @@
 import { z } from "zod";
 import { readableInstantSchema, toInstantOrNull } from "../web/instant.ts";
 import { isFinished } from "../web/lifecycle.ts";
-import { classifyAlternatives, findOverlaps, type OverlapMode, partySize } from "../web/overlap.ts";
+import {
+  classifyAlternatives,
+  classifyRide,
+  findOverlaps,
+  type OverlapMode,
+  partySize,
+} from "../web/overlap.ts";
 import {
   boundaryMs,
   describePolicy,
@@ -394,6 +400,7 @@ export function summarizeOverlaps(
     from: string,
     to: string,
     ids: string[],
+    ride = false,
   ): OverlapSummary => {
     // In the family's order of preference when one is set (rank 1 first), else by time.
     const rk = (r: ApiReservation) => r.rank ?? 1000;
@@ -405,8 +412,11 @@ export function summarizeOverlaps(
       .map((r) => r.booked === false ? null : freeDeadlineMs(r.policy, r.startsAt))
       .filter((d): d is number => d !== null && d > nowMs);
     const trip = members.find((r) => r.trip != null)?.trip ?? null;
-    const { party, inferred } = partyOfTrip(trip, live, trips);
-    const { mode, total } = classifyAlternatives(members, party);
+    const read = partyOfTrip(trip, live, trips);
+    const { mode, total } = (ride ? classifyRide : classifyAlternatives)(members, read.party);
+    // A ride with no trip count to read against is for as many as its bookings hold.
+    const party = read.party === null && ride ? total : read.party;
+    const inferred = read.party === null && ride ? true : read.inferred;
     return {
       kind,
       mode,
@@ -439,7 +449,7 @@ export function summarizeOverlaps(
   const out = findOverlaps(live).map((g) => summarize(g.kind, g.from, g.to, g.ids));
   // The same flight (or inn, or lot) bought more than once for halves of the
   // party is one used set too — but as the same name on the same day it is
-  // left out of the overlaps above, so it is added here when the counts say so.
+  // left out of the overlaps above, so it is added here.
   const kindOf = (r: ApiReservation): OverlapSummary["kind"] | null =>
     r.kind === "flight" || r.kind === "train" || r.kind === "bus"
       ? "transport"
@@ -454,8 +464,11 @@ export function summarizeOverlaps(
     );
     const kind = members[0] ? kindOf(members[0]) : null;
     if (kind === null || members.length < 2) continue;
-    const s = summarize(kind, d.day, d.day, members.map((r) => r.id));
-    if (s.mode === "split") out.push(s);
+    // Within the party it is one ride; more seats than people, no counts, or the
+    // same booking number twice is a warning to compare, like rides at the same
+    // hour (owner 2026-11-13: 「人数以上だったり時間が被ってたりしたら警告が出る
+    // 比較対象になる」).
+    out.push(summarize(kind, d.day, d.day, members.map((r) => r.id), true));
   }
   return out;
 }
@@ -639,7 +652,7 @@ export function presentList(
     const members = d.ids.map((id) => shownRows.find((r) => r.id === id)!);
     const trip = members.find((r) => r.trip != null)?.trip ?? null;
     const { party } = partyOfTrip(trip, shownRows, tripMeta);
-    return classifyAlternatives(members, party).mode !== "split";
+    return classifyRide(members, party).mode !== "split";
   });
   const overlaps = summarizeOverlaps(shownRows, nowMs, tripMeta);
   return {

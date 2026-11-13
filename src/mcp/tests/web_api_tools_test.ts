@@ -719,3 +719,71 @@ Deno.test("web-api MCP: set_trip_people and drop_reservation reach the API", asy
     assertStringIncludes(list, "split");
   });
 });
+
+Deno.test("web-api MCP: bookings register one flight bought in parts as one row per booking", async () => {
+  const { calls, fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    const res = await client.callTool({
+      name: "create_reservation",
+      arguments: {
+        service: "JAL665",
+        kind: "flight",
+        startsAt: "2026-12-19T12:05:00+09:00",
+        from: "羽田",
+        to: "大分",
+        trip: "別府旅行",
+        fare: "JAL スペシャルセイバー",
+        confirmed: true,
+        bookings: [
+          { people: 2, amount: 28000, ref: "ABC123" },
+          { people: 2, amount: 31960, ref: "DEF456", fare: "JAL セイバー" },
+        ],
+      },
+    });
+    assertEquals(res.isError, undefined);
+    // The look-alike check reads the list once, then one POST per booking.
+    assertEquals(calls.map((c) => c.method), ["GET", "POST", "POST"]);
+    const bodies = calls.slice(1).map((c) => c.body as Record<string, unknown>);
+    assertEquals(bodies.map((b) => [b.people, b.amount, b.ref, b.fare]), [
+      [2, 28000, "ABC123", "JAL スペシャルセイバー"],
+      [2, 31960, "DEF456", "JAL セイバー"],
+    ]);
+    // What the flight is, and the trip, are on both; the list of parts is not sent on.
+    for (const b of bodies) {
+      assertEquals([b.service, b.from, b.to, b.trip, b.confirmed], [
+        "JAL665",
+        "羽田",
+        "大分",
+        "別府旅行",
+        true,
+      ]);
+      assertEquals("bookings" in b, false);
+    }
+    assertStringIncludes(JSON.stringify(res.content), "2件の予約として登録しました");
+  });
+});
+
+Deno.test("web-api MCP: bookings refuse seats given twice, and a plan, before anything is registered", async () => {
+  const { calls, fetchFn } = fakeApi();
+  await withClient(fetchFn, async (client) => {
+    const base = {
+      service: "JAL665",
+      kind: "flight",
+      startsAt: "2026-12-19T12:05:00+09:00",
+      bookings: [{ people: 2 }, { people: 2 }],
+    };
+    const twice = await client.callTool({
+      name: "create_reservation",
+      arguments: { ...base, people: 4 },
+    });
+    assertEquals(twice.isError, true);
+    assertStringIncludes(JSON.stringify(twice.content), "bookings の中の予約ごとに");
+    const plan = await client.callTool({
+      name: "create_reservation",
+      arguments: { ...base, plan: "行きの便" },
+    });
+    assertEquals(plan.isError, true);
+    assertStringIncludes(JSON.stringify(plan.content), "plan は付けない");
+    assertEquals(calls.filter((c) => c.method === "POST").length, 0);
+  });
+});

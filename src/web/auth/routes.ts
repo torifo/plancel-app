@@ -264,7 +264,9 @@ export async function viewOnlyGate(req: Request, deps: AuthDeps): Promise<Respon
     // The ledger, read.
     (read &&
       (path === "/api/reservations" || path.startsWith("/api/reservations/") ||
-        path === "/api/policy-templates" || path.startsWith("/api/policy-templates/")));
+        path === "/api/policy-templates" || path.startsWith("/api/policy-templates/") ||
+        // The fares' rules, shown beside a fare's cancellation fees.
+        path === "/api/fare-presets"));
   if (allowed) return null;
   return json({ error: "view_only", message: "閲覧専用の表示です。変更はできません。" }, 403);
 }

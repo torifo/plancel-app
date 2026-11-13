@@ -7,7 +7,13 @@
  * text and run with `new Function`.
  */
 import { assertEquals } from "jsr:@std/assert@^1.0.19";
-import { classifyAlternatives, findOverlaps, type OverlapRow, partySize } from "../overlap.ts";
+import {
+  classifyAlternatives,
+  classifyRide,
+  findOverlaps,
+  type OverlapRow,
+  partySize,
+} from "../overlap.ts";
 
 const HTML_URL = new URL("../../../web/index.html", import.meta.url);
 const DRIFT = "重なる宿の判定の二重実装がズレています: src/web/overlap.ts（サーバ・正）と " +
@@ -185,8 +191,13 @@ Deno.test("mirror: the page reads a party the way the server does", async () => 
   const client = new Function(
     `${block(html, "function partySize(explicit, tripRows)")}
      ${block(html, "function classifyAlternatives(live, party)")}
-     return { partySize, classifyAlternatives };`,
-  )() as { partySize: typeof partySize; classifyAlternatives: typeof classifyAlternatives };
+     ${block(html, "function classifyRide(live, party)")}
+     return { partySize, classifyAlternatives, classifyRide };`,
+  )() as {
+    partySize: typeof partySize;
+    classifyAlternatives: typeof classifyAlternatives;
+    classifyRide: typeof classifyRide;
+  };
   const live = (id: string, people: number | null, status = "confirmed") => ({
     id,
     status,
@@ -226,5 +237,22 @@ Deno.test("mirror: the page reads a party the way the server does", async () => 
   ];
   for (const [g, party] of groups) {
     assertEquals(client.classifyAlternatives(g, party), classifyAlternatives(g, party), DRIFT);
+    assertEquals(client.classifyRide(g, party), classifyRide(g, party), DRIFT);
+  }
+  const booked = (id: string, people: number | null, ref: string | null) => ({
+    id,
+    status: "confirmed",
+    people,
+    ref,
+  });
+  const rides: [ReturnType<typeof booked>[], number | null][] = [
+    [[booked("A", 2, "ABC"), booked("B", 2, "DEF")], null],
+    [[booked("A", 2, "ABC"), booked("B", 2, "abc")], null],
+    [[booked("A", 2, "ABC"), booked("B", 2, " A B C ")], 4],
+    [[booked("A", 2, null), booked("B", null, null)], null],
+    [[booked("A", 4, ""), booked("B", 4, "")], 4],
+  ];
+  for (const [g, party] of rides) {
+    assertEquals(client.classifyRide(g, party), classifyRide(g, party), DRIFT);
   }
 });
