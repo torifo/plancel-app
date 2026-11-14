@@ -3587,7 +3587,7 @@
           <p class="help-lead">plancelは、まだ決めていない予約と「無料で戻れる最終日」をまとめて見張るための台帳です。</p>
           <div class="sec help-demo" id="helpDemo">
             <div class="sec-h">デモで試す</div>
-            <p class="help-p">見本の予約で、確定・比べる・キャンセルの流れを試せます。あなたの台帳には影響しません。上の帯の「← 自分のデータに戻る」で戻れます。</p>
+            <p class="help-p">見本で確定・比べる・キャンセルの流れを試せます。自分の台帳には影響せず、上の「← 自分のデータに戻る」で戻れます。</p>
             <button class="btn-ghost" id="demoBtn">デモを見る</button>
           </div>
 
@@ -4022,7 +4022,7 @@
              見せられるように…スキップも可能なデモと紹介」）。登録なしで紹介とデモを見られる。 -->
         <div class="guest-entry" id="guestEntry">
           <div class="guest-entry-h">はじめての方へ</div>
-          <p class="hint" style="margin:0 0 10px">アカウントを作る前に、どんなアプリかを見られます。登録は要りません。</p>
+          <p class="hint" style="margin:0 0 10px">アカウントを作る前に、どんなアプリか登録なしで見られます。</p>
           <button class="btn-ghost" id="guestIntroBtn" style="width:100%">紹介とデモを見る</button>
         </div>
         <div class="hint" id="guestBackRow" style="display:none;margin-top:12px;text-align:center"><a id="guestBack" class="guest-link">← デモに戻る</a></div>
@@ -4045,9 +4045,9 @@
     <!-- デモで、登録が要る操作を押したとき -->
     <div class="overlay" id="guestGateOverlay">
       <div class="modal" style="max-width:400px">
-        <div class="modal-head"><h3>ここから先は、登録すると使えます</h3><button class="x" data-close>×</button></div>
-        <p style="margin:0 0 6px" id="guestGateText">予約の追加・編集、メールやスクショからの取り込み、LINE・カレンダーとの連携、家族との共有は、アカウントを作ると使えます。</p>
-        <p class="hint" style="margin:0 0 14px">デモでは、見本の予約で「確定」「キャンセルした」「比べる」などを試せます。ここでの操作は保存されません。</p>
+        <div class="modal-head"><h3>続きは登録すると使えます</h3><button class="x" data-close>×</button></div>
+        <p style="margin:0 0 6px" id="guestGateText">予約の追加・編集、メールやスクショからの取り込み、LINE・カレンダー連携、家族共有は登録すると使えます。</p>
+        <p class="hint" style="margin:0 0 14px">見本の予約で「確定」「キャンセルした」「比べる」などを試せます。操作は保存されません。</p>
         <div class="modal-foot" style="gap:8px">
           <button class="btn-ghost" data-close style="flex:1">デモに戻る</button>
           <button class="btn-primary" id="guestGateLogin" style="flex:1">ログイン・新規登録</button>
@@ -8507,7 +8507,7 @@
       viewingDemo = true;
       document.querySelectorAll(".overlay").forEach((o) => o.classList.remove("on"));
       q("#demoBarText").innerHTML =
-        "<b>デモを表示中（登録なし）</b>　見本の予約です。「これで確定」「比べる」「予約した」などを押して試せます。ここでの操作は保存されません。";
+        "<b>デモを表示中（登録なし）</b>　見本の予約です。「これで確定」「比べる」「予約した」などを試せます。操作は保存されません。";
       q("#exitDemo").textContent = "ログイン・新規登録";
       setView("ledger");
       window.scrollTo(0, 0);
@@ -8525,21 +8525,21 @@
     // 紹介の3枚。言葉だけにせず、画面に出る形（札・◆・状態）を小さく見せる。
     const INTRO = [
       {
-        h: "とりあえず押さえた予約を、1か所に",
-        p: "旅行や食事の予約は、決める前に何軒か押さえておくことがあります。plancel は、その候補と決まった予約を並べて置いておく台帳です。",
+        h: "仮押さえした予約を1か所に",
+        p: "旅行や食事は、決める前に何軒か押さえることがあります。plancel は、候補と決まった予約を並べておく台帳です。",
         fig: `<div class="intro-row"><span class="kind">宿</span><b>湯けむりの宿 山吹</b><span class="i-st">候補</span></div>
               <div class="intro-row"><span class="kind">宿</span><b>海辺のホテル 汐風</b><span class="i-st">候補</span></div>
               <div class="intro-row st-confirmed"><span class="kind">飛行機</span><b>JAL665</b><span class="i-st">確定</span></div>`,
       },
       {
-        h: "無料で戻れる最終日を見張る",
-        p: "予約ごとのキャンセル規定から、お金がかからずに取り消せる最終日を出します。近づくと LINE かメールでお知らせします。",
+        h: "無料で戻れる期限を見張る",
+        p: "予約ごとの規定から無料で取り消せる最終日を出し、近づくと LINE かメールでお知らせします。",
         fig: `<div class="intro-row"><span class="kind">宿</span><b>海辺のホテル 汐風</b></div>
               <div class="intro-row"><span class="i-dl act">◆12/18(金)まで無料</span><span class="intro-arrow">→ 過ぎると 100%</span></div>`,
       },
       {
-        h: "1つに決めたら、残りは「要キャンセル」に",
-        p: "どれにするか決めて「これで確定」を押すと、同じ候補の残りが「要キャンセル」になります。宿や店に連絡したら「キャンセルした」を押すだけ。払わなくてよかったキャンセル料を防ぎます。",
+        h: "決めたら残りは「要キャンセル」に",
+        p: "1つに決めて「これで確定」を押すと、残りの候補が「要キャンセル」になります。連絡後に「キャンセルした」を押すだけで、むだなキャンセル料を防げます。",
         fig: `<div class="intro-row st-confirmed"><span class="kind">宿</span><b>湯けむりの宿 山吹</b><span class="i-st">確定</span></div>
               <div class="intro-row st-to_cancel"><span class="kind">宿</span><b>海辺のホテル 汐風</b><span class="i-st">要キャンセル</span></div>`,
       },
