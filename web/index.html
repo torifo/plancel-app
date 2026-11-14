@@ -525,6 +525,74 @@
       background: repeating-linear-gradient(45deg,var(--card2) 0 5px,var(--line) 5px 7px);
       border: 1px solid var(--line);
     }
+    /* 使い方: まず試す・始める（2枚）→ 基本 → 目的別の折りたたみ */
+    /* 「‹ 台帳へ戻る」も押せる高さに（測ると 24px だった） */
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+    .help-fs-note {
+      margin: 6px 0 0;
+      font-size: calc(13px * var(--fs));
+      color: var(--ink-2);
+    }
+    .help-start {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .help-start .sec {
+      margin: 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card2);
+    }
+    .help-start .sec .help-p {
+      margin-top: 0;
+    }
+    .help-sub {
+      margin: 14px 0 6px;
+      font-weight: 700;
+      font-size: calc(13.5px * var(--fs));
+    }
+    .help-acc {
+      border-top: 1px solid var(--line);
+    }
+    .help-acc:last-child {
+      border-bottom: 1px solid var(--line);
+    }
+    .help-acc > summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 52px;
+      padding: 4px 2px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: calc(14.5px * var(--fs));
+    }
+    .help-acc > summary::-webkit-details-marker {
+      display: none;
+    }
+    .help-acc > summary:focus-visible {
+      outline: 2px solid var(--lamp);
+      outline-offset: 2px;
+    }
+    .help-acc[open] > summary .i-chev {
+      transform: rotate(-135deg);
+    }
+    .help-acc > summary .i-chev {
+      flex: 0 0 auto;
+      margin-right: 6px;
+    }
+    .help-acc-body {
+      padding: 0 2px 14px;
+    }
     .help-acts {
       display: flex;
       flex-wrap: wrap;
@@ -3585,29 +3653,29 @@
         </div>
         <div class="pagecard">
           <p class="help-lead">plancelは、まだ決めていない予約と「無料で戻れる最終日」をまとめて見張るための台帳です。</p>
-          <div class="sec help-demo" id="helpDemo">
-            <div class="sec-h">デモで試す</div>
-            <p class="help-p">見本で確定・比べる・キャンセルの流れを試せます。自分の台帳には影響せず、上の「← 自分のデータに戻る」で戻れます。</p>
-            <button class="btn-ghost" id="demoBtn">デモを見る</button>
+          <p class="help-fs-note">文字が小さいときは、右上の<b>「AAA」</b>を押すと大きくなります。</p>
+          <!-- 並びは使い手の順（2026-11-14 オーナー「内容はいいとして見せ方。UI・レイアウト・順番を」）:
+               まず試す・始める → 基本（何のため・流れ）は開いたまま → 知りたいことだけ開く目的別 → 要望。
+               前は 1〜8 の節が全部開いて縦に並び、探している節まで長く送る必要があった。 -->
+          <div class="help-start">
+            <div class="sec help-demo" id="helpDemo">
+              <div class="sec-h">デモで試す</div>
+              <p class="help-p">見本で確定・比べる・キャンセルの流れを試せます。自分の台帳には影響せず、上の「← 自分のデータに戻る」で戻れます。</p>
+              <button class="btn-ghost" id="demoBtn">デモを見る</button>
+            </div>
+            <div class="sec">
+              <div class="sec-h">はじめかた</div>
+              <div class="help-acts">
+                <button class="btn-primary" id="helpStartImport">予約を取り込む</button>
+                <button class="btn-ghost" id="helpStartAdd">手動で1件追加する</button>
+              </div>
+            </div>
           </div>
-
-          <!-- 文字サイズは番号を振らずに本編（1〜8）の前に置く。読めなくて使い方を
-               見に来た人が、いちばん先に見つけられる場所でなければ意味がないため
-               （オーナー 2026-07-28）。番号を振ると以降が全部ずれる。 -->
-          <div class="sec">
-            <div class="sec-h">文字が小さいと感じたら</div>
-            <p class="help-p">画面の右上にある<b>「A」のボタン</b>を押すと、文字の大きさが<b>標準 → 大きめ → 特大</b>と切り替わります。もう一度押すと標準に戻ります。</p>
-            <p class="help-p">マイページの<b>「文字サイズ」</b>でも、標準・大きめ・特大から選べます。どちらも同じ設定です。この端末のこのブラウザにだけ残るので、共有相手や他の端末の見た目は変わりません。</p>
-          </div>
-
-          <div class="sec">
-            <div class="sec-h">1. 何のためのアプリか</div>
+          <div class="sec help-basic">
+            <div class="sec-h">plancel でできること</div>
             <p class="help-p">旅行や食事の予定は、とりあえず何軒か押さえておくことがよくあります。plancelはその候補をまとめて置いておき、<b>お金がかからないうちに要らない予約を落とす</b>ところまで見届けます。</p>
             <p class="help-p">例：8月の宿を2軒キープ→片方に決める→もう片方を7/31までにキャンセル。この「7/31までに」を忘れないためのアプリです。</p>
-          </div>
-
-          <div class="sec">
-            <div class="sec-h">2. 束ねる→1つ確定→残りを期限内にキャンセル</div>
+            <div class="help-sub">基本の流れ：束ねる → 1つ確定 → 残りを期限内にキャンセル</div>
             <ol class="help-steps">
               <li><b>束ねる</b>：予約を追加するとき、同じ「候補グループ名」（例：8月の宿）を付けると候補がひとまとまりになります。名前を付けなくても、同じ夜の宿・同じ時間帯の便・同じ期間の駐車場は自動で「どれか1つ」の囲みにまとまります。</li>
               <li><b>確定する</b>：囲みの「比べる」で金額・期限・規定を並べて見て、「こちらに決める」を押します（1件を開いて「これで確定」でも同じです）。</li>
@@ -3615,97 +3683,103 @@
             </ol>
             <p class="help-p">plancelが代わりに解約の連絡をすることはありません。連絡はご自身で、その結果をここに記録する、という分担です。</p>
           </div>
-
-          <div class="sec">
-            <div class="sec-h">3. 帯（タイムライン）の読み方</div>
-            <p class="help-p">予約ごとの細い帯は、左端が今日・右端が予約日です。色は、その時点でキャンセルしたら何％かかるかを表します。</p>
-            <ul class="help-legend">
-              <li><span class="lg safe"></span>緑：0％。まだ無料で戻れます。</li>
-              <li><span class="lg lamp"></span>琥珀：一部かかります（30％・50％など）。</li>
-              <li><span class="lg danger"></span>赤：全額。もう戻せません。</li>
-              <li><span class="lg unknown"></span>斜線：規定が不明。期限を見張れないので、入れてください。</li>
-            </ul>
-            <p class="help-p"><b>◆</b>は無料で戻れる最終日の位置です。無料の期間が無くても、いまが安い段階（10％以下）なら、その段階の最終日に出ます（例：◆12/27(日) 5％（¥2,000）で戻れる最終日）。左に寄っているほど期限が近いという合図で、帯の下の真ん中の文字（例：◆7/31(木) ¥0で戻れる最終日）が、それを日付で書いたものです。もう高い段階しか残っていないときは◆を出さず、いま取り消したときの額だけを書きます。両端の文字は「今日」と予約日です。</p>
-            <p class="help-p">予約を開くと「キャンセル料」の表に、段階ごとの日付と金額が並び、いまの段階に「いま」と出ます。</p>
-          </div>
-
-          <div class="sec">
-            <!-- 通数は #helpWayCount で出す。受信ドメインが無い環境では転送の行が
-                 消えるので、そのときは「4通り」に戻す（renderMailFeature）。 -->
-            <div class="sec-h">4. 予約の入れ方は<span id="helpWayCount">5</span>通り</div>
-            <ul class="help-ways">
-              <li><b>📧 予約確認メールを貼り付け</b>：予約サイトのメール本文をそのまま貼るだけ。店名・日時・場所・金額・キャンセル規定まで読み取れるので、いちばん確実です。</li>
-              <li id="helpWayMail" style="display:none"><b>📨 メールを転送する</b>：あなた専用の転送先アドレスに予約確認メールを転送すると、貼り付けなくても候補として台帳に並びます。アドレスは<b>「取り込む」の中の「📨 メールを転送する」</b>か、<b>マイページの「メールを転送して予約を取り込む」</b>で見られます（同じアドレスです）。他人に知られるとその人も予約を入れられるので、人が見える場所には書かないでください。</li>
-              <li><b>📷 スクショ・写真から読み取り</b>：予約画面やカレンダー画面の写真からも読み取れます。<b>TimeTreeはスクショが唯一の道です</b>（アプリから.icsを書き出せないため）。iPhoneのカレンダーも同じくスクショが確実です。</li>
-              <li><b>📅 .icsファイル</b>：Googleカレンダーなどから書き出した.icsを選ぶと、今後の予定をまとめて登録します。書き出せるのはパソコンのブラウザだけです。</li>
-              <li><b>✎ 手動で追加</b>：「＋手動で追加」から1件ずつ。読み取りが難しいときの最後の手段です。</li>
-            </ul>
-            <p class="help-p">4人で行くのに2人ずつしか取れなかった便のように、1つの便や宿を分けて予約したときは、追加・編集画面の「予約と料金」で「＋別に取った予約を足す」を押し、予約ごとに人数・金額・予約番号を入れます。台帳では1つの便の下に予約が並びます。旅行の人数より多いときや、同じ時間帯に別の便があるときは、警告つきの「比べる」囲みになります。人数・金額・予約番号・運賃は、メモに書かずにそれぞれの欄へ入れてください。</p>
-            <p class="help-p">旅行は決めたけれど、まだ予約していないもの（レンタカー・駐車場・お店など）は、旅行の見出しの「＋予約項目を追加」→「これから予約するものを追加」から、名前と種類だけで足せます（日付は旅行の初日・時刻は未定で始まります）。同じボタンから、予約確認メールの貼り付けやスクショ・写真の読み取りでも、その旅行に入れられます。旅行の「予約がまだ」と「今日やること」に並ぶので、取ったら「予約した」を押し、金額と規定を入れてください。</p>
-            <p class="help-p">貼り付け・スクショ・.ics・手動は、登録の前に確認画面が出ます。読み取りが外れていたら、その場で直してから登録してください。</p>
-            <p class="help-p" id="helpWayMailNote" style="display:none"><b>転送だけは確認画面がありません。</b>メールが届いた時点で候補として並ぶので、あとから台帳で見て直してください。</p>
-            <p class="help-p">このほか、LINEのトークにメール本文やスクリーンショットを送っても同じように読み取れます（→6）。</p>
-          </div>
-
-          <div class="sec">
-            <div class="sec-h">5. キャンセル規定の入れ方</div>
-            <p class="help-p">予約の追加・編集画面の「キャンセル料」で選びます。ここが空だと、期限を見張れません。</p>
-            <ul class="help-ways">
-              <li><b>不明（あとで）</b>：わからないうちはこれ。帯が斜線になり、「今日やること」に補完のお願いが並びます。</li>
-              <li><b>いつでも無料</b>・<b>前日まで無料</b>：よくある2つはボタン1つで入ります。</li>
-              <li><b>期限つき（日数で指定）</b>：「無料でキャンセルできるのは〇日前まで」を入れ、途中で料率が変わるなら「＋段階を足す」で足します。例：7日前まで無料→3日前まで30％→当日100％。入力の下に、できあがった規定が文章で出ます。</li>
-            </ul>
-            <p class="help-p">同じ宿・同じ店をまた予約するなら、登録のときに「この規定を『◯◯』の既定として保存する」にチェックを入れてください。次に同じ施設名を入れた時点で、その<b>施設ごとの既定</b>が自動で入ります。保存した既定は、マイページの「施設ごとのキャンセル規定（既定）」で一覧・削除できます。</p>
-            <p class="help-p">飛行機は「運賃・料金プラン」で JAL の運賃（例：JAL スペシャルセイバー）を選ぶと、その運賃の規定が入ります。JAL が規定を変えたときは、直して「この規定を『運賃名』の既定として保存する」にチェックを入れれば、次からそちらが入ります。</p>
-            <p class="help-p">既定が入るのは、その予約の規定が<b>まだ「不明」のときだけ</b>です。メールやスクショから規定を読み取れた予約は、そちらがその予約に固有の情報なので、施設の既定で塗り替えません。自動で入ったときは、その場に出る「元に戻す」で戻せます。</p>
-          </div>
-
-          <div class="sec">
-            <div class="sec-h">6. お知らせ（LINE・メール）と連携</div>
-            <p class="help-p">無料キャンセルの期限が近づくと、お知らせが届きます。<b>LINEを連携していればLINEに、していなければログインに使っているメールアドレスにメール</b>で届きます。同じころに期限が来る予約が何件かあるときは、1件ずつではなく<b>まとめて1通</b>で届きます。</p>
-            <p class="help-p">LINEで受け取るには2手順です。</p>
-            <ol class="help-steps">
-              <li>LINEでplancelを友だち追加する（LINE ID：@791wbdma）。</li>
-              <li>「連携と通知」でコードを発行し、そのコードをplancelとのトークに送る。</li>
-            </ol>
-            <p class="help-p">連携は<b>人ごと</b>です。予約を共有している方も、それぞれご自分のLINEを連携すれば、ご自分あてのお知らせがご自分のLINEに届きます。誰か1人にまとめて届くわけではありません。</p>
-            <p class="help-p">トークでは、<b>確認</b>（いまの予約の一覧）・<b>締切</b>（7日以内に無料キャンセル期限が切れる予約）・<b>今日</b>・<b>今週</b>・<b>連携</b>（つながっているアカウントの確認）・<b>使い方</b>と送ると、それぞれの答えが返ります。トーク画面下のメニューからも同じ言葉を送れますし、返信には次に押せるボタンが付きます。</p>
-            <p class="help-p">予約確認メールの本文やスクリーンショットをトークに送れば、そのまま読み取って台帳に入ります。トークに届く案内からは、取り込み画面やこの使い方をそのまま開けます。</p>
-            <div class="help-acts"><button class="btn-ghost" id="helpOpenLink">連携と通知をひらく</button></div>
-          </div>
-
-          <div class="sec">
-            <div class="sec-h">7. 共有と編集の権限</div>
-            <p class="help-p">予約行の「招待」から、メールアドレスかユーザーID（完全一致）で相手を追加します。相手の台帳にもその予約が並び、期限のお知らせもそれぞれのLINEやメールに届きます。</p>
-            <p class="help-p">招待するときに<b>「編集を許可する」</b>にチェックを入れると、相手も<b>候補グループ名・お店の名前・日時・金額・場所・キャンセル規定</b>を直せます。チェックしなければ閲覧のみです。あとから変えたくなったら、招待画面の一覧で「編集を許可」・「閲覧のみにする」を切り替えられます。</p>
-            <p class="help-p"><b>確定・キャンセル・削除・招待はオーナーだけ</b>です。確定は候補グループ全体を動かし、削除は元に戻せないので、細かい直しを任せた相手には開いていません。編集を許可された方も、この4つはできません。</p>
-            <p class="help-p">共有された予約は、開いて<b>「取り消しを提案」「確定を提案」</b>を押すと、オーナーに LINE（未連携ならメール）で届きます。比べる画面で「こちらに決める」を押したときも、相手の予約には自動で提案が付きます。オーナーは「今日やること」から受けるかどうかを選べます。</p>
-            <p class="help-p">「どれか1つ」の囲みは、左のつまみで上下に並べ替えると<b>希望順</b>（上ほど希望が高い）になり、共有している人にも同じ順で見えます。並べ替えられるのは、囲みの予約を全部書き換えられるとき（自分の予約か、編集を許可された共有）です。</p>
-          </div>
-
-          <div class="sec">
-            <div class="sec-h">8. カレンダーへの反映</div>
-            <p class="help-p">確定した予約だけを、お使いのカレンダーに出せます。「連携と通知」から2通りです。</p>
-            <ul class="help-ways">
-              <li><b>購読URL</b>：iPhone・Google・TimeTreeなど、どのカレンダーでも使えます。反映の速さはカレンダー側の巡回しだいです（iCloudは15分ほど、Googleは数時間）。</li>
-              <li><b>Googleカレンダー連携</b>：Googleアカウントをつなぐと、専用の「plancel」カレンダーに即時反映されます。</li>
-            </ul>
-            <p class="help-p">これは出す方向（plancel→カレンダー）の設定です。カレンダーから取り込む.icsとは逆向きなので、混同しないでください。</p>
-          </div>
-
-          <div class="sec">
-            <div class="sec-h">はじめかた</div>
-            <div class="help-acts">
-              <button class="btn-primary" id="helpStartImport">予約を取り込む</button>
-              <button class="btn-ghost" id="helpStartAdd">手動で1件追加する</button>
+          <div class="sec help-topics">
+            <div class="sec-h">知りたいことから開く</div>
+          <details class="help-acc">
+            <summary><span class="help-acc-t">予約の入れ方は<span id="helpWayCount">5</span>通り</span><span class="i-chev" aria-hidden="true"></span></summary>
+            <div class="help-acc-body">
+                   消えるので、そのときは「4通り」に戻す（renderMailFeature）。 -->
+              <ul class="help-ways">
+                <li><b>📧 予約確認メールを貼り付け</b>：予約サイトのメール本文をそのまま貼るだけ。店名・日時・場所・金額・キャンセル規定まで読み取れるので、いちばん確実です。</li>
+                <li id="helpWayMail" style="display:none"><b>📨 メールを転送する</b>：あなた専用の転送先アドレスに予約確認メールを転送すると、貼り付けなくても候補として台帳に並びます。アドレスは<b>「取り込む」の中の「📨 メールを転送する」</b>か、<b>マイページの「メールを転送して予約を取り込む」</b>で見られます（同じアドレスです）。他人に知られるとその人も予約を入れられるので、人が見える場所には書かないでください。</li>
+                <li><b>📷 スクショ・写真から読み取り</b>：予約画面やカレンダー画面の写真からも読み取れます。<b>TimeTreeはスクショが唯一の道です</b>（アプリから.icsを書き出せないため）。iPhoneのカレンダーも同じくスクショが確実です。</li>
+                <li><b>📅 .icsファイル</b>：Googleカレンダーなどから書き出した.icsを選ぶと、今後の予定をまとめて登録します。書き出せるのはパソコンのブラウザだけです。</li>
+                <li><b>✎ 手動で追加</b>：「＋手動で追加」から1件ずつ。読み取りが難しいときの最後の手段です。</li>
+              </ul>
+              <p class="help-p">4人で行くのに2人ずつしか取れなかった便のように、1つの便や宿を分けて予約したときは、追加・編集画面の「予約と料金」で「＋別に取った予約を足す」を押し、予約ごとに人数・金額・予約番号を入れます。台帳では1つの便の下に予約が並びます。旅行の人数より多いときや、同じ時間帯に別の便があるときは、警告つきの「比べる」囲みになります。人数・金額・予約番号・運賃は、メモに書かずにそれぞれの欄へ入れてください。</p>
+              <p class="help-p">旅行は決めたけれど、まだ予約していないもの（レンタカー・駐車場・お店など）は、旅行の見出しの「＋予約項目を追加」→「これから予約するものを追加」から、名前と種類だけで足せます（日付は旅行の初日・時刻は未定で始まります）。同じボタンから、予約確認メールの貼り付けやスクショ・写真の読み取りでも、その旅行に入れられます。旅行の「予約がまだ」と「今日やること」に並ぶので、取ったら「予約した」を押し、金額と規定を入れてください。</p>
+              <p class="help-p">貼り付け・スクショ・.ics・手動は、登録の前に確認画面が出ます。読み取りが外れていたら、その場で直してから登録してください。</p>
+              <p class="help-p" id="helpWayMailNote" style="display:none"><b>転送だけは確認画面がありません。</b>メールが届いた時点で候補として並ぶので、あとから台帳で見て直してください。</p>
+              <p class="help-p">このほか、LINEのトークにメール本文やスクリーンショットを送っても同じように読み取れます（→「お知らせ（LINE・メール）と連携」）。</p>
             </div>
+          </details>
+          <details class="help-acc">
+            <summary><span class="help-acc-t">キャンセル規定の入れ方</span><span class="i-chev" aria-hidden="true"></span></summary>
+            <div class="help-acc-body">
+              <p class="help-p">予約の追加・編集画面の「キャンセル料」で選びます。ここが空だと、期限を見張れません。</p>
+              <ul class="help-ways">
+                <li><b>不明（あとで）</b>：わからないうちはこれ。帯が斜線になり、「今日やること」に補完のお願いが並びます。</li>
+                <li><b>いつでも無料</b>・<b>前日まで無料</b>：よくある2つはボタン1つで入ります。</li>
+                <li><b>期限つき（日数で指定）</b>：「無料でキャンセルできるのは〇日前まで」を入れ、途中で料率が変わるなら「＋段階を足す」で足します。例：7日前まで無料→3日前まで30％→当日100％。入力の下に、できあがった規定が文章で出ます。</li>
+              </ul>
+              <p class="help-p">同じ宿・同じ店をまた予約するなら、登録のときに「この規定を『◯◯』の既定として保存する」にチェックを入れてください。次に同じ施設名を入れた時点で、その<b>施設ごとの既定</b>が自動で入ります。保存した既定は、マイページの「施設ごとのキャンセル規定（既定）」で一覧・削除できます。</p>
+              <p class="help-p">飛行機は「運賃・料金プラン」で JAL の運賃（例：JAL スペシャルセイバー）を選ぶと、その運賃の規定が入ります。JAL が規定を変えたときは、直して「この規定を『運賃名』の既定として保存する」にチェックを入れれば、次からそちらが入ります。</p>
+              <p class="help-p">既定が入るのは、その予約の規定が<b>まだ「不明」のときだけ</b>です。メールやスクショから規定を読み取れた予約は、そちらがその予約に固有の情報なので、施設の既定で塗り替えません。自動で入ったときは、その場に出る「元に戻す」で戻せます。</p>
+            </div>
+          </details>
+          <details class="help-acc">
+            <summary><span class="help-acc-t">帯（タイムライン）と ◆ の読み方</span><span class="i-chev" aria-hidden="true"></span></summary>
+            <div class="help-acc-body">
+              <p class="help-p">予約ごとの細い帯は、左端が今日・右端が予約日です。色は、その時点でキャンセルしたら何％かかるかを表します。</p>
+              <ul class="help-legend">
+                <li><span class="lg safe"></span>緑：0％。まだ無料で戻れます。</li>
+                <li><span class="lg lamp"></span>琥珀：一部かかります（30％・50％など）。</li>
+                <li><span class="lg danger"></span>赤：全額。もう戻せません。</li>
+                <li><span class="lg unknown"></span>斜線：規定が不明。期限を見張れないので、入れてください。</li>
+              </ul>
+              <p class="help-p"><b>◆</b>は無料で戻れる最終日の位置です。無料の期間が無くても、いまが安い段階（10％以下）なら、その段階の最終日に出ます（例：◆12/27(日) 5％（¥2,000）で戻れる最終日）。左に寄っているほど期限が近いという合図で、帯の下の真ん中の文字（例：◆7/31(木) ¥0で戻れる最終日）が、それを日付で書いたものです。もう高い段階しか残っていないときは◆を出さず、いま取り消したときの額だけを書きます。両端の文字は「今日」と予約日です。</p>
+              <p class="help-p">予約を開くと「キャンセル料」の表に、段階ごとの日付と金額が並び、いまの段階に「いま」と出ます。</p>
+            </div>
+          </details>
+          <details class="help-acc">
+            <summary><span class="help-acc-t">お知らせ（LINE・メール）と連携</span><span class="i-chev" aria-hidden="true"></span></summary>
+            <div class="help-acc-body">
+              <p class="help-p">無料キャンセルの期限が近づくと、お知らせが届きます。<b>LINEを連携していればLINEに、していなければログインに使っているメールアドレスにメール</b>で届きます。同じころに期限が来る予約が何件かあるときは、1件ずつではなく<b>まとめて1通</b>で届きます。</p>
+              <p class="help-p">LINEで受け取るには2手順です。</p>
+              <ol class="help-steps">
+                <li>LINEでplancelを友だち追加する（LINE ID：@791wbdma）。</li>
+                <li>「連携と通知」でコードを発行し、そのコードをplancelとのトークに送る。</li>
+              </ol>
+              <p class="help-p">連携は<b>人ごと</b>です。予約を共有している方も、それぞれご自分のLINEを連携すれば、ご自分あてのお知らせがご自分のLINEに届きます。誰か1人にまとめて届くわけではありません。</p>
+              <p class="help-p">トークでは、<b>確認</b>（いまの予約の一覧）・<b>締切</b>（7日以内に無料キャンセル期限が切れる予約）・<b>今日</b>・<b>今週</b>・<b>連携</b>（つながっているアカウントの確認）・<b>使い方</b>と送ると、それぞれの答えが返ります。トーク画面下のメニューからも同じ言葉を送れますし、返信には次に押せるボタンが付きます。</p>
+              <p class="help-p">予約確認メールの本文やスクリーンショットをトークに送れば、そのまま読み取って台帳に入ります。トークに届く案内からは、取り込み画面やこの使い方をそのまま開けます。</p>
+              <div class="help-acts"><button class="btn-ghost" id="helpOpenLink">連携と通知をひらく</button></div>
+            </div>
+          </details>
+          <details class="help-acc">
+            <summary><span class="help-acc-t">家族との共有と、編集の権限</span><span class="i-chev" aria-hidden="true"></span></summary>
+            <div class="help-acc-body">
+              <p class="help-p">予約行の「招待」から、メールアドレスかユーザーID（完全一致）で相手を追加します。相手の台帳にもその予約が並び、期限のお知らせもそれぞれのLINEやメールに届きます。</p>
+              <p class="help-p">招待するときに<b>「編集を許可する」</b>にチェックを入れると、相手も<b>候補グループ名・お店の名前・日時・金額・場所・キャンセル規定</b>を直せます。チェックしなければ閲覧のみです。あとから変えたくなったら、招待画面の一覧で「編集を許可」・「閲覧のみにする」を切り替えられます。</p>
+              <p class="help-p"><b>確定・キャンセル・削除・招待はオーナーだけ</b>です。確定は候補グループ全体を動かし、削除は元に戻せないので、細かい直しを任せた相手には開いていません。編集を許可された方も、この4つはできません。</p>
+              <p class="help-p">共有された予約は、開いて<b>「取り消しを提案」「確定を提案」</b>を押すと、オーナーに LINE（未連携ならメール）で届きます。比べる画面で「こちらに決める」を押したときも、相手の予約には自動で提案が付きます。オーナーは「今日やること」から受けるかどうかを選べます。</p>
+              <p class="help-p">「どれか1つ」の囲みは、左のつまみで上下に並べ替えると<b>希望順</b>（上ほど希望が高い）になり、共有している人にも同じ順で見えます。並べ替えられるのは、囲みの予約を全部書き換えられるとき（自分の予約か、編集を許可された共有）です。</p>
+            </div>
+          </details>
+          <details class="help-acc">
+            <summary><span class="help-acc-t">カレンダーへの反映</span><span class="i-chev" aria-hidden="true"></span></summary>
+            <div class="help-acc-body">
+              <p class="help-p">確定した予約だけを、お使いのカレンダーに出せます。「連携と通知」から2通りです。</p>
+              <ul class="help-ways">
+                <li><b>購読URL</b>：iPhone・Google・TimeTreeなど、どのカレンダーでも使えます。反映の速さはカレンダー側の巡回しだいです（iCloudは15分ほど、Googleは数時間）。</li>
+                <li><b>Googleカレンダー連携</b>：Googleアカウントをつなぐと、専用の「plancel」カレンダーに即時反映されます。</li>
+              </ul>
+              <p class="help-p">これは出す方向（plancel→カレンダー）の設定です。カレンダーから取り込む.icsとは逆向きなので、混同しないでください。</p>
+            </div>
+          </details>
+          <details class="help-acc">
+            <summary><span class="help-acc-t">文字の大きさを変える</span><span class="i-chev" aria-hidden="true"></span></summary>
+            <div class="help-acc-body">
+              <p class="help-p">画面の右上にある<b>「AAA」のボタン</b>を押すと、文字の大きさが<b>標準 → 大きめ → 特大</b>と切り替わります。もう一度押すと標準に戻ります。</p>
+              <p class="help-p">マイページの<b>「文字サイズ」</b>でも、標準・大きめ・特大から選べます。どちらも同じ設定です。この端末のこのブラウザにだけ残るので、共有相手や他の端末の見た目は変わりません。</p>
+            </div>
+          </details>
           </div>
-
           <div class="sec">
             <div class="sec-h">ご意見・ご要望</div>
             <p class="help-p">困ったこと、こうなってほしいことを、そのまま書いて送ってください。届いたものは開発者が読み、取り入れるかどうかを決めます。すぐに変わるとは限りません。</p>
             <textarea id="wishText" rows="4" placeholder="例：終わった予約も一覧に残してほしい"></textarea>
-            <div class="help-acts"><button class="btn-primary" id="wishSend">送る</button></div>
+            <div class="help-acts"><button class="btn-ghost" id="wishSend">送る</button></div>
             <div class="hint" id="wishMsg" style="margin-top:6px"></div>
           </div>
         </div>
@@ -5329,7 +5403,9 @@
       if (q("#calendarPage").style.display !== "none") renderCalendar();
       q("#dataBar").style.display = viewingDemo ? "none" : "flex";
       q("#demoBar").classList.toggle("on", viewingDemo);
-      if (ME) q("#meEmail").textContent = ME.email;
+      // ログイン中の人は表示名で出す（無ければユーザーID、それも無ければメール）。メールアドレスを
+      // 台帳の上に出しっぱなしにしない（オーナー 2026-11-14「ログイン中は表示名にしようよ」）。
+      if (ME) q("#meEmail").textContent = ME.displayName || ME.uid || ME.email;
       const now = Date.now();
       const live = data.filter((r) => r.status !== "cancelled");
       // 台帳＝これから起こること。終わった予約は履歴へ落とし、合計からも外す
