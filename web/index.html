@@ -2734,6 +2734,86 @@
       margin-top: 8px;
       min-height: var(--btn-h);
     }
+    /* 登録なしの紹介とデモ */
+    .guest-entry {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+    .guest-entry-h {
+      font-weight: 700;
+      font-size: calc(13.5px * var(--fs));
+      margin-bottom: 4px;
+    }
+    .guest-link {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      padding: 0 8px;
+      color: var(--ink-2);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .intro-count {
+      font-size: calc(12px * var(--fs));
+      color: var(--soft);
+      font-variant-numeric: tabular-nums;
+    }
+    .intro-h {
+      margin: 4px 0 12px;
+      font-size: calc(17px * var(--fs));
+      line-height: 1.5;
+    }
+    .intro-fig {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card2);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .intro-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 8px;
+      font-size: calc(13.5px * var(--fs));
+    }
+    .intro-row b {
+      flex: 1 1 8em;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .intro-row.st-to_cancel b {
+      text-decoration: line-through;
+      color: var(--soft);
+    }
+    .intro-arrow {
+      font-size: calc(12.5px * var(--fs));
+      color: var(--ink-2);
+    }
+    .intro-p {
+      margin: 12px 0 0;
+      font-size: calc(14px * var(--fs));
+      line-height: 1.8;
+      color: var(--ink-2);
+    }
+    .intro-dots {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin: 14px 0 2px;
+    }
+    .intro-dots i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--line);
+    }
+    .intro-dots i.on {
+      background: var(--lamp);
+    }
     /* 取り込みを旅行から開いたとき: 旅行に関係する入口だけ */
     .import-opt.trip-only {
       display: none;
@@ -3276,7 +3356,7 @@
       </div>
 
       <div class="demobar" id="demoBar">
-        <div><b>デモを表示中</b>　これはサンプルで、あなたのデータではありません。ここでの追加・編集・削除は自分の台帳に影響しません。</div>
+        <div id="demoBarText"><b>デモを表示中</b>　これはサンプルで、あなたのデータではありません。ここでの追加・編集・削除は自分の台帳に影響しません。</div>
         <button class="btn-small" id="exitDemo">← 自分のデータに戻る</button>
       </div>
 
@@ -3921,6 +4001,40 @@
           <button class="btn-ghost" id="registerBtn" style="flex:1">新規登録</button>
         </div>
         <div class="hint" id="loginMsg" style="margin-top:8px"></div>
+        <!-- アカウントを作る前の人へ（オーナー 2026-11-14「アカウントがない人に向けて使い方を
+             見せられるように…スキップも可能なデモと紹介」）。登録なしで紹介とデモを見られる。 -->
+        <div class="guest-entry" id="guestEntry">
+          <div class="guest-entry-h">はじめての方へ</div>
+          <p class="hint" style="margin:0 0 10px">アカウントを作る前に、どんなアプリかを見られます。登録は要りません。</p>
+          <button class="btn-ghost" id="guestIntroBtn" style="width:100%">紹介とデモを見る</button>
+        </div>
+        <div class="hint" id="guestBackRow" style="display:none;margin-top:12px;text-align:center"><a id="guestBack" class="guest-link">← デモに戻る</a></div>
+      </div>
+    </div>
+
+    <!-- 紹介（3枚）。どの枚からでもスキップしてデモへ行ける。 -->
+    <div class="overlay" id="introOverlay">
+      <div class="modal" style="max-width:440px">
+        <div class="intro-step" id="introStep" aria-live="polite"></div>
+        <div class="intro-dots" id="introDots" aria-hidden="true"></div>
+        <div class="modal-foot" style="gap:8px">
+          <button class="btn-ghost" id="introSkip" style="flex:1" aria-label="紹介をスキップしてデモを見る">スキップ</button>
+          <button class="btn-primary" id="introNext" style="flex:1">次へ</button>
+        </div>
+        <div class="hint" style="margin-top:12px;text-align:center"><a id="introBack" class="guest-link">← ログインに戻る</a></div>
+      </div>
+    </div>
+
+    <!-- デモで、登録が要る操作を押したとき -->
+    <div class="overlay" id="guestGateOverlay">
+      <div class="modal" style="max-width:400px">
+        <div class="modal-head"><h3>ここから先は、登録すると使えます</h3><button class="x" data-close>×</button></div>
+        <p style="margin:0 0 6px" id="guestGateText">予約の追加・編集、メールやスクショからの取り込み、LINE・カレンダーとの連携、家族との共有は、アカウントを作ると使えます。</p>
+        <p class="hint" style="margin:0 0 14px">デモでは、見本の予約で「確定」「キャンセルした」「比べる」などを試せます。ここでの操作は保存されません。</p>
+        <div class="modal-foot" style="gap:8px">
+          <button class="btn-ghost" data-close style="flex:1">デモに戻る</button>
+          <button class="btn-primary" id="guestGateLogin" style="flex:1">ログイン・新規登録</button>
+        </div>
       </div>
     </div>
 
@@ -4071,7 +4185,10 @@
     }
     let TOKEN = realToken(); // the ACTIVE token (real ledger, or the demo space)
     let viewingDemo = false;
+    // 登録なしのデモ（guestMode）。サーバには何も送らず、ブラウザの中の見本だけを動かす。
+    let guestMode = false;
     async function api(method, path, body, tok) {
+      if (guestMode) return guestApi(method, path, body);
       let res;
       try {
         res = await fetch(path, {
@@ -4245,6 +4362,7 @@
     // lead: 何ができなかったかの一文。extra.text で文ごと差し替え、extra.sample で
     // 失敗の対象になった入力（サーバ側でもう一度マスクされる）を添える。
     function failed(e, lead, extra) {
+      if (e && e.guest) return; // デモの「登録すると使えます」は失敗ではない（案内は出してある）
       const opts = extra || {};
       const text = opts.text || apiErrorText(e, lead);
       openReportModal(text);
@@ -8279,7 +8397,162 @@
       refresh();
     }
     q("#demoBtn").onclick = enterDemo;
-    q("#exitDemo").onclick = exitDemo;
+    q("#exitDemo").onclick = () => (guestMode ? guestToLogin() : exitDemo());
+
+    // ---- 登録なしの紹介とデモ（2026-11-14）----
+    // アカウントの無い人は、ログイン画面しか見えず、どんな画面で何ができるか分からなかった。
+    // 入口はログインのまま、下に「紹介とデモを見る」を置く。デモは本物と同じ画面を見本の
+    // 予約で動かす。サーバには書かない（guestApi がブラウザの中の配列を書き換えるだけ）ので、
+    // 再読み込みで元に戻る。追加・編集・取り込み・連携・共有は、登録の案内（guestGate）を出す。
+    let guestRows = [];
+    let guestTrips = [];
+    function guestSample() {
+      const d0 = new Date();
+      d0.setHours(0, 0, 0, 0);
+      const at = (days, h, m) => new Date(d0.getTime() + days * DAY + (h * 60 + m) * 60000).toISOString();
+      const ymd = (days) => {
+        const d = new Date(d0.getTime() + days * DAY);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      };
+      const D = 70; // 行きの日（55日より先＝運賃の安い段階が見える）
+      const trip = "別府温泉 家族旅行（見本）";
+      const saver = { stages: [{ h: 1320, pct: 5 }, { h: 0, pct: 50 }] };
+      const row = (o) => ({
+        plan: null, status: "candidate", endsAt: null, amount: null, location: null, trip: null,
+        timeTentative: false, notes: null, booked: true, kind: null, from: null, to: null,
+        bookedBy: null, rank: null, people: null, ref: null, fare: null, suggestion: null,
+        policy: "unknown", ...o,
+      });
+      guestTrips = [{ name: trip, people: 4 }];
+      guestRows = [
+        row({ id: "g1", service: "JAL665", kind: "flight", status: "confirmed", startsAt: at(D, 12, 5), from: "羽田空港", to: "大分空港", trip, people: 2, amount: 28000, ref: "ABC123", fare: "JAL スペシャルセイバー", policy: saver, bookedBy: "父" }),
+        row({ id: "g2", service: "JAL665", kind: "flight", status: "confirmed", startsAt: at(D, 12, 5), from: "羽田空港", to: "大分空港", trip, people: 2, amount: 31960, ref: "DEF456", fare: "JAL スペシャルセイバー", policy: saver, bookedBy: "母" }),
+        row({ id: "g3", service: "湯けむりの宿 山吹", kind: "stay", plan: "別府の宿", startsAt: at(D, 15, 0), endsAt: at(D + 1, 10, 0), trip, people: 4, amount: 65000, rank: 1, location: "大分県別府市", policy: { stages: [{ h: 96, pct: 0 }, { h: 24, pct: 30 }, { h: 0, pct: 100 }] } }),
+        row({ id: "g4", service: "海辺のホテル 汐風", kind: "stay", plan: "別府の宿", startsAt: at(D, 15, 0), endsAt: at(D + 1, 10, 0), trip, people: 4, amount: 75000, rank: 2, location: "大分県別府市", policy: "free24", notes: "夕朝食付き。大浴場あり" }),
+        row({ id: "g5", service: "レンタカー 大分空港店", kind: "car", status: "confirmed", booked: false, startsAt: ymd(D), timeTentative: true, trip }),
+        row({ id: "g6", service: "JAL378", kind: "flight", status: "confirmed", startsAt: at(D + 1, 21, 0), from: "北九州空港", to: "羽田空港", trip, people: 4, amount: 52000 }),
+        row({ id: "g7", service: "鮨 さいとう", kind: "meal", status: "confirmed", startsAt: at(3, 19, 0), amount: 33000, policy: "free24" }),
+      ];
+    }
+    // デモで登録が要る操作を押したときの案内。
+    function guestGate() {
+      closeAll();
+      q("#guestGateOverlay").classList.add("on");
+    }
+    function guestApi(method, path, body) {
+      const clone = (v) => JSON.parse(JSON.stringify(v));
+      if (method === "GET" && path === "/api/reservations") {
+        return { reservations: clone(guestRows), trips: clone(guestTrips) };
+      }
+      if (method === "GET" && path === "/api/fare-presets") return { fares: [] };
+      const tripPut = method === "PUT" && path.startsWith("/api/trips/");
+      if (tripPut) {
+        const name = decodeURIComponent(path.slice("/api/trips/".length));
+        guestTrips = guestTrips.filter((t) => t.name !== name).concat([{ name, people: body ? body.people : null }]);
+        return { trip: { name, people: body ? body.people : null } };
+      }
+      const m = /^\/api\/reservations\/([^/]+)(?:\/([^/]+))?$/.exec(path);
+      const r = m ? guestRows.find((x) => x.id === m[1]) : null;
+      // 外す・選ばなかった予約: 予約済みなら連絡が要る（要キャンセル）、未予約ならそのまま外れる。
+      const letGo = (x) => x.status = x.booked === false ? "cancelled" : "to_cancel";
+      if (r && method === "POST" && m[2] === "confirm") {
+        r.status = "confirmed";
+        for (const x of guestRows) {
+          if (x !== r && r.plan && x.plan === r.plan && (x.status === "candidate" || x.status === "confirmed")) letGo(x);
+        }
+      } else if (r && method === "POST" && m[2] === "choose") {
+        r.status = "confirmed";
+        for (const id of (body && body.over) || []) {
+          const x = guestRows.find((y) => y.id === id);
+          if (x && (x.status === "candidate" || x.status === "confirmed")) letGo(x);
+        }
+      } else if (r && method === "POST" && m[2] === "drop") letGo(r);
+      else if (r && method === "POST" && m[2] === "cancel") r.status = "cancelled";
+      else if (r && method === "POST" && m[2] === "restore") r.status = "candidate";
+      else if (r && method === "DELETE" && !m[2]) guestRows = guestRows.filter((x) => x !== r);
+      else if (r && method === "PATCH" && !m[2]) Object.assign(r, body || {});
+      else {
+        guestGate();
+        const e = new Error("guest");
+        e.guest = true;
+        throw e;
+      }
+      return { reservation: r ? clone(r) : null };
+    }
+    function startGuest() {
+      guestSample();
+      guestMode = true;
+      viewingDemo = true;
+      document.querySelectorAll(".overlay").forEach((o) => o.classList.remove("on"));
+      q("#demoBarText").innerHTML =
+        "<b>デモを表示中（登録なし）</b>　見本の予約です。「これで確定」「比べる」「予約した」などを押して試せます。ここでの操作は保存されません。";
+      q("#exitDemo").textContent = "ログイン・新規登録";
+      setView("ledger");
+      window.scrollTo(0, 0);
+      return refresh();
+    }
+    // デモからログイン画面へ（デモは残し、「← デモに戻る」で戻れる）。
+    function guestToLogin() {
+      closeAll();
+      q("#guestEntry").style.display = "none";
+      q("#guestBackRow").style.display = "block";
+      q("#loginOverlay").classList.add("on");
+    }
+    q("#guestBack").onclick = () => q("#loginOverlay").classList.remove("on");
+    q("#guestGateLogin").onclick = guestToLogin;
+    // 紹介の3枚。言葉だけにせず、画面に出る形（札・◆・状態）を小さく見せる。
+    const INTRO = [
+      {
+        h: "とりあえず押さえた予約を、1か所に",
+        p: "旅行や食事の予約は、決める前に何軒か押さえておくことがあります。plancel は、その候補と決まった予約を並べて置いておく台帳です。",
+        fig: `<div class="intro-row"><span class="kind">宿</span><b>湯けむりの宿 山吹</b><span class="i-st">候補</span></div>
+              <div class="intro-row"><span class="kind">宿</span><b>海辺のホテル 汐風</b><span class="i-st">候補</span></div>
+              <div class="intro-row st-confirmed"><span class="kind">飛行機</span><b>JAL665</b><span class="i-st">確定</span></div>`,
+      },
+      {
+        h: "無料で戻れる最終日を見張る",
+        p: "予約ごとのキャンセル規定から、お金がかからずに取り消せる最終日を出します。近づくと LINE かメールでお知らせします。",
+        fig: `<div class="intro-row"><span class="kind">宿</span><b>海辺のホテル 汐風</b></div>
+              <div class="intro-row"><span class="i-dl act">◆12/18(金)まで無料</span><span class="intro-arrow">→ 過ぎると 100%</span></div>`,
+      },
+      {
+        h: "1つに決めたら、残りは「要キャンセル」に",
+        p: "どれにするか決めて「これで確定」を押すと、同じ候補の残りが「要キャンセル」になります。宿や店に連絡したら「キャンセルした」を押すだけ。払わなくてよかったキャンセル料を防ぎます。",
+        fig: `<div class="intro-row st-confirmed"><span class="kind">宿</span><b>湯けむりの宿 山吹</b><span class="i-st">確定</span></div>
+              <div class="intro-row st-to_cancel"><span class="kind">宿</span><b>海辺のホテル 汐風</b><span class="i-st">要キャンセル</span></div>`,
+      },
+    ];
+    let introAt = 0;
+    function showIntro(i) {
+      introAt = i;
+      const it = INTRO[i];
+      q("#introStep").innerHTML = `<div class="intro-count">${i + 1} / ${INTRO.length}</div><h3 class="intro-h">${it.h}</h3><div class="intro-fig">${it.fig}</div><p class="intro-p">${it.p}</p>`;
+      q("#introDots").innerHTML = INTRO.map((_, n) => `<i class="${n === i ? "on" : ""}"></i>`).join("");
+      q("#introNext").textContent = i === INTRO.length - 1 ? "デモを見る" : "次へ";
+      q("#introSkip").style.display = i === INTRO.length - 1 ? "none" : "";
+    }
+    q("#guestIntroBtn").onclick = () => {
+      q("#loginOverlay").classList.remove("on");
+      showIntro(0);
+      q("#introOverlay").classList.add("on");
+    };
+    q("#introNext").onclick = () => (introAt < INTRO.length - 1 ? showIntro(introAt + 1) : startGuest());
+    q("#introSkip").onclick = () => startGuest();
+    q("#introBack").onclick = () => {
+      q("#introOverlay").classList.remove("on");
+      q("#loginOverlay").classList.add("on");
+    };
+    // デモで、登録が要る入口（追加・編集・取り込み・連携・マイページ・共有）を押したら案内を出す。
+    // 個々のボタンの処理は ME（ログイン中の人）を前提にしているので、手前で受け止める。
+    const GUEST_GATED = "#calBtn,#profileBtn,#bnCal,#bnProfile,#addBtn,#importBtn,#bnImport,#demoBtn," +
+      "[data-edit],[data-trip-add],[data-ride-add],[data-invite],[data-merge-keep]," +
+      "#helpStartImport,#helpStartAdd,#helpOpenLink,#wishSend";
+    document.addEventListener("click", (e) => {
+      if (!guestMode || !(e.target instanceof Element) || !e.target.closest(GUEST_GATED)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      guestGate();
+    }, true);
 
     // ---- 世界観: ライト（帳場）/ ダーク（宵の帳）切替とナビ ----
     const THEME_KEY = "plancel.theme";
@@ -8795,7 +9068,10 @@
         return;
       }
       if (!res.ok) {
-        q("#loginOverlay").classList.add("on");
+        // アカウントが無い・ログインしていない。入口はログイン。#demo で来たらデモを直接開く
+        // （人に見せるためのリンク。登録なし）。
+        if (location.hash === "#demo") await startGuest();
+        else q("#loginOverlay").classList.add("on");
         return;
       }
       ME = await res.json();
