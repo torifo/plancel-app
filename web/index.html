@@ -1872,11 +1872,22 @@
         letter-spacing: .04em;
         white-space: nowrap;
       }
+      /* 見出しはロゴ・日付・明暗・文字サイズ・？の5つ。この幅では、ロゴと日付の文字を文字サイズの
+         設定で広げない（広げると 360px でボタンの列がロゴに重なった。2026-11-14 に「？」を足して測った）。
+         本文は設定どおり大きくなる。 */
+      .logo {
+        font-size: 25px;
+      }
+      .logo-sub {
+        font-size: 11px;
+      }
       .top-right {
-        gap: 8px;
+        gap: 4px;
+        flex-wrap: nowrap;
       }
       #todayChip {
-        padding: calc(4px * var(--fs)) calc(10px * var(--fs));
+        padding: 0 9px;
+        font-size: 13px;
       }
       .hint,
       .startcard .d,
@@ -3335,6 +3346,9 @@
         <button class="chip-btn" id="todayChip" aria-label="カレンダーを開く" title="カレンダーを開く"></button>
         <button class="theme-toggle" id="themeBtn" title="ライト/ダーク切替">◑</button>
         <button class="fs-toggle" id="fsBtn" aria-label="文字サイズ: 標準（押すと大きめ）" title="文字サイズ: 標準（押すと大きめ）"><span class="fs-trio" aria-hidden="true"><span class="fs-a" data-step="normal">A</span><span class="fs-a" data-step="large">A</span><span class="fs-a" data-step="xlarge">A</span></span></button>
+        <!-- 使い方とデモの入口は見出しの「？」1つ（オーナー 2026-11-14: ふだん使う人は「デモを見る」を
+             頻繁には押さない。台帳の上に置かず、要るときに開ける所へ）。 -->
+        <button class="theme-toggle" id="helpBtn" aria-label="使い方とデモ" title="使い方とデモ">？</button>
         <button class="btn-primary" id="importBtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M12 5v14M5 12h14"></path></svg>取り込む</button>
         <button class="iconbtn" id="calBtn" title="カレンダー連携・通知"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg></button>
         <button class="avatar" id="profileBtn" title="マイページ"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"></circle><path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"></path></svg></button>
@@ -3352,7 +3366,6 @@
       <div id="ledgerView">
       <div class="databar" id="dataBar">
         <div class="txt"><b>自分のデータ</b>　ログイン中: <span id="meEmail">…</span></div>
-        <button class="btn-small" id="demoBtn">デモを見る</button>
       </div>
 
       <div class="demobar" id="demoBar">
@@ -3374,7 +3387,6 @@
         </div>
         <div class="miniacts">
           <button class="btn-ghost mini" id="addBtn">＋手動で追加</button>
-          <button class="btn-ghost mini" id="helpBtn">？使い方</button>
         </div>
       </div>
 
@@ -3573,6 +3585,11 @@
         </div>
         <div class="pagecard">
           <p class="help-lead">plancelは、まだ決めていない予約と「無料で戻れる最終日」をまとめて見張るための台帳です。</p>
+          <div class="sec help-demo" id="helpDemo">
+            <div class="sec-h">デモで試す</div>
+            <p class="help-p">見本の予約で、確定・比べる・キャンセルの流れを試せます。あなたの台帳には影響しません。上の帯の「← 自分のデータに戻る」で戻れます。</p>
+            <button class="btn-ghost" id="demoBtn">デモを見る</button>
+          </div>
 
           <!-- 文字サイズは番号を振らずに本編（1〜8）の前に置く。読めなくて使い方を
                見に来た人が、いちばん先に見つけられる場所でなければ意味がないため
@@ -7089,6 +7106,8 @@
     // 使い方はページビュー（#helpPage）。開いている modal は閉じてから切り替える。
     function openHelp() {
       closeAll();
+      // デモの最中（登録なしのデモも）は「デモを見る」を出さない。
+      q("#helpDemo").style.display = viewingDemo ? "none" : "";
       setView("help");
     }
     q("#helpBtn").onclick = openHelp;
@@ -8396,7 +8415,10 @@
       viewingDemo = false;
       refresh();
     }
-    q("#demoBtn").onclick = enterDemo;
+    q("#demoBtn").onclick = async () => {
+      setView("ledger");
+      await enterDemo();
+    };
     q("#exitDemo").onclick = () => (guestMode ? guestToLogin() : exitDemo());
 
     // ---- 登録なしの紹介とデモ（2026-11-14）----
@@ -8544,7 +8566,7 @@
     };
     // デモで、登録が要る入口（追加・編集・取り込み・連携・マイページ・共有）を押したら案内を出す。
     // 個々のボタンの処理は ME（ログイン中の人）を前提にしているので、手前で受け止める。
-    const GUEST_GATED = "#calBtn,#profileBtn,#bnCal,#bnProfile,#addBtn,#importBtn,#bnImport,#demoBtn," +
+    const GUEST_GATED = "#calBtn,#profileBtn,#bnCal,#bnProfile,#addBtn,#importBtn,#bnImport," +
       "[data-edit],[data-trip-add],[data-ride-add],[data-invite],[data-merge-keep]," +
       "#helpStartImport,#helpStartAdd,#helpOpenLink,#wishSend";
     document.addEventListener("click", (e) => {
